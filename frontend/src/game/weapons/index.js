@@ -1,6 +1,7 @@
 /**
  * 游侠弓：蓄力箭数值。无弹匣 / 无换弹。
  */
+import { assetUrl } from '../../assetUrl.js'
 import { BODY } from '../constants.js'
 
 export const WEAPON_NAME = '游侠弓'
@@ -23,11 +24,11 @@ export const ARROW_W = 11
 export const ARROW_H = 3
 export const HIT_RADIUS = 3
 
-export const ARROW_SRC = '/assets/characters/Other/Arrow.png'
+export const ARROW_SRC = assetUrl('assets/characters/Other/Arrow.png')
 export const BLOOD_SRC = {
-  D: '/assets/characters/Other/D_Blood.png',
-  S: '/assets/characters/Other/S_Blood.png',
-  U: '/assets/characters/Other/U_Blood.png',
+  D: assetUrl('assets/characters/Other/D_Blood.png'),
+  S: assetUrl('assets/characters/Other/S_Blood.png'),
+  U: assetUrl('assets/characters/Other/U_Blood.png'),
 }
 export const BLOOD_FRAMES = 4
 export const BLOOD_FRAME = 32

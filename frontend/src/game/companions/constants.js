@@ -1,8 +1,9 @@
+import { assetUrl } from '../../assetUrl.js'
 import { BODY } from '../constants.js'
 
 /** 地精贴图：32×32 单帧，绘制约同小怪。 */
-export const GOBLIN_SRC = '/assets/跟班/地精.png'
-export const RABBIT_SRC = '/assets/跟班/兔子.png'
+export const GOBLIN_SRC = assetUrl('assets/跟班/地精.png')
+export const RABBIT_SRC = assetUrl('assets/跟班/兔子.png')
 export const GOBLIN_DRAW = 16
 export const GOBLIN_INTERVAL = 0.4
 export const GOBLIN_DMG_BASE = 15

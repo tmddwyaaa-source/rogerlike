@@ -1,6 +1,6 @@
 /** M8 UI / 升级 / 上报常量。 */
 
-
+import { assetUrl } from '../assetUrl.js'
 
 export const GAME_TITLE = '类幸存者'
 
@@ -133,9 +133,9 @@ export const UPGRADES = [
 
 export const API_BASE = 'http://localhost:8080/api'
 
-export const BGM_URL = '/assets/游戏音乐/music.ogg'
+export const BGM_URL = assetUrl('assets/游戏音乐/music.ogg')
 
-export const RANGER_IDLE_SRC = '/assets/characters/1/S_Idle.png'
+export const RANGER_IDLE_SRC = assetUrl('assets/characters/1/S_Idle.png')
 
 export const RANGER_FRAME = 32
 

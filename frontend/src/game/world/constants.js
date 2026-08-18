@@ -1,3 +1,4 @@
+import { assetUrl } from '../../assetUrl.js'
 import { BODY } from '../constants.js'
 
 export const TREE_HP_BASE = 50
@@ -14,7 +15,7 @@ export const TREE_SEED_COUNT = 3
 export const TREE_DRAW_H = BODY * 3
 export const TREE_ASPECT = 51 / 77
 export const TREE_DRAW_W = Math.round(TREE_DRAW_H * TREE_ASPECT)
-export const TREE_SRC = '/assets/树木/浅树.png'
+export const TREE_SRC = assetUrl('assets/树木/浅树.png')
 
 export const TREE_DROP_CRYSTALS_MIN = 3
 /** 开局上限；之后每满 1 分钟 +2 → 3～(6+2×floor(秒/60)) */

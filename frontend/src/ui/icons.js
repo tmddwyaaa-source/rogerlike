@@ -2,8 +2,10 @@
  * 升级图标：局内优先读过审 PNG；没有则空白方块。
  * 程序字符画 ICON_MAPS 仅作遗留，不再用于局内。
  */
+import { assetUrl } from '../assetUrl.js'
+
 export const ICON_SIZE = 12
-export const UPGRADE_ICON_DIR = '/assets/upgrades/'
+export const UPGRADE_ICON_DIR = assetUrl('assets/upgrades/')
 
 export function upgradeIconUrl(id) {
   return `${UPGRADE_ICON_DIR}${encodeURIComponent(id)}.png`

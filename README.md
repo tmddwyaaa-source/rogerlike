@@ -5,6 +5,12 @@ WASD 移动，鼠标瞄准，**按住蓄力、松开射击**。存活 **10 分�
 
 技术栈与项目经历（可贴简历）：[项目经历.md](项目经历.md)
 
+## 在线玩
+
+[https://tmddwyaaa-source.github.io/rogerlike/](https://tmddwyaaa-source.github.io/rogerlike/)
+
+推送 `main` 后 GitHub Actions 会自动构建并发布。电脑浏览器、WASD + 鼠标蓄力。回忆存在你打开的这个浏览器里，打完一局就会有。
+
 ## 怎么玩（本地）
 
 游戏本体只需要前端：

@@ -2,6 +2,8 @@
  * 游侠贴图：D/S/U × Idle/Walk/Attack/Hurt/Death + 脚下阴影。
  * 黑底抠透明。Image 不可用时（Node 自测）返回 null，由火柴人兜底。
  */
+import { assetUrl } from '../../assetUrl.js'
+
 export const FRAME_W = 32
 export const FRAME_H = 32
 /** 32 格里脚底所在行（贴图下半截大量留白）。阴影贴此对齐。 */
@@ -34,12 +36,12 @@ const DIRS = ['D', 'S', 'U']
 const ANIMS = ['Idle', 'Walk', 'Attack', 'Hurt', 'Death']
 
 const SRC = {
-  Shadow: '/assets/characters/Other/Shadow.png',
+  Shadow: assetUrl('assets/characters/Other/Shadow.png'),
 }
 
 for (const d of DIRS) {
   for (const a of ANIMS) {
-    SRC[`${d}_${a}`] = `/assets/characters/1/${d}_${a}.png`
+    SRC[`${d}_${a}`] = assetUrl(`assets/characters/1/${d}_${a}.png`)
   }
 }
 

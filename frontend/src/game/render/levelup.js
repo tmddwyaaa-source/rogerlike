@@ -3,7 +3,9 @@
  * 有 /assets/fx/levelup.png 用图；否则程序像素「+1」。
  * M1 接线：player.queueLevelUpFx(n)
  */
-export const LEVELUP_SRC = '/assets/fx/levelup.png'
+import { assetUrl } from '../../assetUrl.js'
+
+export const LEVELUP_SRC = assetUrl('assets/fx/levelup.png')
 export const LEVELUP_LIFE = 0.85
 export const LEVELUP_STAGGER = 0.1
 export const LEVELUP_RISE = 28
