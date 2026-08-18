@@ -1,0 +1,6 @@
+# 复制为本目录下的 application-local.yml 后填写本机 MySQL。
+# application-local.yml 已加入 .gitignore，不要把填好密码的那份提交上去。
+spring:
+  datasource:
+    username: root
+    password: your-local-password

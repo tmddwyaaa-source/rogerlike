@@ -1,0 +1,15 @@
+A game-engine sprite sheet of one identical 8-bit ranger character, 11 pixels wide and 22 pixels tall, occupying four equal tiles in a single horizontal row.
+
+The sheet is four frames wide and one frame tall. Each cell is a 48 by 48 pixel square. The character stands on the same baseline in every cell, feet near the bottom of the tile, body centered horizontally, so a game engine can slice the sheet on a 48-pixel grid without jitter.
+
+The character is a tiny top-down roguelike archer: hooded ranger, short bow, brown boots, limited flat palette, hard 1-pixel ink outlines, no anti-aliasing, no texture, no gradients, no drop shadow on the canvas.
+
+Read left to right as a level-up animation of the same body:
+Frame 1 is standing idle, facing right, at rest.
+Frame 2 keeps the identical pose while white light fills the silhouette from the inside, turning midtones into flat white pixels that stay inside the outline.
+Frame 3 keeps the feet planted while a circular aura of flat white and pale gold pixels expands outward around the body; the aura is made of chunky square pixels, not a soft glow.
+Frame 4 reveals the same ranger in a slightly brighter evolved palette, aura receded, with a few square sparkle particles near the head and shoulders.
+
+The background of the entire sheet is pure transparency. There is no checkerboard, no paper, no studio, no UI chrome, no letters, no numbers, no frame borders drawn on the image. Empty pixels must be fully transparent.
+
+Lighting is only the pixel fills described above: idle uses local costume colors; the white light in frames 2 and 3 is an internal fill and a radiating ring of pixels, not photographic bloom. Orthographic 2D game camera, pixels snap to the grid.

@@ -1,0 +1,18 @@
+# Git 提交时跳过这些路径。文件仍在你电脑上，只是不会进 GitHub。
+
+# 依赖与构建产物
+node_modules/
+frontend/dist/
+backend/target/
+
+# 本机密钥（统计后端密码）。游戏前端不依赖它。
+backend/src/main/resources/application-local.yml
+.env
+.env.*
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+*.iml
