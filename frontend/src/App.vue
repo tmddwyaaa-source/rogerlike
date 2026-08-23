@@ -8,6 +8,21 @@ const canvasRef = ref(null)
 const shellRef = ref(null)
 let engine = null
 let match = null
+let stageObserver = null
+
+/** P22：把画布实际矩形（整数缩放居中后的黑边内区域）暴露为 CSS 变量，供 HUD 通栏钳制。 */
+function syncStageRect() {
+  const shellEl = shellRef.value?.$el
+  const canvas = canvasRef.value
+  if (!shellEl || !canvas) return
+  const rect = canvas.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  const style = shellEl.style
+  style.setProperty('--rl-stage-left', `${rect.left}px`)
+  style.setProperty('--rl-stage-top', `${rect.top}px`)
+  style.setProperty('--rl-stage-width', `${rect.width}px`)
+  style.setProperty('--rl-stage-height', `${rect.height}px`)
+}
 
 function createShellAdapter(getShell) {
   return {
@@ -18,7 +33,7 @@ function createShellAdapter(getShell) {
       getShell()?.tick(...args)
     },
     notifyExp(...args) {
-      getShell()?.notifyExp(...args)
+      return getShell()?.notifyExp(...args)
     },
     notifyDead(...args) {
       return getShell()?.notifyDead(...args)
@@ -44,11 +59,20 @@ onMounted(() => {
   })
   match.install()
   engine.start()
+  syncStageRect()
+  window.addEventListener('resize', syncStageRect)
+  if (typeof ResizeObserver !== 'undefined') {
+    stageObserver = new ResizeObserver(syncStageRect)
+    stageObserver.observe(canvasRef.value)
+  }
 })
 
 onUnmounted(() => {
   match?.uninstall()
   engine?.stop()
+  window.removeEventListener('resize', syncStageRect)
+  stageObserver?.disconnect()
+  stageObserver = null
   match = null
   engine = null
 })

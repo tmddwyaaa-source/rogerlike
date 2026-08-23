@@ -1,8 +1,10 @@
 <script setup>
+import { descFor } from '../ui/constants.js'
 import PixelIcon from './PixelIcon.vue'
 
 defineProps({
   choices: { type: Array, default: () => [] },
+  charId: { type: String, default: 'ranger' },
 })
 
 const emit = defineEmits(['choose'])
@@ -15,13 +17,13 @@ const emit = defineEmits(['choose'])
       <button
         v-for="item in choices"
         :key="item.id"
-        class="rl-card"
+        class="rl-card rl-frame rl-frame--pop"
         type="button"
         @click="emit('choose', item.id)"
       >
         <PixelIcon :id="item.id" :scale="4" :advanced="item.tier === 'advanced'" />
         <strong>{{ item.title }}</strong>
-        <p>{{ item.desc }}</p>
+        <p>{{ descFor(item, charId) }}</p>
       </button>
     </div>
   </section>

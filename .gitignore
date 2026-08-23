@@ -16,3 +16,6 @@ Thumbs.db
 *.log
 .idea/
 *.iml
+
+# ZCode 本地会话文件
+.zcode/

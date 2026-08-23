@@ -24,14 +24,42 @@ import {
   BLOOD_FRAMES,
   BLOOD_SRC,
   CHARGE_MAX_SEC,
+  CHARGE_SIZE_BONUS,
+  EMPOWER_ATK,
+  EMPOWER_DRAW_H,
+  EMPOWER_DRAW_W,
+  EMPOWER_PIERCE,
+  EMPOWER_SPEED,
+  EMPOWER_SRC,
   FIRE_INTERVAL,
   HIT_RADIUS,
+  MAGE_EXPAND_SEC,
+  ORB_DRAW,
+  ORB_SRC,
+  SLASH_BODY_FRONT,
+  SLASH_DRAW,
+  SLASH_FPS,
+  SLASH_FRAME,
+  SLASH_FRAMES,
+  SLASH_RANGE,
+  SLASH_SRC,
+  SLASH_THICK,
   chargeRatio,
+  chargeSizeMul,
   createBow,
   fireAngles,
+  fireKindForChar,
   knockbackForCharge,
-  pierceForCharge,
+  leftoverDamage,
+  pierceForChar,
+  resolveCharId,
+  rollCrit,
+  critDamageMul,
+  sheetFrameIndex,
   shotDamage,
+  slashLength,
+  slashThick,
+  warriorKnockback,
 } from '../weapons/index.js'
 
 export {
@@ -42,30 +70,66 @@ export {
   BULLET_DAMAGE,
   BULLET_SPEED,
   CHARGE_MAX_SEC,
+  CHARGE_SIZE_BONUS,
   CHARGE_UPGRADE,
+  CRIT_CHANCE_PER_PICK,
+  CRIT_DAMAGE_MUL,
+  critChanceForRoll,
+  critDamageMul,
   DMG_MAX,
   DMG_MIN,
   DUAL_SPREAD_DEG,
+  EMPOWER_ATK,
+  EMPOWER_FULL_MUL,
+  EMPOWER_PIERCE,
+  EMPOWER_RANGER_FIRST,
+  EMPOWER_SPEED,
+  EMPOWER_SRC,
   FIRE_COOLDOWN,
   FIRE_INTERVAL,
+  fireIntervalForPicks,
+  fireKindForChar,
   HIT_RADIUS,
   KNOCKBACK_DIST,
+  MAGE_ATTACK,
+  MAGE_EXPAND_SEC,
+  MAGE_FULL_SIZE,
   MAG_SIZE,
+  ONLY_FAST_MUL,
+  ORB_DRAW,
   POWER_DMG,
+  REFINE_CRIT_DMG,
+  REFINE_CRIT_STEP,
   RELOAD_FACTOR,
   RELOAD_SEC,
+  rollCrit,
   SCATTER_DMG_PENALTY,
+  SLASH_BODY_FRONT,
+  SLASH_DRAW,
+  SLASH_RANGE,
+  SLASH_THICK,
   SPREAD_DEG,
+  WARRIOR_ATTACK,
+  WARRIOR_FULL_SIZE,
   WEAPON_NAME,
+  attackForChar,
   chargeRatio,
+  chargeSizeMul,
   createBow,
   createPistol,
   damageForCharge,
   fireAngles,
   giantSizeMul,
   knockbackForCharge,
+  leftoverDamage,
+  pierceForChar,
   pierceForCharge,
+  resolveCharId,
+  sheetFrameIndex,
   shotDamage,
+  slashLength,
+  slashThick,
+  warriorKnockback,
 } from '../weapons/index.js'
 
 const STEP_PX = 4
@@ -94,6 +158,44 @@ function circleHitsAabb(x, y, r, box) {
   return dx * dx + dy * dy <= r * r
 }
 
+function aabbHits(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+
+/** 沿 ang 的旋转矩形（长×厚）对轴对齐盒。 */
+export function obbHitsAabb(cx, cy, ang, length, thick, box) {
+  const hw = (length > 0 ? length : 0) / 2
+  const hh = (thick > 0 ? thick : 0) / 2
+  const c = Math.cos(ang)
+  const s = Math.sin(ang)
+  const acx = box.x + box.w / 2
+  const acy = box.y + box.h / 2
+  const dx = acx - cx
+  const dy = acy - cy
+  const lx = dx * c + dy * s
+  const ly = -dx * s + dy * c
+  const aw = box.w / 2
+  const ah = box.h / 2
+  const projX = aw * Math.abs(c) + ah * Math.abs(s)
+  const projY = aw * Math.abs(s) + ah * Math.abs(c)
+  return Math.abs(lx) <= hw + projX && Math.abs(ly) <= hh + projY
+}
+
+function projectileHits(b, ent) {
+  const box = aabbOf(ent)
+  if (b.kind === 'slash') {
+    return obbHitsAabb(
+      b.x,
+      b.y,
+      b.ang ?? 0,
+      b.slashLen ?? b.drawW,
+      b.slashThick ?? b.drawH,
+      box,
+    )
+  }
+  return circleHitsAabb(b.x, b.y, b.radius ?? HIT_RADIUS, box)
+}
+
 export function facingDirFromAngle(facing = 0) {
   const c = Math.cos(facing)
   const s = Math.sin(facing)
@@ -102,14 +204,15 @@ export function facingDirFromAngle(facing = 0) {
 }
 
 /**
- * 击退距离 max(0, dist − knockbackResist)。
+ * 击退距离 max(0, dist − knockbackResist) × (knockbackScale ?? 1)。
  * knockbackable === false（树）完全不位移。
  * @returns {boolean} 是否发生位移
  */
 export function applyKnockback(target, nx, ny, dist = BODY) {
   if (!target || target.knockbackable === false) return false
   const resist = target.knockbackResist || 0
-  const travel = Math.max(0, dist - resist)
+  const scale = target.knockbackScale ?? 1
+  const travel = Math.max(0, dist - resist) * scale
   if (travel <= 0) return false
   const len = Math.hypot(nx, ny) || 1
   target.x += (nx / len) * travel
@@ -119,10 +222,11 @@ export function applyKnockback(target, nx, ny, dist = BODY) {
 
 function hurt(target, damage) {
   if (typeof target.takeHit === 'function') {
-    target.takeHit(damage)
-    return
+    const dealt = target.takeHit(damage)
+    return typeof dealt === 'number' ? dealt : damage
   }
   target.hp = (target.hp ?? 0) - damage
+  return damage
 }
 
 function chromaBlack(img) {
@@ -164,7 +268,7 @@ function sheetOf(img) {
  * @param {{
  *   player?: object,
  *   targets?: object[],
- *   hooks?: { hitWorld?: Function },
+ *   hooks?: { hitWorld?: Function, onFire?: Function },
  *   pistol?: object,
  *   weapon?: object,
  * }} [opts]
@@ -174,7 +278,11 @@ export function createCombat(opts = {}) {
   const targets = opts.targets ?? []
   const hooks = opts.hooks ?? {}
   const passedWeapon = opts.weapon ?? opts.pistol
-  const weapon = passedWeapon ?? createBow()
+  const charId0 = resolveCharId(player)
+  const weapon = passedWeapon ?? createBow({
+    charId: charId0,
+    attack: typeof player?.attack === 'number' ? player.attack : undefined,
+  })
   if (!passedWeapon && typeof player?.attack === 'number') {
     weapon.attack = player.attack
     weapon.dmgBonus = weapon.attack - ATTACK_BASE
@@ -187,11 +295,15 @@ export function createCombat(opts = {}) {
   let unbind = () => {}
   let holding = false
   let pendingHold = false
+  let slashSeq = 0
   const imgs = {
     arrow: loadImg(ARROW_SRC, true),
+    orb: loadImg(ORB_SRC, true),
     D: loadImg(BLOOD_SRC.D, true),
     S: loadImg(BLOOD_SRC.S, true),
     U: loadImg(BLOOD_SRC.U, true),
+    slash: SLASH_SRC.map((src) => loadImg(src, false)),
+    empower: loadImg(EMPOWER_SRC, false),
   }
 
   function syncPlayerCharge(on) {
@@ -200,26 +312,71 @@ export function createCombat(opts = {}) {
     else player.charging = on
   }
 
-  function spawnArrow(ang, damage, knockback, pierceLeft, sizeMul) {
-    const ox = Math.cos(ang) * 10
-    const oy = Math.sin(ang) * 10
+  function notifyDamage(ent, dmg) {
+    if (!ent || !(dmg > 0)) return
+    if (typeof hooks.onDamage === 'function') hooks.onDamage(ent, dmg)
+  }
+
+  function spawnShot(ang, damage, knockback, pierceLeft, sizeMul, spec) {
     const mul = sizeMul > 0 ? sizeMul : 1
-    bullets.push({
+    const kind = spec.kind
+    const slashLen = spec.slashLen > 0 ? spec.slashLen : slashLength(0, 1)
+    const slashTh = spec.slashThick > 0 ? spec.slashThick : SLASH_THICK
+    const dist = kind === 'slash' ? SLASH_BODY_FRONT + slashLen / 2 : 10
+    const ox = Math.cos(ang) * dist
+    const oy = Math.sin(ang) * dist
+    const speed = spec.speed ?? ARROW_SPEED
+    let drawW = ARROW_W * mul
+    let drawH = ARROW_H * mul
+    let radius = HIT_RADIUS * mul
+    if (kind === 'orb') {
+      drawW = ORB_DRAW * mul
+      drawH = ORB_DRAW * mul
+      radius = Math.max(HIT_RADIUS, ORB_DRAW / 2) * mul
+    } else if (kind === 'slash') {
+      drawW = slashLen
+      drawH = slashTh
+      radius = slashTh / 2
+    } else if (kind === 'empower') {
+      drawW = EMPOWER_DRAW_W * mul
+      drawH = EMPOWER_DRAW_H * mul
+      radius = HIT_RADIUS * 1.5 * mul
+    }
+    const b = {
       x: (player?.x ?? 0) + ox,
       y: (player?.y ?? 0) + oy,
-      vx: Math.cos(ang) * ARROW_SPEED,
-      vy: Math.sin(ang) * ARROW_SPEED,
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
       ang,
       damage,
+      payload: null,
       knockback,
       pierceLeft,
       hitSet: new Set(),
       alive: true,
       sizeMul: mul,
-      radius: HIT_RADIUS * mul,
-      drawW: ARROW_W * mul,
-      drawH: ARROW_H * mul,
-    })
+      radius,
+      drawW,
+      drawH,
+      slashLen,
+      slashThick: slashTh,
+      kind,
+      variant: spec.variant ?? 0,
+      t: 0,
+      life: kind === 'slash' ? SLASH_FRAMES / SLASH_FPS : 0,
+      overflowOn: Boolean(spec.overflowOn),
+      expandOn: Boolean(spec.expandOn),
+      expanding: false,
+      expandT: 0,
+      infinitePierce: Boolean(spec.infinitePierce),
+      struck: false,
+    }
+    bullets.push(b)
+    if (kind === 'slash') {
+      hitActors(b)
+      hitWorld(b)
+      b.struck = true
+    }
   }
 
   function spawnHitFx(x, y, ang) {
@@ -235,15 +392,56 @@ export function createCombat(opts = {}) {
   function tryFire(ratio = 1) {
     if (weapon.fireCd > 0) return false
     const r = clamp(ratio, 0, 1)
+    const id = resolveCharId(player)
+    const empower = id === 'ranger' && (weapon.empowerPicks | 0) >= 1 && r >= 1
     const attack = weapon.attack ?? player?.attack ?? ATTACK_BASE
-    const damage = shotDamage(r, attack)
-    const knockback = knockbackForCharge(r)
-    const pierceLeft = pierceForCharge(r, weapon.pierceBonus ?? 0)
+    let damage = shotDamage(r, attack, {
+      empowerFull: empower,
+      charId: id,
+      pierceBonus: weapon.pierceBonus ?? 0,
+    })
+    if (rollCrit(weapon.critRate ?? 0)) {
+      damage *= critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0)
+    }
+    const knockback = id === 'warrior'
+      ? warriorKnockback(weapon.pierceBonus ?? 0)
+      : knockbackForCharge(r)
+    const pierceLeft = pierceForChar(
+      id,
+      r,
+      weapon.pierceBonus ?? 0,
+      empower ? EMPOWER_PIERCE : 0,
+    )
     const base = player?.facing ?? 0
     const angles = fireAngles(base, weapon.extraShots ?? 0, weapon.backShots ?? 0)
-    const sizeMul = weapon.sizeMul ?? 1
-    for (const ang of angles) spawnArrow(ang, damage, knockback, pierceLeft, sizeMul)
-    weapon.fireCd = FIRE_INTERVAL
+    const sizeMul = chargeSizeMul(r, weapon.sizeMul ?? 1, id)
+    let kind = 'arrow'
+    let speed = ARROW_SPEED
+    let variant = 0
+    if (id === 'warrior') {
+      kind = 'slash'
+      speed = 0
+      variant = slashSeq++ % 3
+    } else if (id === 'mage') {
+      kind = 'orb'
+    } else if (empower) {
+      kind = 'empower'
+      speed = EMPOWER_SPEED
+    }
+    for (const ang of angles) {
+      spawnShot(ang, damage, knockback, pierceLeft, sizeMul, {
+        kind,
+        speed,
+        variant,
+        overflowOn: empower,
+        expandOn: id === 'mage' && r > 0,
+        infinitePierce: id === 'warrior',
+        slashLen: id === 'warrior' ? slashLength(r, weapon.sizeMul ?? 1) : 0,
+        slashThick: id === 'warrior' ? slashThick(weapon.sizeMul ?? 1) : 0,
+      })
+    }
+    hooks.onFire?.(fireKindForChar(id))
+    weapon.fireCd = weapon.fireInterval ?? FIRE_INTERVAL
     weapon.charge = 0
     weapon.charging = false
     syncPlayerCharge(false)
@@ -275,41 +473,136 @@ export function createCombat(opts = {}) {
     return tryFire(ratio)
   }
 
+  function strike(ent, b, deal) {
+    const hpBefore = ent.hp ?? 0
+    const dealt = hurt(ent, deal)
+    notifyDamage(ent, dealt)
+    applyKnockback(ent, b.vx || Math.cos(b.ang), b.vy || Math.sin(b.ang), b.knockback)
+    spawnHitFx(b.x, b.y, b.ang)
+    b.hitSet.add(ent)
+    return leftoverDamage(dealt, hpBefore)
+  }
+
+  function beginExpand(b, ent) {
+    b.x = ent.x
+    b.y = ent.y
+    b.vx = 0
+    b.vy = 0
+    b.expanding = true
+    b.expandT = 0
+    b.alpha = 1
+    const hitDraw = b.drawW || ORB_DRAW
+    b.expandStartDraw = Math.max(hitDraw * 0.45, ORB_DRAW)
+    b.expandMaxDraw = ORB_DRAW * (b.sizeMul > 0 ? b.sizeMul : 1)
+    b.drawW = b.expandStartDraw
+    b.drawH = b.expandStartDraw
+    const maxR = Math.max(HIT_RADIUS, b.expandMaxDraw / 2)
+    for (const t of targets) {
+      if (!t || t.hp <= 0) continue
+      if (t.knockbackable === false) continue
+      if (!circleHitsAabb(b.x, b.y, maxR, aabbOf(t))) continue
+      strike(t, b, b.damage)
+    }
+  }
+
   function hitActors(b) {
+    if (b.expanding) return false
+    const deal0 = b.payload ?? b.damage
     for (const ent of targets) {
       if (!ent || ent.hp <= 0) continue
       if (b.hitSet.has(ent)) continue
-      if (!circleHitsAabb(b.x, b.y, b.radius ?? HIT_RADIUS, aabbOf(ent))) continue
-      hurt(ent, b.damage)
-      applyKnockback(ent, b.vx, b.vy, b.knockback)
-      spawnHitFx(b.x, b.y, b.ang)
-      b.hitSet.add(ent)
+      if (!projectileHits(b, ent)) continue
       const isCreep = ent.knockbackable !== false
+      if (b.kind === 'orb') {
+        if (isCreep && b.expandOn) {
+          beginExpand(b, ent)
+          return true
+        }
+        strike(ent, b, deal0)
+        b.alive = false
+        return true
+      }
+      const deal = b.payload ?? deal0
+      const left = strike(ent, b, deal)
+      if (b.infinitePierce) continue
       if (isCreep && b.pierceLeft > 0) {
         b.pierceLeft -= 1
         continue
       }
+      if (b.overflowOn && isCreep && left > 0) {
+        b.payload = left
+        continue
+      }
+      if (b.kind === 'slash') return true
       b.alive = false
       return true
     }
     return false
+  }
+
+  function applyWorldHit(b, res) {
+    if (!res || !res.hit) return false
+    spawnHitFx(b.x, b.y, b.ang)
+    const dealt = res.dealt ?? b.damage
+    if (dealt > 0) {
+      if (res.tree) notifyDamage(res.tree, dealt)
+      else notifyDamage({ x: b.x, y: b.y, knockbackable: false }, dealt)
+    }
+    if (b.kind !== 'slash') b.alive = false
+    return b.kind !== 'slash'
   }
 
   function hitWorld(b) {
+    if (b.kind === 'slash' && typeof hooks.hitSlashAt === 'function') {
+      return applyWorldHit(
+        b,
+        hooks.hitSlashAt({
+          x: b.x,
+          y: b.y,
+          ang: b.ang,
+          length: b.slashLen ?? b.drawW,
+          thick: b.slashThick ?? b.drawH,
+          damage: b.payload ?? b.damage,
+        }),
+      )
+    }
     const fn = hooks.hitWorld
     if (typeof fn !== 'function') return false
-    const res = fn(b.x, b.y, b.damage, b.radius ?? HIT_RADIUS)
-    if (res && res.hit) {
-      spawnHitFx(b.x, b.y, b.ang)
-      b.alive = false
-      return true
-    }
-    return false
+    const rad = b.kind === 'slash'
+      ? (b.slashThick ?? SLASH_THICK) / 2
+      : (b.radius ?? HIT_RADIUS)
+    return applyWorldHit(b, fn(b.x, b.y, b.damage, rad))
   }
 
   function stepBullet(b, dt) {
+    if (b.expanding) {
+      b.expandT += dt
+      const dur = MAGE_EXPAND_SEC
+      const u = dur > 0 ? Math.min(1, b.expandT / dur) : 1
+      const a = b.expandStartDraw ?? ORB_DRAW
+      const z = b.expandMaxDraw ?? a
+      b.drawW = a + (z - a) * u
+      b.drawH = b.drawW
+      b.alpha = 1 - u
+      if (b.expandT >= dur) {
+        b.alpha = 0
+        b.alive = false
+      }
+      return
+    }
+    if (b.kind === 'slash') {
+      b.t += dt
+      if (!b.struck) {
+        b.struck = true
+        hitActors(b)
+        hitWorld(b)
+      }
+      if (b.t >= b.life) b.alive = false
+      return
+    }
+    if (b.kind === 'empower') b.t += dt
     const dist = Math.hypot(b.vx, b.vy) * dt
-    const steps = Math.max(1, Math.ceil(dist / STEP_PX))
+    const steps = Math.max(1, Math.ceil(dist / STEP_PX) || 1)
     const sdt = dt / steps
     for (let i = 0; i < steps && b.alive; i++) {
       b.x += b.vx * sdt
@@ -318,7 +611,8 @@ export function createCombat(opts = {}) {
         b.alive = false
         return
       }
-      if (hitActors(b) || hitWorld(b)) return
+      if (hitActors(b)) return
+      if (!b.expanding && hitWorld(b)) return
     }
   }
 
@@ -398,17 +692,57 @@ export function createCombat(opts = {}) {
     ctx.fillRect(Math.round(fx.x - 3), Math.round(fx.y - 3), 6, 6)
   }
 
+  function drawSheet(ctx, img, frame, fw, fh, x, y, dw, dh, ang) {
+    if (!img || !(img.complete || img.width) || !(img.naturalWidth || img.width)) {
+      return false
+    }
+    const nw = img.naturalWidth || img.width || fw
+    const cols = Math.max(1, Math.floor(nw / fw) || 1)
+    const fr = ((frame % cols) + cols) % cols
+    ctx.save()
+    ctx.translate(Math.round(x), Math.round(y))
+    if (ang != null) ctx.rotate(ang)
+    ctx.drawImage(img, fr * fw, 0, fw, fh, -dw / 2, -dh / 2, dw, dh)
+    ctx.restore()
+    return true
+  }
+
+  function drawProjectile(ctx, b) {
+    ctx.save()
+    if (b.alpha != null) ctx.globalAlpha = Math.max(0, Math.min(1, b.alpha))
+    if (b.kind === 'slash') {
+      const img = imgs.slash[b.variant % 3]
+      const frame = Math.min(SLASH_FRAMES - 1, Math.floor(b.t * SLASH_FPS))
+      if (drawSheet(ctx, img, frame, SLASH_FRAME, SLASH_FRAME, b.x, b.y, b.drawW, b.drawH, b.ang)) {
+        ctx.restore()
+        return
+      }
+    } else if (b.kind === 'empower') {
+      const frame = sheetFrameIndex(b.t, SLASH_FPS, SLASH_FRAMES)
+      if (drawSheet(ctx, imgs.empower, frame, SLASH_FRAME, SLASH_FRAME, b.x, b.y, b.drawW, b.drawH, b.ang)) {
+        ctx.restore()
+        return
+      }
+    } else if (b.kind === 'orb') {
+      if (drawImg(ctx, imgs.orb, b.x, b.y, b.ang, b.drawW, b.drawH)) {
+        ctx.restore()
+        return
+      }
+    } else if (drawImg(ctx, imgs.arrow, b.x, b.y, b.ang, b.drawW ?? ARROW_W, b.drawH ?? ARROW_H)) {
+      ctx.restore()
+      return
+    }
+    const w = Math.max(2, Math.round(b.drawW ?? 4))
+    const h = Math.max(1, Math.round(b.drawH ?? 2))
+    ctx.fillStyle = b.kind === 'orb' ? '#7ec8ff' : '#f4e8c0'
+    ctx.fillRect(Math.round(b.x - w / 2), Math.round(b.y - h / 2), w, h)
+    ctx.restore()
+  }
+
   function draw(ctx) {
     if (!ctx) return
     drawChargeBar(ctx)
-    for (const b of bullets) {
-      if (!drawImg(ctx, imgs.arrow, b.x, b.y, b.ang, b.drawW ?? ARROW_W, b.drawH ?? ARROW_H)) {
-        const w = Math.max(2, Math.round(b.drawW ?? 4))
-        const h = Math.max(1, Math.round(b.drawH ?? 2))
-        ctx.fillStyle = '#f4e8c0'
-        ctx.fillRect(Math.round(b.x - w / 2), Math.round(b.y - h / 2), w, h)
-      }
-    }
+    for (const b of bullets) drawProjectile(ctx, b)
     for (const fx of hitFx) drawBlood(ctx, fx)
   }
 
@@ -477,6 +811,7 @@ export function createCombat(opts = {}) {
     bindInput,
     unbindInput: () => unbind(),
     applyUpgrade: (id) => {
+      if (player) weapon.charId = resolveCharId(player)
       const ok = weapon.applyUpgrade(id)
       if (ok && player) player.attack = weapon.attack
       return ok

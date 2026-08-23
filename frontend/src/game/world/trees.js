@@ -50,6 +50,14 @@ export function createTreeField(opts = {}) {
   const trees = []
   let spawnAcc = 0
 
+  function hpExtra() {
+    return typeof opts.getHpGrowthAdd === 'function' ? opts.getHpGrowthAdd() : 0
+  }
+
+  function hpForTier(t) {
+    return treeHpForTier(t, hpExtra())
+  }
+
   function occupied(x, y) {
     const gap2 = MIN_TREE_GAP * MIN_TREE_GAP
     for (const t of trees) {
@@ -101,7 +109,7 @@ export function createTreeField(opts = {}) {
 
   /** 开局仅在「靠近且视野外」撒树（默认 3 棵）。 */
   function seedAround(cx, cy, count = 3, camera = null) {
-    const hp = treeHpForTier(0)
+    const hp = hpForTier(0)
     const cam =
       camera ??
       ({
@@ -123,7 +131,7 @@ export function createTreeField(opts = {}) {
     spawnAcc += dt
     while (spawnAcc >= interval) {
       spawnAcc -= interval
-      const hp = treeHpForTier(t)
+      const hp = hpForTier(t)
       const n =
         typeof opts.getWaveCount === 'function' ? opts.getWaveCount() : TREE_SPAWN_COUNT
       for (let k = 0; k < n; k++) {
@@ -132,9 +140,19 @@ export function createTreeField(opts = {}) {
     }
   }
 
+  function applyHit(tree, i, damage) {
+    tree.hp -= damage
+    const destroyed = tree.hp <= 0
+    if (destroyed) {
+      trees.splice(i, 1)
+      opts.onDestroyed?.(tree)
+    }
+    return { hit: true, destroyed, tree, dealt: damage }
+  }
+
   /**
    * 子弹命中。碰撞/撞击不得调用本函数。
-   * @returns {{ hit: boolean, destroyed: boolean, tree: object | null }}
+   * @returns {{ hit: boolean, destroyed: boolean, tree: object | null, dealt: number }}
    */
   function hitAt(x, y, damage, radius = HIT_PAD) {
     for (let i = trees.length - 1; i >= 0; i--) {
@@ -143,15 +161,37 @@ export function createTreeField(opts = {}) {
       const cx = Math.max(b.x, Math.min(x, b.x + b.w))
       const cy = Math.max(b.y, Math.min(y, b.y + b.h))
       if (dist2(x, y, cx, cy) > radius * radius) continue
-      tree.hp -= damage
-      if (tree.hp <= 0) {
-        trees.splice(i, 1)
-        opts.onDestroyed?.(tree)
-        return { hit: true, destroyed: true, tree }
-      }
-      return { hit: true, destroyed: false, tree }
+      return applyHit(tree, i, damage)
     }
-    return { hit: false, destroyed: false, tree: null }
+    return { hit: false, destroyed: false, tree: null, dealt: 0 }
+  }
+
+  /**
+   * 战士挥砍：旋转矩形（中心 x/y、朝向 ang、长 length、厚 thick）打树 AABB。
+   * 命中的每棵都扣血；dealt 为传入伤害（树无甲）。
+   */
+  function hitSlashAt({ x, y, ang, length, thick, damage }) {
+    const hits = []
+    let first = null
+    let anyDestroyed = false
+    for (let i = trees.length - 1; i >= 0; i--) {
+      const tree = trees[i]
+      if (!obbHitsAabb(x, y, ang, length, thick, aabb(tree))) continue
+      const rec = applyHit(tree, i, damage)
+      hits.push(rec)
+      anyDestroyed = anyDestroyed || rec.destroyed
+      first = first ?? rec
+    }
+    if (!first) {
+      return { hit: false, destroyed: false, tree: null, dealt: 0, hits }
+    }
+    return {
+      hit: true,
+      destroyed: anyDestroyed,
+      tree: first.tree,
+      dealt: first.dealt,
+      hits,
+    }
   }
 
   /**
@@ -194,10 +234,12 @@ export function createTreeField(opts = {}) {
   return {
     trees,
     spawnAt,
+    hpForTier,
     seedAround,
     trySpawnNear,
     update,
     hitAt,
+    hitSlashAt,
     collideSolid,
     draw,
     aabb,
@@ -214,4 +256,23 @@ function drawFallbackTree(ctx, x, y, w, h) {
   ctx.fillRect(x + w * 0.28, y, w * 0.44, h * 0.22)
   ctx.fillStyle = TREE_TRUNK
   ctx.fillRect(x + (w - tw) / 2, y + h - th, tw, th)
+}
+
+/** 旋转矩形（中心+朝向+长×厚）与轴对齐盒是否相交。 */
+export function obbHitsAabb(ox, oy, ang, length, thick, box) {
+  const hx = Math.max(0, length) / 2
+  const hy = Math.max(0, thick) / 2
+  const c = Math.cos(ang)
+  const s = Math.sin(ang)
+  const acx = box.x + box.w / 2
+  const acy = box.y + box.h / 2
+  const aex = box.w / 2
+  const aey = box.h / 2
+  const dx = acx - ox
+  const dy = acy - oy
+  const lx = dx * c + dy * s
+  const ly = -dx * s + dy * c
+  const px = aex * Math.abs(c) + aey * Math.abs(s)
+  const py = aex * Math.abs(s) + aey * Math.abs(c)
+  return Math.abs(lx) <= hx + px && Math.abs(ly) <= hy + py
 }

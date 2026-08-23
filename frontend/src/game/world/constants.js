@@ -28,7 +28,8 @@ export const FRUIT_CHANCE = 0.3
 export const FRUIT_HEAL = 1
 
 export const MAGNET_RANGE = BODY * 2
-export const MAGNET_MUL_STEP = 1.5
+/** 每次磁铁 +1 身位（加，不乘）。 */
+export const MAGNET_BONUS_STEP = 1
 export const PICKUP_COLLECT_RANGE = BODY * 0.55
 /** 吸入飞行速度（90×1.5）。黑洞与普通吸附共用。 */
 export const PICKUP_SPEED = 135
@@ -41,8 +42,8 @@ export function difficultyTier(elapsedSec) {
   return Math.floor(Math.max(0, elapsedSec) / DIFFICULTY_STEP_SEC)
 }
 
-export function treeHpForTier(t) {
-  return TREE_HP_BASE + TREE_HP_PER_TIER * t
+export function treeHpForTier(t, extra = 0) {
+  return TREE_HP_BASE + (TREE_HP_PER_TIER + extra) * t
 }
 
 export function treeSpawnInterval(t) {

@@ -1,18 +1,29 @@
 /**
  * 全局设置 + 测试模式（localStorage 持久化音量/开关）。
  */
-import { LEVEL_BOOST_MAX } from './constants.js'
+import { LEVEL_BOOST_MAX, SURVIVE_WIN_SEC } from './constants.js'
 
 const KEY = 'rogerlike.settings.v1'
+
+export const TEST_ELAPSED_MAX = SURVIVE_WIN_SEC
+export const TEST_ELAPSED_STEP = 5
 
 export function defaultSettings() {
   return {
     volume: 0.7,
+    /** 背景音乐分项音量（独立控制；实际 BGM = 总音量 × 本值） */
+    bgmVolume: 0.7,
+    /** 音效音量（独立于音乐；实际音效 = 总音量 × 本值） */
+    sfxVolume: 0.7,
     testMode: false,
     godMode: false,
     infiniteAmmo: false,
     /** 刷怪速度倍率：0.25 … 2，步进 0.25，默认 1 */
     spawnRate: 1,
+    /** 测试时间 0～10 分钟（秒） */
+    testElapsedSec: 0,
+    /** 测试火柴人木桩 */
+    testDummy: false,
   }
 }
 
@@ -21,7 +32,9 @@ export function loadSettings() {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return base
-    return { ...base, ...JSON.parse(raw) }
+    const merged = { ...base, ...JSON.parse(raw) }
+    merged.testElapsedSec = clampTestElapsedSec(merged.testElapsedSec)
+    return merged
   } catch {
     return base
   }
@@ -50,6 +63,13 @@ export function clampLevelBoost(n) {
   const v = Number(n)
   if (!Number.isFinite(v)) return 0
   return Math.min(LEVEL_BOOST_MAX, Math.max(0, Math.round(v)))
+}
+
+export function clampTestElapsedSec(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 0
+  const stepped = Math.round(n / TEST_ELAPSED_STEP) * TEST_ELAPSED_STEP
+  return Math.min(TEST_ELAPSED_MAX, Math.max(0, stepped))
 }
 
 export function formatVolumePct(v) {

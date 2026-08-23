@@ -1,9 +1,12 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { upgradeById } from '../ui/constants.js'
+import { descFor } from '../ui/constants.js'
 import { loadMemories, summarizePicked } from '../ui/memories.js'
-import HudOverlay from './HudOverlay.vue'
 import PixelIcon from './PixelIcon.vue'
+
+defineProps({
+  charId: { type: String, default: 'ranger' },
+})
 
 const emit = defineEmits(['back'])
 
@@ -14,8 +17,9 @@ const current = ref(null)
 const list = computed(() => memories.value)
 const pickedIcons = computed(() => summarizePicked(current.value?.upgrades))
 
-function descFor(id) {
-  return upgradeById(id)?.desc || ''
+function hearts(hp, hpMax) {
+  const n = Math.max(0, hpMax | 0)
+  return Array.from({ length: n }, (_, i) => i < hp)
 }
 
 function openMemories() {
@@ -79,8 +83,26 @@ defineExpose({
     <template v-else-if="step === 'detail' && current">
       <h2 class="rl-h2">对局</h2>
       <div class="rl-mem-detail">
-        <HudOverlay v-bind="current" />
-        <div class="rl-panel">
+        <div class="rl-mem-hero rl-frame--dark">
+          <div class="rl-mem-hero-top">
+            <strong>{{ current.win ? '幸存' : '结束' }}</strong>
+            <span class="rl-mem-lv">Lv.{{ current.level ?? 1 }}</span>
+          </div>
+          <div class="rl-mem-attrs">
+            <span class="rl-hearts">
+              <span
+                v-for="(on, i) in hearts(current.hp, current.hpMax)"
+                :key="i"
+                class="rl-heart"
+                :class="{ on }"
+              />
+            </span>
+            <span>经验 {{ current.exp ?? 0 }}/{{ current.expNeed ?? 0 }}</span>
+            <span>存活 {{ current.timeText }}</span>
+            <span>击杀 {{ current.kills ?? 0 }}</span>
+          </div>
+        </div>
+        <div class="rl-panel rl-frame">
           <h3>升级选项</h3>
           <p v-if="!pickedIcons.length" class="rl-sub">本局未选择升级</p>
           <div v-else class="rl-mem-icons">
@@ -88,11 +110,11 @@ defineExpose({
               v-for="u in pickedIcons"
               :key="u.id"
               class="rl-mem-icon"
-              :title="descFor(u.id)"
+              :title="descFor(u.id, charId)"
             >
               <PixelIcon :id="u.id" :scale="3" />
               <span class="rl-mem-mult">×{{ u.count }}</span>
-              <span class="rl-mem-tip">{{ descFor(u.id) }}</span>
+              <span class="rl-mem-tip">{{ descFor(u.id, charId) }}</span>
             </div>
           </div>
         </div>

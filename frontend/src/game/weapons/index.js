@@ -2,12 +2,12 @@
  * 游侠弓：蓄力箭数值。无弹匣 / 无换弹。
  */
 import { assetUrl } from '../../assetUrl.js'
-import { BODY } from '../constants.js'
+import { BODY, BODY_W } from '../constants.js'
 
 export const WEAPON_NAME = '游侠弓'
 export const CHARGE_MAX_SEC = 0.75
 export const CHARGE_UPGRADE = 0.2
-export const FIRE_INTERVAL = 0.21
+export const FIRE_INTERVAL = 0.315
 /** 角色攻击属性初值。未蓄 = attack，满蓄 = attack×2。 */
 export const ATTACK_BASE = 20
 export const DMG_MIN = ATTACK_BASE
@@ -18,6 +18,37 @@ export const SPREAD_DEG = 15
 export const DUAL_SPREAD_DEG = SPREAD_DEG
 export const SCATTER_DMG_PENALTY = 3
 export const POWER_DMG = 10
+export const CHARGE_SIZE_BONUS = 0.25
+export const EMPOWER_FULL_MUL = 2.5
+export const EMPOWER_PIERCE = 2
+export const EMPOWER_SPEED = 680
+export const EMPOWER_ATK = 15
+export const EMPOWER_RANGER_FIRST = 5
+export const MAGE_ATTACK = 25
+export const WARRIOR_ATTACK = 22
+export const MAGE_FULL_SIZE = 3
+export const MAGE_EXPAND_SEC = 0.3
+export const MAGE_PIERCE_DMG = 0.2
+export const MAGE_CHARGE_DMG = 0.5
+export const WARRIOR_FULL_SIZE = 1.6
+export const WARRIOR_CHARGE_DMG = 0.6
+export const CRIT_CHANCE_PER_PICK = 10
+export const CRIT_DAMAGE_MUL = 1.5
+export const ONLY_FAST_MUL = 1.2
+export const REFINE_CRIT_DMG = 0.2
+export const REFINE_CRIT_STEP = 30
+export const ORB_SRC_SIZE = 4
+export const ORB_DRAW = 8
+export const SLASH_FRAME = 96
+export const SLASH_FRAMES = 6
+export const SLASH_FPS = 12
+export const SLASH_RANGE = BODY
+export const SLASH_THICK = BODY * 0.5
+export const SLASH_DRAW = SLASH_RANGE
+export const SLASH_BODY_FRONT = BODY_W / 2
+export const EMPOWER_DRAW_W = 56
+export const EMPOWER_DRAW_H = 10
+export const EMPOWER_DRAW = EMPOWER_DRAW_W
 export const ARROW_SPEED = 520
 export const ATTACK_ANIM_SEC = 4 / 12
 export const ARROW_W = 11
@@ -25,6 +56,13 @@ export const ARROW_H = 3
 export const HIT_RADIUS = 3
 
 export const ARROW_SRC = assetUrl('assets/characters/Other/Arrow.png')
+export const ORB_SRC = assetUrl('assets/子弹/法球.png')
+export const SLASH_SRC = [
+  assetUrl('assets/子弹/挥砍-1.png'),
+  assetUrl('assets/子弹/挥砍-2.png'),
+  assetUrl('assets/子弹/挥砍-3.png'),
+]
+export const EMPOWER_SRC = assetUrl('assets/子弹/强化箭矢x.png')
 export const BLOOD_SRC = {
   D: assetUrl('assets/characters/Other/D_Blood.png'),
   S: assetUrl('assets/characters/Other/S_Blood.png'),
@@ -60,14 +98,113 @@ export function knockbackForCharge(ratio) {
   return BODY * (KB_MIN_BODIES + (KB_MAX_BODIES - KB_MIN_BODIES) * ratio)
 }
 
-/** 满蓄基础 +1；升级穿透再叠加。返回可继续穿透的额外目标数。 */
-export function pierceForCharge(ratio, bonus = 0) {
-  const full = ratio >= 1 ? 1 : 0
-  return full + Math.max(0, bonus | 0)
+/** 战士：基础击退 0；每 1 穿透 +0.5 身位。满蓄不再另加。 */
+export function warriorKnockback(pierceBonus = 0) {
+  return Math.max(0, pierceBonus | 0) * 0.5 * BODY
 }
 
-export function shotDamage(ratio, attack = ATTACK_BASE) {
-  return Math.max(1, damageForCharge(ratio, attack))
+/** 满蓄基础 +1；升级穿透再叠加。返回可继续穿透的额外目标数。游侠默认。 */
+export function pierceForCharge(ratio, bonus = 0, extraFull = 0) {
+  return pierceForChar('ranger', ratio, bonus, extraFull)
+}
+
+export function pierceForChar(charId, ratio, bonus = 0, extraFull = 0) {
+  const r = ratio >= 1
+  const id = resolveCharId({ charId })
+  if (id === 'mage') return 0
+  if (id === 'warrior') return 999
+  const base = r ? 1 : 0
+  const extra = r ? Math.max(0, extraFull | 0) : 0
+  return Math.max(0, base + extra + (bonus | 0))
+}
+
+export function shotDamage(ratio, attack = ATTACK_BASE, opts = {}) {
+  const r = Math.max(0, Math.min(1, ratio))
+  const atk = Math.max(1, attack)
+  const id = resolveCharId({ charId: opts.charId })
+  if (opts.empowerFull && r >= 1) return Math.ceil(atk * EMPOWER_FULL_MUL)
+  if (id === 'mage') {
+    const p = Math.max(0, opts.pierceBonus | 0)
+    return atk * (1 + p * MAGE_PIERCE_DMG + MAGE_CHARGE_DMG * r)
+  }
+  if (id === 'warrior') {
+    return atk * (1 + WARRIOR_CHARGE_DMG * r)
+  }
+  return Math.max(1, atk * (1 + r))
+}
+
+export function critChanceForRoll(rate = 0) {
+  return Math.min(100, Math.max(0, Number(rate) || 0))
+}
+
+export function critDamageMul(rate = 0, refinePicks = 0) {
+  const steps = Math.floor(Math.max(0, Number(rate) || 0) / REFINE_CRIT_STEP)
+  const n = Math.max(0, refinePicks | 0)
+  return CRIT_DAMAGE_MUL + REFINE_CRIT_DMG * steps * n
+}
+
+export function rollCrit(rate = 0, rng = Math.random) {
+  const p = critChanceForRoll(rate)
+  if (p <= 0) return false
+  const u = typeof rng === 'function' ? rng() : Math.random()
+  return u * 100 < p
+}
+
+export function fireIntervalForPicks(n = 0) {
+  return FIRE_INTERVAL / ONLY_FAST_MUL ** Math.max(0, n | 0)
+}
+
+export function leftoverDamage(dmg, hpBefore) {
+  return Math.max(0, dmg - Math.max(0, hpBefore))
+}
+
+export function attackForChar(charId) {
+  const id = resolveCharId({ charId })
+  if (id === 'mage') return MAGE_ATTACK
+  if (id === 'warrior') return WARRIOR_ATTACK
+  return ATTACK_BASE
+}
+
+/** P20 开火音效钩子用：按角色返回 kind（游侠 shoot / 战士 slash / 法师 fireball）。 */
+export function fireKindForChar(charId) {
+  const id = resolveCharId({ charId })
+  if (id === 'warrior') return 'slash'
+  if (id === 'mage') return 'fireball'
+  return 'shoot'
+}
+
+export function sheetFrameIndex(t, fps = SLASH_FPS, frames = SLASH_FRAMES) {
+  const n = Math.max(1, frames | 0)
+  return Math.floor(Math.max(0, t) * fps) % n
+}
+
+/** 游侠满蓄 ×1.25；战士随蓄力线性到 ×1.6（只用于长度）；法师随蓄力到 ×3。再叠大娃。 */
+export function chargeSizeMul(ratio, giantMul = 1, charId = 'ranger') {
+  const g = giantMul > 0 ? giantMul : 1
+  const r = Math.max(0, Math.min(1, ratio))
+  const id = resolveCharId({ charId })
+  if (id === 'mage') {
+    return g * (1 + (MAGE_FULL_SIZE - 1) * r)
+  }
+  if (id === 'warrior') {
+    return g * (1 + WARRIOR_CHARGE_DMG * r)
+  }
+  return g * (r >= 1 ? 1 + CHARGE_SIZE_BONUS : 1)
+}
+
+export function slashLength(ratio, giantMul = 1) {
+  return SLASH_RANGE * chargeSizeMul(ratio, giantMul, 'warrior')
+}
+
+export function slashThick(giantMul = 1) {
+  const g = giantMul > 0 ? giantMul : 1
+  return SLASH_THICK * g
+}
+
+export function resolveCharId(player) {
+  const id = player?.charId
+  if (id === 'warrior' || id === 'mage') return id
+  return 'ranger'
 }
 
 /**
@@ -90,27 +227,33 @@ export function fireAngles(base, extraFront = 0, backCount = 0, stepDeg = SPREAD
 
 export function giantSizeMul(picks) {
   const n = Math.max(0, picks | 0)
-  if (n <= 0) return 1
-  return 1 + 1 + 0.5 * (n - 1)
+  return 1 + 0.4 * n
 }
 
 /**
  * @param {{ chargeMax?: number }} [opts]
  */
 export function createBow(opts = {}) {
+  const atk0 = opts.attack ?? attackForChar(opts.charId)
   const weapon = {
     name: WEAPON_NAME,
+    charId: resolveCharId({ charId: opts.charId }),
     chargeMax: opts.chargeMax ?? CHARGE_MAX_SEC,
     charge: 0,
     charging: false,
     fireCd: 0,
+    fireInterval: FIRE_INTERVAL,
     extraShots: 0,
     backShots: 0,
     pierceBonus: 0,
-    attack: opts.attack ?? ATTACK_BASE,
-    dmgBonus: (opts.attack ?? ATTACK_BASE) - ATTACK_BASE,
+    attack: atk0,
+    dmgBonus: atk0 - ATTACK_BASE,
     giantPicks: 0,
     sizeMul: 1,
+    empowerPicks: 0,
+    critRate: 0,
+    refinePicks: 0,
+    onlyFastPicks: 0,
     dualShot: false,
     infiniteAmmo: Boolean(opts.infiniteAmmo),
     mag: 0,
@@ -118,7 +261,7 @@ export function createBow(opts = {}) {
     reloading: false,
     reloadLeft: 0,
     reloadSec: opts.chargeMax ?? CHARGE_MAX_SEC,
-    damage: opts.attack ?? ATTACK_BASE,
+    damage: atk0,
     applyUpgrade,
     setInfiniteAmmo(v) {
       weapon.infiniteAmmo = Boolean(v)
@@ -159,6 +302,26 @@ export function createBow(opts = {}) {
     if (id === 'giant') {
       weapon.giantPicks += 1
       weapon.sizeMul = giantSizeMul(weapon.giantPicks)
+      return true
+    }
+    if (id === 'empower_shot') {
+      weapon.empowerPicks += 1
+      const who = resolveCharId({ charId: weapon.charId })
+      if (who === 'ranger' && weapon.empowerPicks === 1) bumpAttack(EMPOWER_RANGER_FIRST)
+      else bumpAttack(EMPOWER_ATK)
+      return true
+    }
+    if (id === 'crit') {
+      weapon.critRate = (weapon.critRate || 0) + CRIT_CHANCE_PER_PICK
+      return true
+    }
+    if (id === 'refine') {
+      weapon.refinePicks = (weapon.refinePicks || 0) + 1
+      return true
+    }
+    if (id === 'only_fast') {
+      weapon.onlyFastPicks = (weapon.onlyFastPicks || 0) + 1
+      weapon.fireInterval = fireIntervalForPicks(weapon.onlyFastPicks)
       return true
     }
     if (id === 'reload' || id === 'charge') {

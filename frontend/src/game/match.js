@@ -2,13 +2,31 @@
  * M9 集成：设置（测试模式）+ 胜负 + 刷怪倍率。
  * P6：活设置倍率；黑洞飞行吸入；levelup 播完 +1 再出三选一。
  * P9：跟班 update/draw；升级停顿只飞不拾取；暂停清键。
+ * P12：charId；死亡动画后再结算；伤害数字。
+ * P13：结晶升级与测试强制升级同一套：先停、播 +1、再三选一。
+ * P14：回血绿字、测试时间写入 elapsed。
+ * P15：去掉开局目标；测试木桩 setDummyEnabled；自选升级在 GameShell。
+ * P18：难度二血成长、Boss 击杀、冰人结晶爆发。
+ * P20：开火/拾取音效接线（combat onFire → sfx；结晶每颗吸收即播，不节流可叠加）。
+ * P21：受伤音效接线（player onHurt → sfx.play('hurt')）。
+ * P24：万物一心档 8 优先目标——combat onDamage 记录玩家最近击中的活敌 → companions.getPriorityTarget。
  */
 import { createCombat } from './combat/index.js'
 import { createCompanions } from './companions/index.js'
 import { createEnemies } from './enemies/index.js'
-import { createPlayer } from './player/index.js'
+import {
+  createPlayer,
+  drawDamageNums,
+  resetDamageNums,
+  spawnDamageNum,
+  spawnHealNum,
+  updateDamageNums,
+} from './player/index.js'
 import { stepLevelUpFx } from './render/levelup.js'
 import { createEnvironment } from './world/index.js'
+import { getSharedSfx } from '../ui/sfx.js'
+
+const sfx = getSharedSfx()
 
 /**
  * 黑洞：只标记结晶飞向角色（不当帧删、不当帧给经验）。
@@ -36,7 +54,27 @@ export function createMatchRuntime(opts) {
   let companions = null
   let active = false
   let deadNotified = false
+  let deathArmed = false
   let starting = false
+
+  function onDamage(ent, dmg) {
+    if (!ent || !(dmg > 0)) return
+    spawnDamageNum(ent.x, ent.y, dmg, ent)
+  }
+
+  // 万物一心档 8「优先攻击角色正在攻击的目标」：只记玩家（combat）打中的活敌；
+  // 跟班的 onDamage 不经过这里，避免跟班追自己打过的目标。
+  let lastPlayerTarget = null
+
+  function onPlayerDamage(ent, dmg) {
+    onDamage(ent, dmg)
+    if (ent && dmg > 0 && ent.hp > 0) lastPlayerTarget = ent
+  }
+
+  function onHeal(ent, n) {
+    if (!ent || !(n > 0)) return
+    spawnHealNum(ent.x, ent.y, n, ent)
+  }
 
   function io() {
     return {
@@ -55,8 +93,19 @@ export function createMatchRuntime(opts) {
         godMode: false,
         infiniteAmmo: false,
         spawnRate: 1,
+        testDummy: false,
       }
     )
+  }
+
+  function syncDummy(settings) {
+    if (!foes?.setDummyEnabled) return
+    const on = Boolean(settings?.testMode && settings?.testDummy)
+    const dummy = foes.setDummyEnabled(on, player)
+    if (dummy) {
+      dummy.knockbackable = true
+      dummy.knockbackScale = 0
+    }
   }
 
   function teardown() {
@@ -69,12 +118,18 @@ export function createMatchRuntime(opts) {
     companions = null
     active = false
     deadNotified = false
+    deathArmed = false
+    resetDamageNums()
     engine.setFollowTarget(null)
     shell.bind({ player: null, combat: null, env: null, companions: null })
   }
 
   function bindCtx() {
     return { player, combat, env, companions }
+  }
+
+  function hpGrowthAdd() {
+    return String(shell.ui?.session?.difficulty) === '2' ? 5 : 0
   }
 
   function tryBeginUpgradeOffer() {
@@ -90,20 +145,35 @@ export function createMatchRuntime(opts) {
     try {
       teardown()
       deadNotified = false
+      deathArmed = false
+      lastPlayerTarget = null
       const settings = payload.settings || readSettings()
+      const charId =
+        payload.charId ||
+        payload.ui?.session?.charId ||
+        shell.ui?.session?.charId ||
+        'ranger'
 
       player = createPlayer({
         godMode: settings.testMode && settings.godMode,
+        charId,
+        onHurt: () => sfx.play('hurt'),
       })
       engine.setFollowTarget(player)
       player.bindInput(io())
       await player.loadAssets()
+      if (settings.testMode) {
+        shell.ui?.session?.setElapsedSec?.(settings.testElapsedSec ?? 0)
+      }
 
       env = createEnvironment({
+        getHpGrowthAdd: hpGrowthAdd,
         hooks: {
           onCrystal: () => {
+            // notifyExp 回传的是「本次升了几级」（普通结晶为 0），不是「获得了经验」。
             const gained = shell.notifyExp(1)
             if (gained > 0) player?.queueLevelUpFx?.(gained)
+            sfx.play('pickup')
           },
           onFruit: (heal) => player?.heal?.(heal),
         },
@@ -113,18 +183,28 @@ export function createMatchRuntime(opts) {
 
       foes = createEnemies({
         player,
+        getHpGrowthAdd: hpGrowthAdd,
         hooks: {
           spawnCrystal: (x, y) => env.spawnCrystal(x, y),
-          onKill: () => shell.ui.addKill(),
+          spawnCrystalBurst: (x, y, n) => env.spawnCrystalBurst(x, y, n),
+          onKill: (ent) => {
+            shell.ui.addKill()
+            if (ent?.kind === 'ice_man') shell.ui.addBossKill?.()
+          },
+          onHeal,
         },
       })
       await foes.loadAssets()
+      syncDummy(settings)
 
       combat = createCombat({
         player,
         targets: foes.targets,
         hooks: {
           hitWorld: (x, y, dmg, r) => env.hitAt(x, y, dmg, r),
+          hitSlashAt: (opts) => env.hitSlashAt(opts),
+          onFire: (kind) => sfx.play(kind),
+          onDamage: onPlayerDamage,
         },
       })
       if (settings.testMode && settings.infiniteAmmo) {
@@ -136,6 +216,15 @@ export function createMatchRuntime(opts) {
         player,
         getTargets: () => foes.targets,
         getAttack: () => combat?.pistol?.attack ?? player?.attack ?? 20,
+        getKills: () => shell.ui?.session?.kills ?? 0,
+        getPriorityTarget: () => {
+          const t = lastPlayerTarget
+          return t && t.hp > 0 ? t : null
+        },
+        hooks: {
+          onDamage,
+          onHeal: (n) => onHeal(player, n),
+        },
       })
       await companions.loadAssets()
 
@@ -171,16 +260,35 @@ export function createMatchRuntime(opts) {
       player.setGodMode?.(false)
       combat.pistol.setInfiniteAmmo?.(false)
     }
+    syncDummy(s)
 
     player.update(dt)
     env.collideSolid(player)
-    combat.update(dt)
-    const elapsed = shell.ui.session.elapsedSec
-    const rate = s.testMode ? s.spawnRate : 1
-    foes.update(dt, player, engine.camera, elapsed, rate)
-    companions.update(dt)
-    env.update(dt, player, engine.camera, elapsed)
-    shell.tick(dt)
+
+    if (player.hp > 0) {
+      combat.update(dt)
+      const elapsed = shell.ui.session.elapsedSec
+      const rate = s.testMode ? s.spawnRate : 1
+      foes.update(dt, player, engine.camera, elapsed, rate)
+      companions.update(dt)
+      env.update(dt, player, engine.camera, elapsed)
+      if (phase() === 'levelup') {
+        player.clearMovementKeys?.()
+        stepLevelUpFx(player, dt)
+        env.updatePickups?.(dt, player, { collect: false })
+        tryBeginUpgradeOffer()
+        return
+      }
+      shell.tick(dt)
+    } else {
+      if (!deathArmed) {
+        deathArmed = true
+        combat.unbindInput()
+        player.unbindInput()
+      }
+      combat.update(dt)
+    }
+    updateDamageNums(dt)
 
     if (phase() === 'victory' && !deadNotified) {
       deadNotified = true
@@ -189,10 +297,8 @@ export function createMatchRuntime(opts) {
       return
     }
 
-    if (player.hp <= 0 && !deadNotified) {
+    if (player.hp <= 0 && !deadNotified && player.deathAnimDone()) {
       deadNotified = true
-      combat.unbindInput()
-      player.unbindInput()
       void shell.notifyDead()
     }
   }
@@ -204,6 +310,7 @@ export function createMatchRuntime(opts) {
     companions.draw(ctx)
     player.draw(ctx)
     combat.draw(ctx)
+    drawDamageNums(ctx)
   }
 
   function install() {

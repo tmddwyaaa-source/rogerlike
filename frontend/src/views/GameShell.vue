@@ -1,6 +1,8 @@
 <script setup>
 import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { createMatchUi, getSharedBgm } from '../ui/index.js'
+import { bondTiers, BOND_DESC } from '../ui/constants.js'
+import { getSharedSfx } from '../ui/sfx.js'
 import '../ui/pixel.css'
 import HudOverlay from './HudOverlay.vue'
 import MoreView from './MoreView.vue'
@@ -14,6 +16,9 @@ const emit = defineEmits(['start', 'again', 'home'])
 const ui = createMatchUi()
 const settings = reactive(ui.settings)
 const bgm = getSharedBgm()
+const sfx = getSharedSfx()
+let lastPhaseForSfx = 'menu'
+let heartbeatOn = false
 const hud = reactive(ui.snapshot())
 const menuStep = ref('menu')
 const bindCtx = { player: null, combat: null, env: null, companions: null }
@@ -27,6 +32,25 @@ const moreRef = ref(null)
 
 function syncHud() {
   Object.assign(hud, ui.snapshot(bindCtx.player, bindCtx.combat))
+  syncSfx()
+}
+
+/** UI 相位音效：levelup/defeat/victory 进入时各播一次；心跳 hp<=1 循环、回血或死亡即停。 */
+function syncSfx() {
+  const p = hud.phase
+  if (p !== lastPhaseForSfx) {
+    if (p === 'levelup') sfx.play('levelup')
+    else if (p === 'result') sfx.play('defeat')
+    else if (p === 'victory') sfx.play('victory')
+    lastPhaseForSfx = p
+  }
+  const paused = p === 'settings' || p === 'more' || p === 'memories'
+  const lowHp = hud.hp <= 1 && (inLiveMatch(p) || (paused && inLiveMatch(hud.resumePhase)))
+  if (lowHp && !heartbeatOn) heartbeatOn = sfx.startHeartbeat()
+  else if (!lowHp && heartbeatOn) {
+    sfx.stopHeartbeat()
+    heartbeatOn = false
+  }
 }
 
 function bind(ctx = {}) {
@@ -60,7 +84,8 @@ function onPlay() {
   syncHud()
 }
 
-function onPickChar() {
+function onPickChar(id) {
+  ui.session.charId = id || 'ranger'
   menuStep.value = 'difficulty'
   ui.session.setPhase('difficulty')
   syncHud()
@@ -120,9 +145,21 @@ function openPauseSettings() {
 }
 
 function onSettingsUpdate(next) {
+  const prevElapsed = settings.testElapsedSec
   Object.assign(settings, next)
   ui.persistSettings()
-  bgm.setVolume(settings.volume)
+  applyVolumes()
+  const live = inLiveMatch(ui.session.phase) || inLiveMatch(ui.session.resumePhase)
+  const elapsedChanged = settings.testElapsedSec !== prevElapsed
+  if (
+    settings.testMode &&
+    elapsedChanged &&
+    live &&
+    typeof ui.session.setElapsedSec === 'function'
+  ) {
+    ui.session.setElapsedSec(settings.testElapsedSec)
+  }
+  syncHud()
 }
 
 function onSettingsBoost(n) {
@@ -207,9 +244,25 @@ function onHome() {
   emit('home')
 }
 
+function onGrantUpgrade(id) {
+  ui.grantUpgrade(id, bindCtx)
+  syncHud()
+}
+
+function showingBonds() {
+  const p = hud.phase
+  if (inLiveMatch(p)) return true
+  if ((p === 'settings' || p === 'more' || p === 'memories') && inLiveMatch(hud.resumePhase)) return true
+  return false
+}
+
 function onEsc(e) {
   if (e.key !== 'Escape') return
   e.preventDefault()
+  if (settingsRef.value?.isUpgradePickerOpen?.()) {
+    settingsRef.value.closeUpgradePicker()
+    return
+  }
   if (settingsRef.value?.isConfirmingHome?.()) {
     settingsRef.value.cancelHome()
     return
@@ -233,13 +286,20 @@ function onEsc(e) {
 }
 
 watch(settings, () => ui.persistSettings(), { deep: true })
+/** 实际 BGM = 总音量 × 背景音乐；实际音效 = 总音量 × 音效音量。 */
+function applyVolumes() {
+  const master = settings.volume
+  bgm.setVolume(master * (settings.bgmVolume ?? 0.7))
+  sfx.setVolume(master * (settings.sfxVolume ?? 0.7))
+}
+
 watch(
-  () => settings.volume,
-  (v) => bgm.setVolume(v),
+  () => [settings.volume, settings.bgmVolume, settings.sfxVolume],
+  applyVolumes,
 )
 
 function tryPlayBgm() {
-  bgm.setVolume(settings.volume)
+  applyVolumes()
   bgm.play()
 }
 
@@ -317,6 +377,7 @@ defineExpose({
     <MoreView
       v-else-if="hud.phase === 'more'"
       ref="moreRef"
+      :char-id="hud.charId"
       @back="closeMore"
     />
 
@@ -326,10 +387,12 @@ defineExpose({
       :settings="settings"
       :boost="settingsDraftBoost"
       :in-match="inLiveMatch(hud.resumePhase)"
+      :char-id="hud.charId"
       @update:settings="onSettingsUpdate"
       @boost="onSettingsBoost"
       @back="closeSettings"
       @home="onSettingsHome"
+      @grant-upgrade="onGrantUpgrade"
     />
 
     <template v-else>
@@ -337,6 +400,7 @@ defineExpose({
       <UpgradeView
         v-if="hud.phase === 'upgrade'"
         :choices="hud.choices"
+        :char-id="hud.charId"
         @choose="onChoose"
       />
       <ResultView
@@ -350,5 +414,23 @@ defineExpose({
         @retry="submitNow"
       />
     </template>
+
+    <aside
+      v-if="showingBonds() && hud.bonds && hud.bonds.length"
+      class="rl-bonds"
+    >
+      <span v-for="b in hud.bonds" :key="b.id" class="rl-bond">
+        {{ b.title }} {{ b.rank }}
+        <span class="rl-bond-tip">
+          <strong>{{ b.title }}：{{ BOND_DESC[b.id] }}</strong>
+          <span
+            v-for="t in bondTiers(b.id)"
+            :key="t.rank"
+            class="rl-bond-tier"
+            :class="{ reached: t.rank <= b.rank }"
+          >档 {{ t.rank }} · {{ t.text }}</span>
+        </span>
+      </span>
+    </aside>
   </div>
 </template>

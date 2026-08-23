@@ -37,6 +37,16 @@ export function createPickupField(opts = {}) {
     })
   }
 
+  /** n 个结晶均匀散在以 (x,y) 为心、半径 BODY 的圆盘内，避免叠成一点。 */
+  function spawnCrystalBurst(x, y, n = 1) {
+    const count = Math.max(0, n | 0)
+    for (let i = 0; i < count; i++) {
+      const ang = random() * Math.PI * 2
+      const r = Math.sqrt(random()) * BODY
+      spawnCrystal(x + Math.cos(ang) * r, y + Math.sin(ang) * r)
+    }
+  }
+
   function spawnFruit(x, y) {
     items.push({
       type: 'fruit',
@@ -61,12 +71,12 @@ export function createPickupField(opts = {}) {
     }
   }
 
-  function magnetMul() {
-    return typeof opts.getMagnetMul === 'function' ? opts.getMagnetMul() : 1
+  function magnetBonus() {
+    return typeof opts.getMagnetBonus === 'function' ? opts.getMagnetBonus() : 0
   }
 
   function crystalMagnetRange() {
-    return MAGNET_RANGE * magnetMul()
+    return MAGNET_RANGE + BODY * magnetBonus()
   }
 
   /** 黑洞：只给结晶打强制吸入标记，不当帧删、不当帧给经验。水果不吸。 */
@@ -118,6 +128,7 @@ export function createPickupField(opts = {}) {
   return {
     items,
     spawnCrystal,
+    spawnCrystalBurst,
     spawnFruit,
     spawnTreeDrops,
     pullAllCrystals,

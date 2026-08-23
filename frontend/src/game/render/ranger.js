@@ -31,22 +31,43 @@ export const ANIM_FPS = {
 }
 
 export const HURT_SEC = 0.22
+/** 8 帧 × 8fps = 1.0s，最后一帧停住。 */
+export const DEATH_ANIM_SEC = 1
+
+export const CHAR_FOLDERS = {
+  ranger: '1',
+  warrior: '2',
+  mage: '3',
+}
+
+export const CHAR_DISPLAY = {
+  ranger: '游侠',
+  warrior: '战士',
+  mage: '法师',
+}
+
+export function resolveCharId(id) {
+  return CHAR_FOLDERS[id] ? id : 'ranger'
+}
 
 const DIRS = ['D', 'S', 'U']
 const ANIMS = ['Idle', 'Walk', 'Attack', 'Hurt', 'Death']
 
-const SRC = {
-  Shadow: assetUrl('assets/characters/Other/Shadow.png'),
-}
+const caches = Object.create(null)
+const pendings = Object.create(null)
 
-for (const d of DIRS) {
-  for (const a of ANIMS) {
-    SRC[`${d}_${a}`] = assetUrl(`assets/characters/1/${d}_${a}.png`)
+function buildSrc(charId) {
+  const folder = CHAR_FOLDERS[resolveCharId(charId)]
+  const src = {
+    Shadow: assetUrl('assets/characters/Other/Shadow.png'),
   }
+  for (const d of DIRS) {
+    for (const a of ANIMS) {
+      src[`${d}_${a}`] = assetUrl(`assets/characters/${folder}/${d}_${a}.png`)
+    }
+  }
+  return src
 }
-
-let cache = null
-let pending = null
 
 function chromaBlack(img) {
   const c = document.createElement('canvas')
@@ -76,13 +97,15 @@ function loadImage(src) {
   })
 }
 
-export function loadRangerAssets() {
-  if (cache) return Promise.resolve(cache)
-  if (pending) return pending
+export function loadRangerAssets(charId = 'ranger') {
+  const id = resolveCharId(charId)
+  if (caches[id]) return Promise.resolve(caches[id])
+  if (pendings[id]) return pendings[id]
   if (typeof Image === 'undefined' || typeof document === 'undefined') {
     return Promise.resolve(null)
   }
-  pending = Promise.all(
+  const SRC = buildSrc(id)
+  pendings[id] = Promise.all(
     Object.entries(SRC).map(async ([key, src]) => {
       const img = await loadImage(src)
       const sheet = key === 'Shadow' ? img : chromaBlack(img)
@@ -90,15 +113,15 @@ export function loadRangerAssets() {
     }),
   )
     .then((pairs) => {
-      cache = Object.fromEntries(pairs)
-      return cache
+      caches[id] = Object.fromEntries(pairs)
+      return caches[id]
     })
     .catch(() => null)
-  return pending
+  return pendings[id]
 }
 
-export function getRangerSheets() {
-  return cache
+export function getRangerSheets(charId = 'ranger') {
+  return caches[resolveCharId(charId)] || null
 }
 
 /**
@@ -113,6 +136,10 @@ export function facingFromAngle(facing = 0) {
     return { facingDir: s >= 0 ? 'D' : 'U', flipX: false }
   }
   return { facingDir: 'S', flipX: c > 0 }
+}
+
+export function deathAnimDone(player) {
+  return (player?.hp ?? 1) <= 0 && (player?.deathT ?? 0) >= DEATH_ANIM_SEC
 }
 
 export function resolveAnim(player) {
@@ -192,13 +219,14 @@ function blit(ctx, img, frame, dx, dy, flipX) {
 /**
  * @returns {boolean} 是否已用贴图画完（false 则调用方用火柴人兜底）
  */
-export function drawRanger(ctx, player, sheets = cache) {
-  if (!sheets || !ctx.drawImage) return false
+export function drawRanger(ctx, player, sheets) {
+  const pack = sheets || getRangerSheets(player?.charId)
+  if (!pack || !ctx.drawImage) return false
 
   const inv = player.invuln ?? 0
   const dead = (player.hp ?? 1) <= 0
   if (!dead && inv > 0 && Math.floor(inv * 12) % 2 === 0) {
-    drawShadow(ctx, player, sheets)
+    drawShadow(ctx, player, pack)
     return true
   }
 
@@ -208,11 +236,11 @@ export function drawRanger(ctx, player, sheets = cache) {
   }
   const anim = player.anim || resolveAnim(player)
   const key = `${facingDir}_${anim}`
-  const img = sheets[key]
+  const img = pack[key]
   const { dx, dy } = spriteOrigin(player)
 
-  drawShadow(ctx, player, sheets)
-  if (!img) return Boolean(sheets.Shadow)
+  drawShadow(ctx, player, pack)
+  if (!img) return Boolean(pack.Shadow)
 
   const fi = Math.max(0, frameIndex(player, anim))
   blit(ctx, img, fi, dx, dy, facingDir === 'S' && flipX)

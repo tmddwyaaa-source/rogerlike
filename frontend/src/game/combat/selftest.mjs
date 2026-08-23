@@ -5,25 +5,59 @@ import { BODY, WORLD_HEIGHT, WORLD_WIDTH } from '../constants.js'
 import {
   ATTACK_BASE,
   CHARGE_MAX_SEC,
+  CHARGE_SIZE_BONUS,
   CHARGE_UPGRADE,
+  CRIT_CHANCE_PER_PICK,
+  CRIT_DAMAGE_MUL,
+  critChanceForRoll,
+  critDamageMul,
   DMG_MAX,
   DMG_MIN,
   DUAL_SPREAD_DEG,
+  EMPOWER_ATK,
+  EMPOWER_FULL_MUL,
+  EMPOWER_PIERCE,
+  EMPOWER_RANGER_FIRST,
+  EMPOWER_SPEED,
+  EMPOWER_SRC,
   FIRE_INTERVAL,
+  fireIntervalForPicks,
   HIT_RADIUS,
   KNOCKBACK_DIST,
+  MAGE_ATTACK,
+  MAGE_EXPAND_SEC,
+  MAGE_FULL_SIZE,
+  ONLY_FAST_MUL,
+  ORB_DRAW,
   POWER_DMG,
   SCATTER_DMG_PENALTY,
+  SLASH_BODY_FRONT,
+  SLASH_DRAW,
+  SLASH_RANGE,
+  SLASH_THICK,
+  WARRIOR_ATTACK,
+  WARRIOR_FULL_SIZE,
   applyKnockback,
+  attackForChar,
   chargeRatio,
+  chargeSizeMul,
   createBow,
   createCombat,
   damageForCharge,
   fireAngles,
+  fireKindForChar,
   giantSizeMul,
   knockbackForCharge,
+  leftoverDamage,
+  obbHitsAabb,
+  pierceForChar,
   pierceForCharge,
+  rollCrit,
+  sheetFrameIndex,
   shotDamage,
+  slashLength,
+  slashThick,
+  warriorKnockback,
 } from './index.js'
 
 let failed = 0
@@ -73,8 +107,45 @@ assert('pierce only full', pierceForCharge(0.99) === 0 && pierceForCharge(1) ===
 assert('pierce +1 tap hits 2', pierceForCharge(0, 1) === 1)
 assert('pierce +1 full hits 3', pierceForCharge(1, 1) === 2)
 assert('shotDamage uses attack', shotDamage(0, 28) === 28 && shotDamage(1, 28) === 56)
-assert('giant 1st ×2', giantSizeMul(1) === 2)
-assert('giant 2nd ×2.5', giantSizeMul(2) === 2.5)
+assert('giant 1st ×1.4', giantSizeMul(1) === 1.4)
+assert('giant 2nd ×1.8', giantSizeMul(2) === 1.8)
+assert('full size ×1.25', chargeSizeMul(1, 1) === 1 + CHARGE_SIZE_BONUS)
+assert('tap size ×1', chargeSizeMul(0, 1) === 1)
+assert('giant+full size', Math.abs(chargeSizeMul(1, 2) - 2.5) < 1e-9)
+assert('mage sizeMul 3', Math.abs(chargeSizeMul(1, 1, 'mage') - MAGE_FULL_SIZE) < 1e-9 && MAGE_FULL_SIZE === 3)
+assert('mage tap sizeMul 1', chargeSizeMul(0, 1, 'mage') === 1)
+assert('mage giant+full', Math.abs(chargeSizeMul(1, 1.4, 'mage') - 3 * 1.4) < 1e-9)
+assert('warrior full sizeMul 1.6', Math.abs(chargeSizeMul(1, 1, 'warrior') - WARRIOR_FULL_SIZE) < 1e-9)
+assert('warrior tap sizeMul 1', chargeSizeMul(0, 1, 'warrior') === 1)
+assert('warrior mid sizeMul 1.3', Math.abs(chargeSizeMul(0.5, 1, 'warrior') - 1.3) < 1e-9)
+assert('SLASH_RANGE BODY', SLASH_RANGE === BODY && Math.abs(SLASH_THICK - BODY * 0.5) < 1e-9)
+assert('slashLength tap/full', slashLength(0) === BODY && Math.abs(slashLength(1) - BODY * 1.6) < 1e-9)
+assert(
+  '3 giant full ~77',
+  Math.abs(slashLength(1, giantSizeMul(3)) - BODY * 1.6 * 2.2) < 1e-9 &&
+    Math.abs(slashThick(giantSizeMul(3)) - SLASH_THICK * 2.2) < 1e-9,
+)
+assert('warrior mid dmg', shotDamage(0.5, 22, { charId: 'warrior' }) === 28.6)
+assert('attackForChar', attackForChar('mage') === MAGE_ATTACK && attackForChar('warrior') === WARRIOR_ATTACK && attackForChar('ranger') === ATTACK_BASE)
+assert('mage pierce always 0', pierceForChar('mage', 0) === 0 && pierceForChar('mage', 1, 2) === 0)
+assert('mage tap dmg 25', shotDamage(0, 25, { charId: 'mage' }) === 25)
+assert('mage full dmg 37.5', shotDamage(1, 25, { charId: 'mage' }) === 37.5)
+assert('mage pierce1 full 42.5', shotDamage(1, 25, { charId: 'mage', pierceBonus: 1 }) === 42.5)
+assert('warrior full dmg ×1.6', shotDamage(1, 22, { charId: 'warrior' }) === 35.2)
+assert('warrior infinite pierce', pierceForChar('warrior', 0) >= 99 && pierceForChar('warrior', 1) >= 99)
+assert('warriorKnockback 0/BODY', warriorKnockback(0) === 0 && warriorKnockback(2) === BODY)
+assert('crit 0 never', rollCrit(0, () => 0) === false)
+assert('crit 100 always', rollCrit(100, () => 0.99) === true && CRIT_CHANCE_PER_PICK === 10 && CRIT_DAMAGE_MUL === 1.5)
+assert('crit cap 150→100', critChanceForRoll(150) === 100)
+assert('refine 30% ×1.7', Math.abs(critDamageMul(30, 1) - 1.7) < 1e-9)
+assert('only_fast /1.2', Math.abs(fireIntervalForPicks(1) - FIRE_INTERVAL / ONLY_FAST_MUL) < 1e-9)
+assert('leftover', leftoverDamage(50, 22) === 28)
+assert('sheet frame 0', sheetFrameIndex(0) === 0)
+assert('sheet frame 5', sheetFrameIndex(5 / 12) === 5)
+assert('sheet loops', sheetFrameIndex(6 / 12) === 0)
+assert('EMPOWER_FULL_MUL 2.5', EMPOWER_FULL_MUL === 2.5 && EMPOWER_PIERCE === 2)
+assert('EMPOWER_SRC laser', typeof EMPOWER_SRC === 'string' && String(EMPOWER_SRC).includes('强化箭矢x'))
+assert('EMPOWER_SPEED 680', EMPOWER_SPEED === 680)
 
 const creep = makeCreep(40)
 const combat = createCombat({ player, targets: [creep], weapon: bow })
@@ -156,6 +227,13 @@ assert(
   'no resist keeps dist',
   applyKnockback(mush, 1, 0, BODY) === true &&
     Math.abs(mush.x - (player.x + BODY)) < 1e-9,
+)
+
+const scaled = { x: player.x, y: player.y, knockbackable: true, knockbackScale: 0.5 }
+assert(
+  'knockbackScale 0.5',
+  applyKnockback(scaled, 1, 0, BODY) === true &&
+    Math.abs(scaled.x - (player.x + BODY * 0.5)) < 1e-9,
 )
 
 const snailTap = makeCreep(40)
@@ -259,12 +337,12 @@ const gW = createBow()
 const cG = createCombat({ player, targets: [], weapon: gW })
 cG.applyUpgrade('giant')
 cG.tryFire(1)
-assert('giant radius ×2', Math.abs(cG.bullets[0].radius - HIT_RADIUS * 2) < 1e-9)
+assert('giant+full radius ×1.75', Math.abs(cG.bullets[0].radius - HIT_RADIUS * 1.4 * 1.25) < 1e-9)
 cG.applyUpgrade('giant')
 cG.weapon.fireCd = 0
 cG.bullets.length = 0
 cG.tryFire(1)
-assert('giant 2nd ×2.5', Math.abs(cG.bullets[0].sizeMul - 2.5) < 1e-9)
+assert('giant 2nd+full ×2.25', Math.abs(cG.bullets[0].sizeMul - 1.8 * 1.25) < 1e-9)
 
 const ch = createBow()
 const cCh = createCombat({ player, targets: [], weapon: ch })
@@ -277,7 +355,492 @@ assert('charge 0 still ok', cCh.applyUpgrade('reload') === true && ch.chargeMax 
 cCh.beginCharge()
 assert('no charge needed → instant shot', cCh.bullets.length === 1 && cCh.charging === false)
 
-assert('FIRE_INTERVAL 0.21', FIRE_INTERVAL === 0.21)
+const eW = createBow()
+const eP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  lookAt() {},
+  setCharging() {},
+}
+const cE = createCombat({ player: eP, targets: [], weapon: eW })
+assert('empower 1st', cE.applyUpgrade('empower_shot') === true && eW.empowerPicks === 1)
+assert('empower 1st +5', eW.attack === ATTACK_BASE + EMPOWER_RANGER_FIRST)
+cE.tryFire(1)
+assert('empower full dmg ceil(atk×2.5)', cE.bullets[0].damage === Math.ceil((ATTACK_BASE + EMPOWER_RANGER_FIRST) * EMPOWER_FULL_MUL))
+assert(
+  'empower pierce +2',
+  cE.bullets[0].pierceLeft === pierceForCharge(1, 0) + EMPOWER_PIERCE,
+)
+assert('empower speed 680', Math.abs(Math.hypot(cE.bullets[0].vx, cE.bullets[0].vy) - EMPOWER_SPEED) < 1e-6)
+assert('empower kind', cE.bullets[0].kind === 'empower')
+assert('empower laser draw', cE.bullets[0].drawW > cE.bullets[0].drawH * 2)
+cE.weapon.fireCd = 0
+cE.bullets.length = 0
+cE.tryFire(0)
+assert(
+  'empower tap still normal',
+  cE.bullets[0].kind === 'arrow' &&
+    cE.bullets[0].damage === ATTACK_BASE + EMPOWER_RANGER_FIRST,
+)
+cE.applyUpgrade('empower_shot')
+assert('empower 2nd +15', eW.attack === ATTACK_BASE + EMPOWER_RANGER_FIRST + EMPOWER_ATK)
+
+const ovP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  lookAt() {},
+  setCharging() {},
+}
+const ov1 = makeCreep(36, 22)
+const ov2 = makeCreep(90, 40)
+const ovW = createBow()
+const cOv = createCombat({ player: ovP, targets: [ov1, ov2], weapon: ovW })
+cOv.applyUpgrade('empower_shot')
+cOv.tryFire(1)
+const ovDmg = cOv.bullets[0].damage
+cOv.bullets[0].pierceLeft = 0
+for (let i = 0; i < 50; i++) cOv.update(0.016)
+assert('overflow kills first', ov1.hp <= 0)
+assert('overflow leftover next', ov2.hp === 40 - leftoverDamage(ovDmg, 22))
+
+const wP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const cWar = createCombat({ player: wP, targets: [] })
+assert('warrior attack 22', cWar.weapon.attack === WARRIOR_ATTACK && WARRIOR_ATTACK === 22)
+cWar.tryFire(1)
+const slash = cWar.bullets[0]
+assert('warrior slash', slash.kind === 'slash' && slash.vx === 0 && slash.vy === 0)
+assert('warrior full dmg ×1.6 live', Math.abs(slash.damage - WARRIOR_ATTACK * 1.6) < 1e-9)
+assert('warrior full sizeMul 1.6 live', Math.abs(slash.sizeMul - WARRIOR_FULL_SIZE) < 1e-9)
+assert('warrior full kb 0', slash.knockback === 0)
+{
+  const len = SLASH_RANGE * WARRIOR_FULL_SIZE
+  const far = wP.x + SLASH_BODY_FRONT + len
+  assert(
+    'warrior full range ×1.6',
+    Math.abs(slash.x - (wP.x + SLASH_BODY_FRONT + len / 2)) < 1e-6,
+  )
+  assert('warrior draw not past far', slash.x + slash.drawW / 2 <= far + 1e-6)
+}
+const sx = slash.x
+cWar.update(0.25)
+assert(
+  'warrior slash stays',
+  cWar.bullets[0] &&
+    Math.abs(cWar.bullets[0].x - sx) < 1e-6 &&
+    Math.abs(cWar.bullets[0].x - wP.x) < BODY * 3,
+)
+cWar.weapon.fireCd = 0
+cWar.bullets.length = 0
+cWar.tryFire(0)
+assert('warrior tap sizeMul 1 live', cWar.bullets[0].sizeMul === 1)
+assert(
+  'warrior tap draw = 1 BODY',
+  Math.abs(cWar.bullets[0].drawW - SLASH_RANGE) < 1e-9 &&
+    Math.abs(cWar.bullets[0].drawH - SLASH_THICK) < 1e-9 &&
+    cWar.bullets[0].drawW !== cWar.bullets[0].drawH,
+)
+assert(
+  'warrior tap range from body front',
+  Math.abs(cWar.bullets[0].x - (wP.x + SLASH_BODY_FRONT + SLASH_RANGE / 2)) < 1e-6,
+)
+cWar.weapon.fireCd = 0
+cWar.bullets.length = 0
+cWar.tryFire(0.5)
+assert('warrior mid live dmg', Math.abs(cWar.bullets[0].damage - 28.6) < 1e-9)
+assert('warrior mid live len', Math.abs(cWar.bullets[0].drawW - BODY * 1.3) < 1e-9)
+assert('warrior mid thick no charge', Math.abs(cWar.bullets[0].drawH - SLASH_THICK) < 1e-9)
+
+const wOnceP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const wOnce = {
+  x: player.x + SLASH_RANGE,
+  y: player.y,
+  w: 16,
+  h: 16,
+  hp: 200,
+  knockbackable: true,
+}
+const cOnce = createCombat({ player: wOnceP, targets: [wOnce] })
+cOnce.tryFire(1)
+const hpSpawn = wOnce.hp
+assert('warrior hits once on spawn', hpSpawn < 200)
+cOnce.update(0.016)
+cOnce.update(0.2)
+assert('warrior no second hit', wOnce.hp === hpSpawn)
+
+const wTapP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const s1 = { x: player.x + SLASH_RANGE, y: player.y, w: 16, h: 16, hp: 80, knockbackable: true }
+const s2 = { x: player.x + SLASH_RANGE + 6, y: player.y, w: 16, h: 16, hp: 80, knockbackable: true }
+const s3 = { x: player.x + SLASH_RANGE - 6, y: player.y, w: 16, h: 16, hp: 80, knockbackable: true }
+const cW2 = createCombat({ player: wTapP, targets: [s1, s2, s3] })
+cW2.tryFire(0)
+assert('warrior infinite hits all', [s1, s2, s3].every((c) => c.hp < 80))
+
+const wKb0 = {
+  x: player.x + SLASH_RANGE,
+  y: player.y,
+  w: 16,
+  h: 16,
+  hp: 200,
+  knockbackable: true,
+}
+const wKbP0 = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const cKb0 = createCombat({ player: wKbP0, targets: [wKb0] })
+cKb0.tryFire(0)
+assert('warrior pierce0 kb 0', Math.abs(wKb0.x - (player.x + SLASH_RANGE)) < 0.5)
+
+const wKb2 = {
+  x: player.x + SLASH_RANGE,
+  y: player.y,
+  w: 16,
+  h: 16,
+  hp: 200,
+  knockbackable: true,
+}
+const wKbP2 = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const wKbW = createBow({ charId: 'warrior' })
+const cKb2 = createCombat({ player: wKbP2, targets: [wKb2], weapon: wKbW })
+cKb2.applyUpgrade('pierce')
+cKb2.applyUpgrade('pierce')
+cKb2.tryFire(0)
+assert('warrior pierce2 kb BODY', Math.abs(wKb2.x - (player.x + SLASH_RANGE + BODY)) < 0.5)
+
+const hugP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const hug = {
+  x: player.x + SLASH_BODY_FRONT + 1,
+  y: player.y,
+  w: 16,
+  h: 16,
+  hp: 80,
+  knockbackable: true,
+}
+const cHug = createCombat({ player: hugP, targets: [hug] })
+cHug.tryFire(0)
+assert('warrior face hug', hug.hp < 80)
+
+const mP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'mage',
+  lookAt() {},
+  setCharging() {},
+}
+const cMage = createCombat({ player: mP, targets: [] })
+assert('mage attack 25', cMage.weapon.attack === MAGE_ATTACK && MAGE_ATTACK === 25)
+cMage.tryFire(0)
+assert('mage tap dmg live 25', cMage.bullets[0].damage === 25)
+cMage.weapon.fireCd = 0
+cMage.bullets.length = 0
+cMage.tryFire(1)
+assert('mage orb', cMage.bullets[0].kind === 'orb')
+assert('mage flies', Math.hypot(cMage.bullets[0].vx, cMage.bullets[0].vy) > 100)
+assert('mage full sizeMul 3', Math.abs(cMage.bullets[0].sizeMul - MAGE_FULL_SIZE) < 1e-9)
+assert('mage full dmg live 37.5', cMage.bullets[0].damage === 37.5)
+cMage.applyUpgrade('pierce')
+cMage.weapon.fireCd = 0
+cMage.bullets.length = 0
+cMage.tryFire(1)
+assert('mage pierce1 full live 42.5', cMage.bullets[0].damage === 42.5)
+cMage.weapon.fireCd = 0
+cMage.bullets.length = 0
+cMage.tryFire(0)
+assert('mage tap draw < 9', cMage.bullets[0].drawW === ORB_DRAW && ORB_DRAW < 9 && ORB_DRAW >= 7)
+cMage.applyUpgrade('empower_shot')
+cMage.weapon.fireCd = 0
+cMage.bullets.length = 0
+cMage.tryFire(1)
+assert('mage no empower_shot', cMage.bullets[0].kind === 'orb')
+
+const mTapP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'mage',
+  lookAt() {},
+  setCharging() {},
+}
+const mNear = makeCreep(10, 80)
+const mFar = makeCreep(80, 80)
+const cMT = createCombat({ player: mTapP, targets: [mNear, mFar] })
+cMT.tryFire(0)
+for (let i = 0; i < 50; i++) cMT.update(0.016)
+assert('mage tap vanish 1', mNear.hp < 80 && mFar.hp === 80 && cMT.bullets.length === 0)
+
+const splashP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'mage',
+  lookAt() {},
+  setCharging() {},
+}
+const cluster = []
+for (let i = 0; i < 5; i++) {
+  cluster.push({
+    x: player.x + 10,
+    y: player.y + (i - 2) * 4,
+    w: 16,
+    h: 16,
+    hp: 80,
+    knockbackable: true,
+  })
+}
+const cSplash = createCombat({ player: splashP, targets: cluster })
+cSplash.tryFire(1)
+let sawExpand = false
+let fadeA = 1
+for (let i = 0; i < 8; i++) {
+  cSplash.update(0.016)
+  if (cSplash.bullets[0]?.expanding) {
+    sawExpand = true
+    fadeA = cSplash.bullets[0].alpha
+  }
+}
+assert('mage expand starts', sawExpand === true)
+assert('mage expand fade', fadeA < 1)
+assert('mage full expand all', cluster.every((c) => c.hp < 80))
+const hps = cluster.map((c) => c.hp)
+cSplash.update(0.08)
+assert('mage expand once', cluster.every((c, i) => c.hp === hps[i]))
+assert('MAGE_EXPAND_SEC 0.3', MAGE_EXPAND_SEC === 0.3)
+cSplash.update(0.3)
+assert('mage expand ends', cSplash.bullets.length === 0)
+
+const dmgLog = []
+const dmgCreep = makeCreep(40)
+const cDmg = createCombat({
+  player: { x: player.x, y: player.y, facing: 0, lookAt() {}, setCharging() {} },
+  targets: [dmgCreep],
+  hooks: {
+    onDamage(t, d) {
+      dmgLog.push({ t, d })
+    },
+  },
+})
+cDmg.tryFire(1)
+for (let i = 0; i < 30; i++) cDmg.update(0.016)
+assert('onDamage on creep', dmgLog.length >= 1 && dmgLog[0].d > 0 && dmgLog[0].t === dmgCreep)
+
+const sizeP = { x: player.x, y: player.y, facing: 0, lookAt() {}, setCharging() {} }
+const cSz = createCombat({ player: sizeP, targets: [] })
+cSz.tryFire(0)
+assert('tap sizeMul 1', cSz.bullets[0].sizeMul === 1)
+cSz.weapon.fireCd = 0
+cSz.bullets.length = 0
+cSz.tryFire(1)
+assert('full sizeMul 1.25', Math.abs(cSz.bullets[0].sizeMul - 1.25) < 1e-9)
+
+const crW = createBow()
+assert('crit default 0', crW.critRate === 0)
+assert('crit upgrade', crW.applyUpgrade('crit') === true && crW.critRate === CRIT_CHANCE_PER_PICK)
+for (let i = 0; i < 9; i++) crW.applyUpgrade('crit')
+assert('crit stacks to 100', crW.critRate === 100)
+const crHit = makeCreep(40, 200)
+const crP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  lookAt() {},
+  setCharging() {},
+}
+const cCr = createCombat({ player: crP, targets: [crHit], weapon: crW })
+cCr.tryFire(1)
+for (let i = 0; i < 30; i++) cCr.update(0.016)
+assert('crit 100% ×1.5', crHit.hp === 200 - DMG_MAX * CRIT_DAMAGE_MUL)
+
+const ofW = createBow()
+const ofMax = ofW.chargeMax
+assert('only_fast', ofW.applyUpgrade('only_fast') === true)
+assert(
+  'only_fast interval',
+  Math.abs(ofW.fireInterval - FIRE_INTERVAL / ONLY_FAST_MUL) < 1e-9 &&
+    ofW.chargeMax === ofMax,
+)
+const ofC = createCombat({
+  player: { x: player.x, y: player.y, facing: 0, lookAt() {}, setCharging() {} },
+  targets: [],
+  weapon: ofW,
+})
+ofC.tryFire(1)
+assert('only_fast fireCd', Math.abs(ofC.weapon.fireCd - FIRE_INTERVAL / ONLY_FAST_MUL) < 1e-9)
+
+const rfW = createBow()
+assert('refine', rfW.applyUpgrade('refine') === true && rfW.refinePicks === 1)
+
+const wEmpP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const cWEmp = createCombat({ player: wEmpP, targets: [] })
+cWEmp.applyUpgrade('empower_shot')
+assert('warrior empower 1st +15', cWEmp.weapon.attack === WARRIOR_ATTACK + EMPOWER_ATK)
+cWEmp.tryFire(1)
+assert('warrior empower no laser', cWEmp.bullets[0].kind === 'slash')
+
+const g3W = createBow({ charId: 'warrior' })
+const g3P = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const cG3 = createCombat({ player: g3P, targets: [], weapon: g3W })
+cG3.applyUpgrade('giant')
+cG3.applyUpgrade('giant')
+cG3.applyUpgrade('giant')
+cG3.tryFire(1)
+assert(
+  '3 giant slash not square',
+  Math.abs(cG3.bullets[0].drawW - BODY * 1.6 * 2.2) < 1e-6 &&
+    Math.abs(cG3.bullets[0].drawH - SLASH_THICK * 2.2) < 1e-6 &&
+    cG3.bullets[0].drawW < 90 &&
+    cG3.bullets[0].drawW > cG3.bullets[0].drawH * 2,
+)
+
+const sideP = {
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId: 'warrior',
+  lookAt() {},
+  setCharging() {},
+}
+const side = {
+  x: player.x + SLASH_BODY_FRONT + BODY / 2,
+  y: player.y + 60,
+  w: 16,
+  h: 16,
+  hp: 80,
+  knockbackable: true,
+}
+const cSide = createCombat({ player: sideP, targets: [side] })
+cSide.tryFire(0)
+assert('obb misses far side', side.hp === 80)
+assert(
+  'obb helper',
+  obbHitsAabb(0, 0, 0, 22, 11, { x: 5, y: -4, w: 8, h: 8 }) === true &&
+    obbHitsAabb(0, 0, 0, 22, 11, { x: -2, y: 40, w: 8, h: 8 }) === false,
+)
+
+const treeLog = []
+const treeT = {
+  x: player.x + 40,
+  y: player.y,
+  w: 20,
+  h: 20,
+  hp: 50,
+  knockbackable: false,
+}
+const cTreeD = createCombat({
+  player: { x: player.x, y: player.y, facing: 0, lookAt() {}, setCharging() {} },
+  targets: [treeT],
+  hooks: {
+    onDamage(t, d) {
+      treeLog.push({ t, d })
+    },
+  },
+})
+cTreeD.tryFire(1)
+for (let i = 0; i < 30; i++) cTreeD.update(0.016)
+assert('tree onDamage', treeLog.length >= 1 && treeLog[0].t === treeT && treeLog[0].d > 0)
+
+let slashWorld = 0
+let slashDealt = 0
+const cSlW = createCombat({
+  player: {
+    x: player.x,
+    y: player.y,
+    facing: 0,
+    charId: 'warrior',
+    lookAt() {},
+    setCharging() {},
+  },
+  targets: [],
+  hooks: {
+    hitSlashAt(opts) {
+      slashWorld += 1
+      slashDealt = opts.thick
+      return { hit: true, dealt: 9, tree: { x: 1, y: 2, knockbackable: false } }
+    },
+    onDamage() {},
+  },
+})
+cSlW.tryFire(0)
+assert('hitSlashAt OBB', slashWorld >= 1 && slashDealt === SLASH_THICK)
+
+let takeHitN = 0
+const thLog = []
+const thCreep = makeCreep(40, 80)
+thCreep.takeHit = (d) => {
+  takeHitN += 1
+  thCreep.hp -= 7
+  return 7
+}
+const cTh = createCombat({
+  player: { x: player.x, y: player.y, facing: 0, lookAt() {}, setCharging() {} },
+  targets: [thCreep],
+  hooks: {
+    onDamage(t, d) {
+      thLog.push(d)
+    },
+  },
+})
+cTh.tryFire(1)
+for (let i = 0; i < 30; i++) cTh.update(0.016)
+assert('uses takeHit', takeHitN >= 1)
+assert('pops takeHit dealt', thLog[0] === 7)
+
+assert('FIRE_INTERVAL 0.315', FIRE_INTERVAL === 0.315)
 assert('KNOCKBACK_DIST === BODY', KNOCKBACK_DIST === BODY)
 assert('ratio helper', chargeRatio(0.375, 0.75) === 0.5)
 assert('compat pistol alias', cCh.pistol === ch)
@@ -300,6 +863,87 @@ vis.beginCharge()
 vis.update(0.3)
 vis.draw(ctx)
 assert('charge bar drawn', calls.length > 0)
+
+// P20：开火音效钩子 onFire（只回调不播音；单次开火只触发一次）
+assert(
+  'fireKindForChar map',
+  fireKindForChar('ranger') === 'shoot' &&
+    fireKindForChar('warrior') === 'slash' &&
+    fireKindForChar('mage') === 'fireball' &&
+    fireKindForChar(undefined) === 'shoot',
+)
+const mkFireP = (charId) => ({
+  x: player.x,
+  y: player.y,
+  facing: 0,
+  charId,
+  lookAt() {},
+  setCharging() {},
+})
+const mkOnFire = (log) => ({
+  onFire(kind) {
+    log.push(kind)
+  },
+})
+const shootLog = []
+const cSfx = createCombat({
+  player: mkFireP(),
+  targets: [],
+  hooks: mkOnFire(shootLog),
+})
+cSfx.tryFire(1)
+assert('onFire ranger shoot', shootLog.length === 1 && shootLog[0] === 'shoot')
+assert('interval blocks onFire', cSfx.tryFire(1) === false && shootLog.length === 1)
+
+const slashLog = []
+const cSfxW = createCombat({
+  player: mkFireP('warrior'),
+  targets: [],
+  hooks: mkOnFire(slashLog),
+})
+cSfxW.tryFire(1)
+assert('onFire warrior slash', slashLog.length === 1 && slashLog[0] === 'slash')
+
+const fireballLog = []
+const cSfxM = createCombat({
+  player: mkFireP('mage'),
+  targets: [],
+  hooks: mkOnFire(fireballLog),
+})
+cSfxM.tryFire(1)
+assert('onFire mage fireball', fireballLog.length === 1 && fireballLog[0] === 'fireball')
+
+const multiLog = []
+const multiW = createBow()
+const cSfxMulti = createCombat({
+  player: mkFireP(),
+  targets: [],
+  weapon: multiW,
+  hooks: mkOnFire(multiLog),
+})
+cSfxMulti.applyUpgrade('ammo_cap')
+cSfxMulti.applyUpgrade('eyes')
+cSfxMulti.applyUpgrade('empower_shot')
+cSfxMulti.tryFire(1)
+assert(
+  'scatter+back+empower one onFire',
+  cSfxMulti.bullets.length === 3 && multiLog.length === 1 && multiLog[0] === 'shoot',
+)
+
+const fastLog = []
+const fastW = createBow()
+fastW.setInfiniteAmmo(true)
+const cSfxFast = createCombat({
+  player: mkFireP(),
+  targets: [],
+  weapon: fastW,
+  hooks: mkOnFire(fastLog),
+})
+cSfxFast.beginCharge()
+assert(
+  'instant mode onFire',
+  cSfxFast.bullets.length === 1 && fastLog.length === 1 && fastLog[0] === 'shoot',
+)
 
 console.log(
   `\ncharge=${CHARGE_MAX_SEC}s attack=${ATTACK_BASE} full×2 interval=${FIRE_INTERVAL}s BODY=${BODY}`,

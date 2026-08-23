@@ -2,14 +2,17 @@
 /**
  * 选角立绘：S_Idle 第 0 帧，水平翻转朝右。黑底当透明。
  */
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { RANGER_FRAME, RANGER_IDLE_SRC } from '../ui/constants.js'
 
 const SCALE = 2
 const BLACK_KEY = 12
 const canvasRef = ref(null)
+const props = defineProps({
+  src: { type: String, default: RANGER_IDLE_SRC },
+})
 
-onMounted(async () => {
+async function draw() {
   const el = canvasRef.value
   if (!el) return
   const w = RANGER_FRAME * SCALE
@@ -17,8 +20,9 @@ onMounted(async () => {
   el.height = w
   const ctx = el.getContext('2d')
   ctx.imageSmoothingEnabled = false
+  ctx.clearRect(0, 0, w, w)
   const img = new Image()
-  img.src = RANGER_IDLE_SRC
+  img.src = props.src
   try {
     await img.decode()
   } catch {
@@ -40,6 +44,13 @@ onMounted(async () => {
   ctx.scale(-1, 1)
   ctx.drawImage(src, 0, 0, RANGER_FRAME, RANGER_FRAME, 0, 0, w, w)
   ctx.restore()
+}
+
+onMounted(() => {
+  void draw()
+})
+watch(() => props.src, () => {
+  void draw()
 })
 </script>
 

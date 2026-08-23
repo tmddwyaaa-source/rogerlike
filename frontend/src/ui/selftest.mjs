@@ -5,31 +5,69 @@ import { createPistol, CHARGE_MAX_SEC, CHARGE_UPGRADE } from '../game/weapons/in
 import { PLAYER_SPEED, PLAYER_SPEED_UNITS, createPlayer } from '../game/player/index.js'
 import {
   BGM_URL,
+  CHARACTERS,
+  CHAR_HP,
   EXP_BASE,
+  formatCharStats,
+  OBJECTIVE_TEXT,
+  OBJECTIVE_TEXT_TWO,
+  DIFFICULTY_TWO,
+  BOND_QIAN,
+  BOND_UNITY,
+  BOND_QIAN_TITLE,
+  BOND_UNITY_TITLE,
+  BOND_VAJRA,
+  BOND_VAJRA_TITLE,
+  BOND_DESC,
+  BOND_TIERS,
+  bondRank,
+  bondTiers,
+  descFor,
+  qianDesired,
   LEVEL_BOOST_MAX,
+  LEVEL_EMPTY_HP_EVERY,
+  LEVEL_PIERCE_EVERY,
   LEVEL_GROWTH_ATK,
   LEVEL_GROWTH_EVERY,
   LEVEL_GROWTH_SPEED,
+  MAGE_IDLE_SRC,
   MOVE_SPEED_BONUS,
   RANGER_IDLE_SRC,
   SURVIVE_WIN_SEC,
   UPGRADES,
+  WARRIOR_IDLE_SRC,
   expNeedForLevel,
 } from './constants.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { paintBlankIcon, paintAdvancedDot, iconRows, ICON_SIZE, ADVANCED_DOT_SIZE, resolveUpgradeIcon, upgradeIconUrl } from './icons.js'
-import { applyUpgrade, createSession, formatTime, pickUpgradeChoices, levelGrowthSteps } from './session.js'
+import {
+  applyEmptyHpMax,
+  applyPierceGrowth,
+  applyUpgrade,
+  availableUpgrades,
+  createSession,
+  emptyHpSteps,
+  pierceGrowthSteps,
+  formatTime,
+  pickUpgradeChoices,
+  levelGrowthSteps,
+} from './session.js'
 import { createMatchUi } from './index.js'
 import { MEMORY_CAP, loadMemories, saveMemory, summarizePicked } from './memories.js'
 import { createBgm } from './bgm.js'
+import { createSfx, SFX_FILES, SFX_GAIN, SFX_URLS } from './sfx.js'
 import {
   clampLevelBoost,
+  clampTestElapsedSec,
   clampVolume,
   defaultSettings,
   formatVolumePct,
+  loadSettings,
+  saveSettings,
   setVolume,
+  TEST_ELAPSED_MAX,
 } from './settings.js'
 import { createEnvironment } from '../game/world/index.js'
 
@@ -43,8 +81,84 @@ function assert(name, cond) {
 }
 
 assert('title 类幸存者', createMatchUi().title === '类幸存者')
-assert('normal pool 13', UPGRADES.filter((u) => u.tier !== 'advanced').length === 13)
-assert('advanced 地精', UPGRADES.filter((u) => u.tier === 'advanced').length === 1)
+assert('normal pool 15', UPGRADES.filter((u) => u.tier !== 'advanced').length === 15)
+assert('advanced 5', UPGRADES.filter((u) => u.tier === 'advanced').length === 5)
+assert('upgrade 暴击', UPGRADES.find((u) => u.id === 'crit')?.title === '暴击')
+assert('暴击文案', UPGRADES.find((u) => u.id === 'crit')?.desc === '暴击率 +10')
+assert('upgrade 唯快不破', UPGRADES.find((u) => u.id === 'only_fast')?.title === '唯快不破' && UPGRADES.find((u) => u.id === 'only_fast')?.tier === 'advanced')
+assert('upgrade 精益求精', UPGRADES.find((u) => u.id === 'refine')?.title === '精益求精' && UPGRADES.find((u) => u.id === 'refine')?.tier === 'advanced')
+assert('upgrade 奇怪的蛋', UPGRADES.at(-1)?.id === 'strange_egg' && UPGRADES.find((u) => u.id === 'strange_egg')?.title === '奇怪的蛋')
+assert('穿透文案 无括注', UPGRADES.find((u) => u.id === 'pierce')?.desc === '穿透 +1')
+assert('OBJECTIVE_TEXT', OBJECTIVE_TEXT === '目标：活够10分钟')
+assert('OBJECTIVE_TEXT_TWO', OBJECTIVE_TEXT_TWO === '目标：击败Boss 2次，并活够10分钟')
+assert('DIFFICULTY_TWO', DIFFICULTY_TWO.id === '2' && DIFFICULTY_TWO.name === '难度二')
+assert('bondRank qian', bondRank(BOND_QIAN, 1) === 0 && bondRank(BOND_QIAN, 2) === 2 && bondRank(BOND_QIAN, 5) === 4 && bondRank(BOND_QIAN, 8) === 8)
+assert('bondRank unity', bondRank(BOND_UNITY, 1) === 0 && bondRank(BOND_UNITY, 2) === 2 && bondRank(BOND_UNITY, 5) === 4 && bondRank(BOND_UNITY, 8) === 8)
+assert('bondRank vajra', bondRank(BOND_VAJRA, 1) === 0 && bondRank(BOND_VAJRA, 2) === 2)
+assert('qianDesired lv6 r2', Math.abs(qianDesired(6, 2).speed - 0.03) < 1e-9 && qianDesired(6, 2).atk === 0)
+assert('qian 敏捷 bond', UPGRADES.find((u) => u.id === 'move_speed')?.bond === BOND_QIAN)
+assert(
+  '羁绊档位表',
+  BOND_TIERS.qian.map((t) => t.rank).join() === '2,4,6,8' &&
+    BOND_TIERS.unity.map((t) => t.rank).join() === '2,4,6,8' &&
+    BOND_TIERS.vajra.map((t) => t.rank).join() === '2' &&
+    BOND_TIERS.qian.every((t) => t.text.includes('随等级提高')) &&
+    BOND_TIERS.vajra[0].text === '敬请期待' &&
+    Boolean(BOND_DESC.qian) &&
+    Boolean(BOND_DESC.unity) &&
+    Boolean(BOND_DESC.vajra),
+)
+assert('unity 蝙蝠 bond', UPGRADES.find((u) => u.id === 'bat')?.bond === BOND_UNITY)
+assert(
+  '大娃黑洞入小金刚',
+  UPGRADES.find((u) => u.id === 'giant')?.bond === BOND_VAJRA &&
+    UPGRADES.find((u) => u.id === 'blackhole')?.bond === BOND_VAJRA,
+)
+assert(
+  'chars 三角色',
+  CHARACTERS.map((c) => c.id).join(',') === 'ranger,warrior,mage' &&
+    CHARACTERS[1].name === '战士' &&
+    CHARACTERS[2].name === '法师',
+)
+assert(
+  'chars stats',
+  CHARACTERS[0].hp === 3 &&
+    CHARACTERS[0].attack === 20 &&
+    CHARACTERS[0].pierce === 0 &&
+    CHARACTERS[1].hp === 4 &&
+    CHARACTERS[1].attack === 22 &&
+    CHARACTERS[1].pierce === 0 &&
+    CHARACTERS[2].hp === 2 &&
+    CHARACTERS[2].attack === 25 &&
+    CHARACTERS[2].pierce === 0 &&
+    CHARACTERS[0].fullCharge === '200%' &&
+    CHARACTERS[1].fullCharge === '160%' &&
+    CHARACTERS[2].fullCharge === '150%' &&
+    CHARACTERS.every((c) => typeof c.trait === 'string' && c.trait.length > 0),
+)
+const rangerTip = formatCharStats('ranger')
+const warriorTip = formatCharStats(CHARACTERS[1])
+const mageTip = formatCharStats('mage')
+assert(
+  'formatCharStats',
+  rangerTip.includes('基础属性') &&
+    rangerTip.includes('角色特点') &&
+    rangerTip.includes('\n') &&
+    rangerTip.includes('满蓄：200%') &&
+    rangerTip.includes('远程射手') &&
+    rangerTip.includes('蓄力释放穿透箭矢') &&
+    warriorTip.includes('伤害：22') &&
+    warriorTip.includes('满蓄：160%') &&
+    warriorTip.includes('无限穿透') &&
+    warriorTip.includes('最高1.6倍') &&
+    mageTip.includes('满蓄：150%') &&
+    mageTip.includes('最高3倍') &&
+    mageTip.includes('每点穿透额外增加20%伤害') &&
+    !rangerTip.includes('每升级15次穿透+1') &&
+    !rangerTip.includes('远程弓手') &&
+    !rangerTip.includes('激光') &&
+    !mageTip.includes('命中后扩散'),
+)
 assert('exp 1→2 need 15', expNeedForLevel(1) === EXP_BASE && EXP_BASE === 15)
 assert('exp 2→3 need 19', expNeedForLevel(2) === 19)
 assert('upgrade 散射', UPGRADES.find((u) => u.id === 'ammo_cap')?.title === '散射')
@@ -60,9 +174,23 @@ assert(
 assert('upgrade 磁铁', UPGRADES.find((u) => u.id === 'magnet')?.title === '磁铁')
 assert(
   '磁铁文案',
-  UPGRADES.find((u) => u.id === 'magnet')?.desc === '结晶吸取范围 +50%',
+  UPGRADES.find((u) => u.id === 'magnet')?.desc === '结晶吸取范围 +1 身位',
+)
+assert('upgrade 大娃', UPGRADES.find((u) => u.id === 'giant')?.title === '大娃')
+assert(
+  '大娃文案',
+  UPGRADES.find((u) => u.id === 'giant')?.desc === '每次弹体大小 +40%',
 )
 assert('survive win 600', SURVIVE_WIN_SEC === 600)
+assert('testElapsed default 0', defaultSettings().testElapsedSec === 0)
+assert('testDummy default false', defaultSettings().testDummy === false)
+assert(
+  'clamp elapsed 0～600',
+  clampTestElapsedSec(-9) === 0 &&
+    clampTestElapsedSec(999) === TEST_ELAPSED_MAX &&
+    TEST_ELAPSED_MAX === 600,
+)
+assert('clamp elapsed step 5', clampTestElapsedSec(7) === 5)
 
 const s = createSession()
 assert('phase menu', s.phase === 'menu')
@@ -113,8 +241,10 @@ const player = createPlayer()
 const pistol = createPistol()
 assert('charge max 0.75', CHARGE_MAX_SEC === 0.75 && pistol.chargeMax === 0.75)
 assert(
-  '敏捷 +0.20',
-  applyUpgrade('move_speed', { player }) === true &&
+  '敏捷 +0.15',
+  MOVE_SPEED_BONUS === 0.15 &&
+    UPGRADES.find((u) => u.id === 'move_speed')?.desc === '移速 +0.15' &&
+    applyUpgrade('move_speed', { player }) === true &&
     Math.abs(player.speedUnits - (PLAYER_SPEED_UNITS + MOVE_SPEED_BONUS)) < 1e-9,
 )
 assert(
@@ -159,7 +289,8 @@ assert(
   '磁铁 hook 留给 M7',
   applyUpgrade('magnet', { env: magEnv }) === true &&
     magEnv.pendingMagnet === true &&
-    magEnv.mods.magnetMul === 1.5,
+    magEnv.mods.magnetBonus === 1 &&
+    magEnv.mods.magnetMul === undefined,
 )
 assert('磁铁无程序图标', iconRows('magnet') == null)
 assert('磁铁无过审图 → blank', resolveUpgradeIcon('magnet', false).kind === 'blank')
@@ -215,6 +346,111 @@ assert(
 )
 assert('兔子无程序图标', iconRows('rabbit') == null)
 
+assert('upgrade 蝙蝠', UPGRADES.find((u) => u.id === 'bat')?.title === '蝙蝠')
+assert(
+  '蝙蝠文案',
+  UPGRADES.find((u) => u.id === 'bat')?.desc ===
+    '生成 1 个蝙蝠跟班；该蝙蝠每击杀 200 敌人，角色回复 1 滴血' &&
+    UPGRADES.find((u) => u.id === 'bat')?.tier !== 'advanced',
+)
+assert('bat 在普通池', availableUpgrades(null, { tier: 'normal' }).some((u) => u.id === 'bat'))
+let batCalls = 0
+let batDmg = 0
+assert(
+  '蝙蝠 addBat 不加伤',
+  applyUpgrade('bat', {
+    companions: {
+      addBat() { batCalls += 1 },
+      addDamageBonus(n) { batDmg += n },
+    },
+  }) === true && batCalls === 1 && batDmg === 0,
+)
+const batHost = {}
+assert(
+  '蝙蝠 hook 留给 M11',
+  applyUpgrade('bat', { env: batHost }) === true && batHost.pendingBat === 1,
+)
+assert('蝙蝠无程序图标', iconRows('bat') == null)
+
+assert('upgrade 强化射击', UPGRADES.find((u) => u.id === 'empower_shot')?.title === '强化射击')
+assert(
+  '强化射击按角色',
+  typeof UPGRADES.find((u) => u.id === 'empower_shot')?.desc === 'function' &&
+    UPGRADES.find((u) => u.id === 'empower_shot')?.tier === 'advanced' &&
+    descFor('empower_shot', 'ranger') === '满蓄改为激光，伤害 ceil(攻击×2.5)，穿透 +2，过量可溢出，攻击 +5' &&
+    descFor('empower_shot', 'warrior') === '+15' &&
+    descFor('empower_shot', 'mage') === '+15',
+)
+assert('descFor 普通项原样', descFor('power') === '伤害 +10' && descFor('nope') === '')
+const sEmp = createSession()
+sEmp.start('1')
+sEmp.charId = 'warrior'
+sEmp.grantUpgrade('empower_shot', {})
+assert('回忆存定型文案 战士', sEmp.picked[0]?.desc === '+15')
+const sEmpR = createSession()
+sEmpR.start('1')
+sEmpR.grantUpgrade('empower_shot', {})
+assert(
+  '回忆存定型文案 游侠',
+  sEmpR.picked[0]?.desc === '满蓄改为激光，伤害 ceil(攻击×2.5)，穿透 +2，过量可溢出，攻击 +5',
+)
+const bowEmp = createPistol()
+assert(
+  '强化射击 applyUpgrade',
+  applyUpgrade('empower_shot', { pistol: bowEmp }) === true && bowEmp.empowerPicks === 1,
+)
+const empHost = {}
+assert(
+  '强化射击 hook 留给武器',
+  applyUpgrade('empower_shot', empHost) === true && empHost.pendingEmpowerShot === 1,
+)
+const bowCrit = createPistol()
+assert(
+  '暴击 applyUpgrade',
+  applyUpgrade('crit', { pistol: bowCrit }) === true &&
+    (bowCrit.critRate === 10 || bowCrit.pendingCrit === 10),
+)
+const critHost = {}
+assert(
+  '暴击 hook 留给武器',
+  applyUpgrade('crit', critHost) === true && critHost.pendingCrit === 10,
+)
+assert('crit 在普通池', availableUpgrades(null, { tier: 'normal' }).some((u) => u.id === 'crit'))
+assert(
+  'empower 全角色高级池',
+  availableUpgrades(null, { tier: 'advanced', charId: 'ranger' }).some((u) => u.id === 'empower_shot') &&
+    availableUpgrades(null, { tier: 'advanced', charId: 'warrior' }).some((u) => u.id === 'empower_shot') &&
+    availableUpgrades(null, { tier: 'advanced', charId: 'mage' }).some((u) => u.id === 'empower_shot'),
+)
+assert(
+  'chargeMax>0 无 only_fast',
+  !availableUpgrades(null, { tier: 'advanced' }).some((u) => u.id === 'only_fast'),
+)
+assert(
+  'chargeMax=0 有 only_fast',
+  availableUpgrades({ chargeMax: 0 }, { tier: 'advanced' }).some((u) => u.id === 'only_fast'),
+)
+assert(
+  'strange_egg 在高级池',
+  availableUpgrades(null, { tier: 'advanced' }).some((u) => u.id === 'strange_egg') &&
+    availableUpgrades(null, { tier: 'advanced' }).some((u) => u.id === 'refine'),
+)
+let eggCalls = 0
+assert(
+  '蛋 addEgg',
+  applyUpgrade('strange_egg', { companions: { addEgg() { eggCalls += 1 } } }) === true && eggCalls === 1,
+)
+const eggHost = {}
+assert('蛋 hook 留给 M11', applyUpgrade('strange_egg', { env: eggHost }) === true && eggHost.pendingEgg === 1)
+const fastHost = {}
+assert('唯快不破 hook', applyUpgrade('only_fast', fastHost) === true && fastHost.pendingOnlyFast === 1)
+const refineHost = {}
+assert('精益求精 hook', applyUpgrade('refine', refineHost) === true && refineHost.pendingRefine === 1)
+assert(
+  '非游侠高级仍有地精',
+  availableUpgrades(null, { tier: 'advanced', charId: 'warrior' }).some((u) => u.id === 'goblin'),
+)
+
 const fifth = pickUpgradeChoices(null, 3, () => 0, { offerIndex: 5 })
 assert(
   '第5次 rng<0.3 含地精',
@@ -262,6 +498,12 @@ assert('finish', result.kills === 1 && !result.win)
 const snap = s2.snapshot()
 assert('charge field reserved', snap.charge === 0 && snap.chargeMax === 0.75 && 'charging' in snap)
 assert('no ammo in snapshot', snap.mag === undefined)
+const hudMage = createSession().snapshot({ hp: 2, hpMax: 2 })
+assert('HUD 跟 hpMax 法师', hudMage.hpMax === 2 && hudMage.hp === 2)
+const hudWar = createSession().snapshot({ hp: 4, hpMax: 4 })
+assert('HUD 跟 hpMax 战士', hudWar.hpMax === 4 && hudWar.hp === 4)
+const hudRanger = createSession().snapshot({ hp: 3, hpMax: 3 })
+assert('HUD 跟 hpMax 游侠', hudRanger.hpMax === 3)
 const mems = loadMemories()
 assert('memory saved', mems.length >= 1 && mems[0].upgrades[0]?.title === '敏捷')
 assert('memory cap', MEMORY_CAP === 10)
@@ -279,6 +521,24 @@ const s3 = createSession()
 s3.start('1')
 s3.tick(SURVIVE_WIN_SEC)
 assert('auto win', s3.phase === 'victory' && s3.win === true)
+const sDiff2 = createSession()
+sDiff2.start('2')
+sDiff2.tick(SURVIVE_WIN_SEC)
+assert(
+  '难度二不满 2 杀不胜',
+  sDiff2.phase === 'playing' && sDiff2.win === false && sDiff2.bossKills === 0 && sDiff2.elapsedSec >= SURVIVE_WIN_SEC,
+)
+assert('addBossKill 1 仍继续', sDiff2.addBossKill() === 1 && sDiff2.phase === 'playing' && sDiff2.win === false)
+assert('addBossKill 2 才胜', sDiff2.addBossKill() === 2 && sDiff2.phase === 'victory' && sDiff2.win === true)
+const sDiff2t = createSession()
+sDiff2t.start('2')
+assert(
+  '难度二拨满时间不胜',
+  sDiff2t.setElapsedSec(600) === 600 && sDiff2t.phase === 'playing',
+)
+sDiff2t.addBossKill()
+sDiff2t.addBossKill()
+assert('难度二补杀通关', sDiff2t.phase === 'victory' && sDiff2t.bossKills === 2)
 assert('exp 31 uncapped', expNeedForLevel(31) === EXP_BASE + 4 * 30)
 assert('boost max 0–3', LEVEL_BOOST_MAX === 3 && clampLevelBoost(9) === 3 && clampLevelBoost(-2) === 0)
 
@@ -295,6 +555,17 @@ assert('steps 1→6', levelGrowthSteps(1, 6) === 1)
 assert('steps 6→11', levelGrowthSteps(6, 11) === 1)
 assert('steps 4→7', levelGrowthSteps(4, 7) === 1)
 assert('steps 1→4', levelGrowthSteps(1, 4) === 0)
+assert('empty hp every 10', LEVEL_EMPTY_HP_EVERY === 10)
+assert('empty steps 1→11', emptyHpSteps(1, 11) === 1)
+assert('empty steps 11→21', emptyHpSteps(11, 21) === 1)
+assert('empty steps 1→10', emptyHpSteps(1, 10) === 0)
+assert('empty steps 10→11', emptyHpSteps(10, 11) === 1)
+assert('pierce every 15', LEVEL_PIERCE_EVERY === 15)
+assert('pierce steps 1→16', pierceGrowthSteps(1, 16) === 1)
+assert('pierce steps 16→31', pierceGrowthSteps(16, 31) === 1)
+assert('pierce steps 1→15', pierceGrowthSteps(1, 15) === 0)
+assert('pierce steps 15→16', pierceGrowthSteps(15, 16) === 1)
+assert('applyPierceGrowth 无武器 不崩', applyPierceGrowth({}, 1, 16) === 0)
 
 function expSum(from, to) {
   let n = 0
@@ -304,43 +575,220 @@ function expSum(from, to) {
 
 const grow1 = createPlayer()
 grow1.attack = 20
+const grow1Spd = grow1.speedUnits
 const sGrow1 = createSession()
 sGrow1.start('1')
 sGrow1.addExp(expSum(1, 6), { player: grow1 })
 assert(
-  '1→6 攻+1 速+0.05',
+  '升级不白送成长',
   sGrow1.level === 6 &&
-    grow1.attack === 21 &&
-    Math.abs(grow1.speedUnits - (PLAYER_SPEED_UNITS + LEVEL_GROWTH_SPEED)) < 1e-9,
+    grow1.attack === 20 &&
+    Math.abs(grow1.speedUnits - grow1Spd) < 1e-9,
 )
 
 const grow2 = createPlayer()
-grow2.attack = 21
-grow2.speedUnits = PLAYER_SPEED_UNITS + LEVEL_GROWTH_SPEED
+grow2.attack = 20
+const grow2Spd = grow2.speedUnits
 const sGrow2 = createSession()
 sGrow2.start('1')
 sGrow2.setLevel(6)
 sGrow2.addExp(expSum(6, 11), { player: grow2 })
 assert(
-  '6→11 再各一次',
+  '6→11 仍不白送',
   sGrow2.level === 11 &&
-    grow2.attack === 22 &&
-    Math.abs(grow2.speedUnits - (PLAYER_SPEED_UNITS + LEVEL_GROWTH_SPEED * 2)) < 1e-9,
+    grow2.attack === 20 &&
+    Math.abs(grow2.speedUnits - grow2Spd) < 1e-9,
 )
 
 const grow3 = createPlayer()
 grow3.attack = 20
+const grow3Spd = grow3.speedUnits
 const sGrow3 = createSession()
 sGrow3.start('1')
 sGrow3.setLevel(4)
 assert(
-  'boost 4→7 只加一次',
+  'boost 不白送成长',
   sGrow3.boostLevels(3, { player: grow3 }) === 3 &&
     sGrow3.level === 7 &&
-    grow3.attack === 21 &&
-    Math.abs(grow3.speedUnits - (PLAYER_SPEED_UNITS + LEVEL_GROWTH_SPEED)) < 1e-9,
+    grow3.attack === 20 &&
+    Math.abs(grow3.speedUnits - grow3Spd) < 1e-9,
 )
 assert('growth 无 player 不崩', createSession().start('1') && createSession().boostLevels(3) === 3)
+
+const hpEmpty = createPlayer()
+const hpWas = hpEmpty.hp
+const maxWas = hpEmpty.hpMax
+let emptyCalls = 0
+const origEmpty = hpEmpty.addEmptyHpMax.bind(hpEmpty)
+hpEmpty.addEmptyHpMax = () => {
+  emptyCalls += 1
+  return origEmpty()
+}
+const sHp = createSession()
+sHp.start('1')
+sHp.addExp(expSum(1, 11), { player: hpEmpty })
+assert(
+  '升级不白送空血',
+  sHp.level === 11 &&
+    emptyCalls === 0 &&
+    hpEmpty.hpMax === maxWas &&
+    hpEmpty.hp === hpWas,
+)
+assert('applyEmptyHpMax 无 player 不崩', applyEmptyHpMax({}, 1, 11) === 0)
+
+const pierceBow = createPistol()
+const sPierce = createSession()
+sPierce.start('1')
+sPierce.addExp(expSum(1, 16), { pistol: pierceBow })
+assert('升级不白送穿透', sPierce.level === 16 && !pierceBow.pierceBonus)
+const pierceBoost = createPistol()
+const sPierceB = createSession()
+sPierceB.start('1')
+sPierceB.setLevel(14)
+assert(
+  'boost 不白送穿透',
+  sPierceB.boostLevels(3, { pistol: pierceBoost }) === 3 &&
+    sPierceB.level === 17 &&
+    !pierceBoost.pierceBonus,
+)
+
+const hpBoost = createPlayer()
+const hpBoostWas = hpBoost.hp
+const sHpB = createSession()
+sHpB.start('1')
+sHpB.setLevel(9)
+assert('setLevel 不加空血', hpBoost.hpMax === 3 && hpBoost.hp === hpBoostWas)
+assert(
+  'boost 不白送空血',
+  sHpB.boostLevels(3, { player: hpBoost }) === 3 &&
+    sHpB.level === 12 &&
+    hpBoost.hpMax === 3 &&
+    hpBoost.hp === hpBoostWas,
+)
+
+const sQian = createSession()
+sQian.start('1')
+const qianPl = createPlayer()
+const qianBow = createPistol()
+qianPl.attack = 20
+const qianSpd = qianPl.speedUnits
+assert(
+  '1种 qian 无档',
+  sQian.grantUpgrade('move_speed', { player: qianPl, pistol: qianBow }) === true &&
+    sQian.bonds.length === 0 &&
+    Math.abs(qianPl.speedUnits - (qianSpd + MOVE_SPEED_BONUS)) < 1e-9,
+)
+assert(
+  '选 2 种 qian 才有速',
+  sQian.grantUpgrade('power', { player: qianPl, pistol: qianBow }) === true &&
+    sQian.bonds.length === 1 &&
+    sQian.bonds[0].id === BOND_QIAN &&
+    sQian.bonds[0].title === BOND_QIAN_TITLE &&
+    sQian.bonds[0].rank === 2,
+)
+sQian.addExp(expSum(1, 6), { player: qianPl, pistol: qianBow })
+assert(
+  '天行健 2 按等级加移速',
+  sQian.level === 6 &&
+    Math.abs(qianPl.speedUnits - (qianSpd + MOVE_SPEED_BONUS + 0.03)) < 1e-9 &&
+    qianPl.attack === 20 &&
+    qianBow.attack === 30,
+)
+const snapBond = sQian.snapshot(qianPl, { pistol: qianBow })
+assert('bonds 快照', snapBond.bonds?.[0]?.rank === 2 && snapBond.bonds[0].title === BOND_QIAN_TITLE)
+
+const sDup = createSession()
+sDup.start('1')
+const dupPl = createPlayer()
+const dupBow = createPistol()
+sDup.grantUpgrade('power', { player: dupPl, pistol: dupBow })
+sDup.grantUpgrade('power', { player: dupPl, pistol: dupBow })
+assert('叠力量两次仍 1 种', sDup.bonds.length === 0 && sDup.picked.length === 2)
+
+const sUnity = createSession()
+sUnity.start('1')
+let unityTier = -1
+const unityComps = {
+  setUnityTier(t) { unityTier = t },
+  addGoblin() {},
+  addRabbit() {},
+  addBat() {},
+  addEgg() {},
+}
+sUnity.grantUpgrade('goblin', { companions: unityComps })
+assert('unity 1 种无档', unityTier === 0 && sUnity.bonds.length === 0)
+sUnity.grantUpgrade('rabbit', { companions: unityComps })
+assert(
+  'unity 2 种档 2',
+  unityTier === 2 &&
+    sUnity.bonds.some((b) => b.id === BOND_UNITY && b.title === BOND_UNITY_TITLE && b.rank === 2),
+)
+sUnity.grantUpgrade('bat', { companions: unityComps })
+assert('unity 3 种仍档 2', unityTier === 2)
+sUnity.grantUpgrade('strange_egg', { companions: unityComps })
+assert(
+  'unity 4 种档 4',
+  unityTier === 4 &&
+    sUnity.bonds.some((b) => b.id === BOND_UNITY && b.title === BOND_UNITY_TITLE && b.rank === 4),
+)
+const unityHost = { addGoblin() {}, addRabbit() {}, addBat() {}, addEgg() {} }
+const sUnityP = createSession()
+sUnityP.start('1')
+sUnityP.grantUpgrade('goblin', { companions: unityHost })
+sUnityP.grantUpgrade('rabbit', { companions: unityHost })
+sUnityP.grantUpgrade('bat', { companions: unityHost })
+assert('unity pending 3 种档 2', unityHost.pendingUnityTier === 2)
+sUnityP.grantUpgrade('strange_egg', { companions: unityHost })
+assert('unity pending 4 种档 4', unityHost.pendingUnityTier === 4)
+
+const sVajra = createSession()
+sVajra.start('1')
+const vajraBow = createPistol()
+sVajra.grantUpgrade('giant', { pistol: vajraBow })
+assert('vajra 1 种无档', sVajra.bonds.every((b) => b.id !== BOND_VAJRA))
+sVajra.grantUpgrade('blackhole', {})
+assert(
+  'vajra 2 种档 2',
+  sVajra.bonds.some((b) => b.id === BOND_VAJRA && b.title === BOND_VAJRA_TITLE && b.rank === 2),
+)
+assert('vajra 档位文案', bondTiers(BOND_VAJRA).length === 1 && bondTiers(BOND_VAJRA)[0].text === '敬请期待')
+
+const uiBoss = createMatchUi()
+uiBoss.start('2')
+assert('matchUi addBossKill', typeof uiBoss.addBossKill === 'function' && uiBoss.addBossKill() === 1)
+
+const sKeep = createSession()
+sKeep.charId = 'mage'
+sKeep.start('1')
+assert('开局保留 charId', sKeep.charId === 'mage' && sKeep.phase === 'playing')
+assert('CHAR_HP 三角色', CHAR_HP.ranger === 3 && CHAR_HP.warrior === 4 && CHAR_HP.mage === 2)
+const sHearts = createSession()
+sHearts.charId = 'mage'
+assert('HUD 法师 2 心', sHearts.snapshot().hpMax === 2 && sHearts.snapshot().hp === 2)
+sHearts.charId = 'warrior'
+assert('HUD 战士 4 心', sHearts.snapshot().hpMax === 4)
+sHearts.charId = 'ranger'
+assert('HUD 游侠 3 心', sHearts.snapshot().hpMax === 3)
+const mageHud = createPlayer({ charId: 'mage' })
+assert('HUD 跟 player 法师', sHearts.snapshot(mageHud).hpMax === mageHud.hpMax && mageHud.hpMax === 2)
+const warHud = createPlayer({ charId: 'warrior' })
+assert('HUD 跟 player 战士', sHearts.snapshot(warHud).hpMax === warHud.hpMax && warHud.hpMax === 4)
+
+const sTime = createSession()
+sTime.start('1')
+assert('setElapsedSec', typeof sTime.setElapsedSec === 'function' && sTime.setElapsedSec(125) === 125 && formatTime(125) === '02:05')
+assert('setElapsedSec 通关', sTime.setElapsedSec(600) === 600 && sTime.phase === 'victory')
+const sMenuT = createSession()
+assert('菜单拨时间不通关', sMenuT.setElapsedSec(600) === 600 && sMenuT.phase === 'menu')
+const sDone = createSession()
+sDone.start('1')
+sDone.tick(12)
+sDone.finish()
+const doneT = sDone.elapsedSec
+assert(
+  '结算不改时间',
+  sDone.setElapsedSec(90) === doneT && sDone.elapsedSec === doneT && sDone.phase === 'result',
+)
 
 const sPast = createSession()
 sPast.start('1')
@@ -384,6 +832,8 @@ assert('home settings 不改等级', sHome.level === 1 && sHome.pending === 0 &&
 
 assert('bgm url', BGM_URL === '/assets/游戏音乐/music.ogg')
 assert('ranger idle url', RANGER_IDLE_SRC === '/assets/characters/1/S_Idle.png')
+assert('warrior idle url', WARRIOR_IDLE_SRC === '/assets/characters/2/S_Idle.png')
+assert('mage idle url', MAGE_IDLE_SRC === '/assets/characters/3/S_Idle.png')
 const mockAudio = {
   volume: 1,
   loop: false,
@@ -430,6 +880,86 @@ for (const u of UPGRADES) {
 
 assert('bgm file', existsSync(join(here, '../../public/assets/游戏音乐/music.ogg')))
 assert('ranger idle file', existsSync(join(here, '../../public/assets/characters/1/S_Idle.png')))
+assert('warrior idle file', existsSync(join(here, '../../public/assets/characters/2/S_Idle.png')))
+assert('mage idle file', existsSync(join(here, '../../public/assets/characters/3/S_Idle.png')))
+assert('empower_shot png', existsSync(join(here, '../../public/assets/upgrades/empower_shot.png')))
+assert('strange_egg png', existsSync(join(here, '../../public/assets/upgrades/strange_egg.png')))
+assert('bat png', existsSync(join(here, '../../public/assets/upgrades/bat.png')))
+
+assert(
+  'sfx 9 键',
+  Object.keys(SFX_URLS).length === 9 &&
+    ['shoot', 'slash', 'fireball', 'pickup', 'levelup', 'heartbeat', 'defeat', 'victory', 'hurt'].every(
+      (k) => typeof SFX_URLS[k] === 'string',
+    ),
+)
+assert(
+  'sfx 路径',
+  SFX_URLS.shoot === '/assets/游戏音乐/射箭声音.wav' &&
+    SFX_URLS.hurt === '/assets/游戏音乐/受伤音效.mp3' &&
+    SFX_URLS.heartbeat === '/assets/游戏音乐/低血量心跳.mp3' &&
+    SFX_URLS.victory === '/assets/游戏音乐/通关音效.ogg' &&
+    Object.values(SFX_URLS).every((u) => u.startsWith('/assets/游戏音乐/')),
+)
+assert(
+  'sfx 文件在',
+  Object.values(SFX_FILES).every((f) => existsSync(join(here, '../../public/assets/游戏音乐/', f))),
+)
+class FakeAudio {
+  constructor(url) {
+    this.url = url
+    this.volume = 1
+    FakeAudio.instances.push(this)
+    FakeAudio.last = this
+  }
+  play() {
+    this.played = true
+    return Promise.resolve()
+  }
+  pause() {
+    this.paused = true
+  }
+}
+FakeAudio.instances = []
+const sfxA = createSfx({ audioCtor: FakeAudio })
+assert(
+  'sfx play 一次',
+  sfxA.play('levelup') === true && FakeAudio.last.played === true && FakeAudio.last.url === SFX_URLS.levelup,
+)
+assert('sfx 未知不播', sfxA.play('nope') === false)
+assert('SFX_GAIN 表', SFX_GAIN.pickup > 1 && SFX_GAIN.levelup > 1 && (SFX_GAIN.slash ?? 1) === 1)
+const sfxGain = createSfx({ audioCtor: FakeAudio, volume: 0.1 })
+sfxGain.play('pickup')
+assert('sfx pickup 增益×5', Math.abs(FakeAudio.last.volume - 0.5) < 1e-9)
+sfxGain.play('levelup')
+assert('sfx levelup 增益×2.8', Math.abs(FakeAudio.last.volume - 0.28) < 1e-9)
+sfxGain.play('slash')
+assert('sfx 缺省无增益', FakeAudio.last.volume === 0.1)
+const sfxCap = createSfx({ audioCtor: FakeAudio })
+sfxCap.play('pickup')
+assert('sfx 增益钳制 ≤1', FakeAudio.last.volume === 1)
+const sfxHold = createSfx({ audioCtor: FakeAudio })
+assert(
+  'sfx 持有引用 preload',
+  sfxHold.play('pickup') === true &&
+    sfxHold.play('pickup') === true &&
+    sfxHold.activeCount() === 2 &&
+    FakeAudio.instances.at(-1).preload === 'auto',
+)
+FakeAudio.instances.at(-1).onended()
+assert('sfx ended 释放', sfxHold.activeCount() === 1)
+FakeAudio.instances.at(-2).onerror()
+assert('sfx error 释放', sfxHold.activeCount() === 0)
+const sfxB = createSfx({ audioCtor: FakeAudio, volume: 0.4 })
+assert(
+  '心跳循环独占',
+  sfxB.startHeartbeat() === true && sfxB.isHeartbeatOn() === true && FakeAudio.last.loop === true && sfxB.startHeartbeat() === false,
+)
+assert('心跳音量跟随', sfxB.setVolume(0.42) === 0.42 && FakeAudio.last.volume === 0.42)
+assert(
+  '心跳停即停',
+  sfxB.stopHeartbeat() === true && sfxB.isHeartbeatOn() === false && FakeAudio.last.paused === true && sfxB.stopHeartbeat() === false,
+)
 
 const pixelSrc = readFileSync(join(here, '../views/PixelIcon.vue'), 'utf8')
 assert('PixelIcon loads png url', pixelSrc.includes('upgradeIconUrl'))
@@ -439,22 +969,72 @@ assert('PixelIcon advanced dot', pixelSrc.includes('paintAdvancedDot') && pixelS
 
 const upgradeSrc = readFileSync(join(here, '../views/UpgradeView.vue'), 'utf8')
 assert('三选一传 advanced', upgradeSrc.includes(':advanced'))
+assert('三选一 descFor', upgradeSrc.includes('descFor') && upgradeSrc.includes('charId'))
+assert('升级卡浮起框', upgradeSrc.includes('rl-frame--pop'))
 
 const shellSrc = readFileSync(join(here, '../views/GameShell.vue'), 'utf8')
 assert('shell boostLevels on close', shellSrc.includes('boostLevels'))
 assert('shell +/- 不 setLevel', !shellSrc.includes('setLevel'))
 assert('shell BGM shared', shellSrc.includes('getSharedBgm'))
+assert('shell 写入 charId', shellSrc.includes('session.charId') && shellSrc.includes('onPickChar'))
+assert('shell setElapsedSec', shellSrc.includes('setElapsedSec'))
+assert('shell picker ESC', shellSrc.includes('isUpgradePickerOpen') && shellSrc.includes('grant-upgrade'))
+assert('shell bonds', shellSrc.includes('rl-bonds') && shellSrc.includes('hud.bonds') && shellSrc.includes('grantUpgrade'))
+assert(
+  'shell sfx 4 相位',
+  shellSrc.includes('getSharedSfx') &&
+    shellSrc.includes("play('levelup')") &&
+    shellSrc.includes("play('defeat')") &&
+    shellSrc.includes("play('victory')") &&
+    shellSrc.includes('startHeartbeat') &&
+    shellSrc.includes('stopHeartbeat'),
+)
+assert(
+  'shell 羁绊悬停',
+  shellSrc.includes('rl-bond-tip') && shellSrc.includes('bondTiers') && shellSrc.includes('BOND_DESC'),
+)
+assert('shell 传 charId', shellSrc.includes('hud.charId'))
+assert('shell sfxVolume 分控', shellSrc.includes('settings.sfxVolume'))
+assert('shell 音量乘积', shellSrc.includes('applyVolumes') && shellSrc.includes('bgmVolume'))
+
+const hudSrc = readFileSync(join(here, '../views/HudOverlay.vue'), 'utf8')
+assert(
+  'HUD 心跟 hpMax',
+  hudSrc.includes('hearts(hp, hpMax)') && hudSrc.includes('hpMax') && !hudSrc.includes('default: 3'),
+)
+assert(
+  'HUD 双通栏',
+  hudSrc.includes('rl-topbar') && hudSrc.includes('rl-botbar') && hudSrc.includes('rl-frame--dark'),
+)
 
 const startSrc = readFileSync(join(here, '../views/StartView.vue'), 'utf8')
-assert('char RangerPortrait', startSrc.includes('RangerPortrait') && startSrc.includes('CHAR_NAME'))
+assert('char RangerPortrait', startSrc.includes('RangerPortrait') && startSrc.includes('CHARACTERS'))
+assert('char 解锁三角色', startSrc.includes('ch.id') && startSrc.includes('pick-char') && !startSrc.includes('敬请期待'))
+assert('char hover stats', startSrc.includes('formatCharStats') && startSrc.includes('rl-char-tip'))
+assert('难度悬停目标', startSrc.includes('OBJECTIVE_TEXT') && startSrc.includes('OBJECTIVE_TEXT_TWO') && startSrc.includes('DIFFICULTY_TWO') && startSrc.includes('rl-diff-pick'))
 assert('char 不用人', !startSrc.includes('人'))
 
 const portraitSrc = readFileSync(join(here, '../views/RangerPortrait.vue'), 'utf8')
-assert('idle frame0 flip', portraitSrc.includes('RANGER_IDLE_SRC') && portraitSrc.includes('scale(-1, 1)'))
+assert('idle frame0 flip', portraitSrc.includes('RANGER_IDLE_SRC') && portraitSrc.includes('scale(-1, 1)') && portraitSrc.includes('props.src'))
 
 const settingsSrc = readFileSync(join(here, '../views/SettingsView.vue'), 'utf8')
 assert('提高等级文案', settingsSrc.includes('提高等级') && settingsSrc.includes('clampLevelBoost'))
 assert('刷怪速度文案', settingsSrc.includes('刷怪速度') && !settingsSrc.includes('刷怪概率'))
+assert('满蓄模式文案', settingsSrc.includes('满蓄模式') && !settingsSrc.includes('无限弹药'))
+assert('测试时间滑条', settingsSrc.includes('testElapsedSec') && settingsSrc.includes('TEST_ELAPSED_MAX'))
+assert('升级选项自选', settingsSrc.includes('升级选项自选') && settingsSrc.includes('grant-upgrade') && settingsSrc.includes('UPGRADES'))
+assert('自选红 X', settingsSrc.includes('rl-picker-x') && settingsSrc.includes('isUpgradePickerOpen'))
+assert('火柴人开关', settingsSrc.includes('火柴人') && settingsSrc.includes('testDummy'))
+assert('音效音量滑条', settingsSrc.includes('音效音量') && settingsSrc.includes('onSfxVolumeInput'))
+assert('测试排版两列', settingsSrc.includes('rl-test-toggles') && settingsSrc.includes('rl-nudge--inline'))
+assert(
+  '三滑条文案',
+  settingsSrc.includes('总音量') && settingsSrc.includes('背景音乐') && settingsSrc.includes('onBgmVolumeInput'),
+)
+assert(
+  '测试右侧面板',
+  settingsSrc.includes('rl-settings-cols') && settingsSrc.includes('rl-settings-test'),
+)
 assert('UpgradeView 仅 upgrade', shellSrc.includes("hud.phase === 'upgrade'") && shellSrc.includes('beginUpgradeOffer') === false)
 assert('matchUi beginUpgradeOffer', typeof createMatchUi().beginUpgradeOffer === 'function')
 
@@ -463,9 +1043,41 @@ assert('回忆用 PixelIcon', moreSrc.includes('PixelIcon') && moreSrc.includes(
 assert('回忆 ×n 无序号文案', moreSrc.includes('×{{ u.count }}') && !moreSrc.includes('i + 1') && !moreSrc.includes('u.title'))
 assert('回忆悬停效果', moreSrc.includes('descFor') && moreSrc.includes('rl-mem-tip') && moreSrc.includes(':title'))
 assert('回忆也显示 ×1', moreSrc.includes('×{{ u.count }}') && !moreSrc.includes('u.count > 1'))
+assert('回忆等级醒目', moreSrc.includes('rl-mem-lv'))
 const pixelCss = readFileSync(join(here, 'pixel.css'), 'utf8')
 assert('回忆 ×000 槽', pixelCss.includes('4ch') && pixelCss.includes('rl-mem-mult'))
 assert('回忆 tip 不占布局', pixelCss.includes('.rl-mem-tip') && pixelCss.includes('position: absolute'))
+assert('char tip', pixelCss.includes('.rl-char-tip') && pixelCss.includes('.rl-pick:hover .rl-char-tip'))
+assert('char tip pre-line', pixelCss.includes('white-space: pre-line'))
+assert('bonds 右侧', pixelCss.includes('.rl-bonds') && pixelCss.includes('flex-wrap') && pixelCss.includes('282px'))
+assert(
+  '羁绊 tip 不占布局',
+  pixelCss.includes('.rl-bond-tip') && pixelCss.includes('position: absolute') && pixelCss.includes('.rl-bond-tier'),
+)
+assert(
+  '测试排版 grid 两列',
+  pixelCss.includes('.rl-test-toggles') && pixelCss.includes('grid-template-columns'),
+)
+assert('深色框变体', pixelCss.includes('.rl-frame--dark'))
+assert(
+  '通栏钳制画布',
+  pixelCss.includes('.rl-topbar') &&
+    pixelCss.includes('.rl-botbar') &&
+    pixelCss.includes('var(--rl-stage-left') &&
+    pixelCss.includes('var(--rl-stage-width') &&
+    pixelCss.includes('var(--rl-stage-height'),
+)
+assert('升级卡 160px', pixelCss.includes('160px'))
+assert('左上面板已撤', !pixelCss.includes('.rl-hud'))
+assert('菜单钳制画布', /\.rl-screen\s*\{[^}]*var\(--rl-stage-left/.test(pixelCss))
+assert('齿轮回窗口角', /\.rl-gear\s*\{[^}]*top:\s*10px[^}]*right:\s*10px/.test(pixelCss))
+assert('省略号回窗口角', /\.rl-ellipsis\s*\{[^}]*left:\s*10px[^}]*bottom:\s*10px/.test(pixelCss))
+assert('羁绊可悬停', /\.rl-bond\s*\{[^}]*pointer-events:\s*auto/.test(pixelCss))
+assert('羁绊单列', /\.rl-bonds\s*\{[^}]*flex-direction:\s*column/.test(pixelCss))
+assert('死样式 rl-divider 已删', !pixelCss.includes('.rl-divider'))
+assert('token 层 :root', pixelCss.includes(':root') && pixelCss.includes('--rl-ink') && pixelCss.includes('--rl-paper'))
+assert('rl-frame 通用类', pixelCss.includes('.rl-frame') && pixelCss.includes('.rl-frame--pop'))
+assert('死样式已删', !pixelCss.includes('.rl-pick.locked') && !pixelCss.includes('.rl-avatar.q'))
 
 const vol = defaultSettings()
 assert('volume default 70%', formatVolumePct(vol.volume) === '70%')
@@ -480,6 +1092,24 @@ assert('setVolume 100%', formatVolumePct(vol.volume) === '100%')
 const uiVol = createMatchUi()
 setVolume(uiVol.settings, 0.55)
 assert('matchUi.settings.volume live', formatVolumePct(uiVol.settings.volume) === '55%')
+
+assert('sfxVolume 默认 0.7', defaultSettings().sfxVolume === 0.7)
+assert('bgmVolume 默认 0.7', defaultSettings().bgmVolume === 0.7)
+const lsStore = new Map()
+globalThis.localStorage = {
+  getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null),
+  setItem: (k, v) => lsStore.set(k, String(v)),
+  removeItem: (k) => lsStore.delete(k),
+}
+const sfxVolPersist = defaultSettings()
+sfxVolPersist.sfxVolume = 0.3
+sfxVolPersist.bgmVolume = 0.4
+saveSettings(sfxVolPersist)
+assert(
+  '音量持久化',
+  loadSettings().sfxVolume === 0.3 && loadSettings().bgmVolume === 0.4,
+)
+delete globalThis.localStorage
 
 saveMemory({ timeText: '00:01', level: 1, exp: 0, upgrades: [] })
 assert('memory append', loadMemories().length >= 2)

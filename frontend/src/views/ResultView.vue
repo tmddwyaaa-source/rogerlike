@@ -10,7 +10,7 @@ const emit = defineEmits(['again', 'retry', 'home'])
 
 <template>
   <section class="rl-screen">
-    <div class="rl-result">
+    <div class="rl-result rl-frame rl-frame--pop">
       <h2>{{ result?.title || (result?.win ? '恭喜你幸存下来了' : '本局结束') }}</h2>
       <dl>
         <dt>存活</dt>

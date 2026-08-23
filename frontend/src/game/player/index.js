@@ -3,7 +3,9 @@
  *
  * M5 可读/写：facingDir ('D'|'S'|'U')、flipX、charging、attackT。
  * P5：player.queueLevelUpFx(n)
- * P9：e.code WASD + clearMovementKeys；blur / 页面隐藏清键。
+ * P13：法师 2 心 / 战士 4 心；伤害数字收间距、≥100 黄边 ≥200 红边。
+ * P14：回血绿边 spawnHealNum；开局目标 queueObjectiveFx（不自动开始）。
+ * P15：局内不再画开局目标字。
  */
 import {
   BODY,
@@ -13,14 +15,19 @@ import {
   WORLD_WIDTH,
   screenToWorld,
 } from '../constants.js'
+import { drawStickman } from '../render/stickman.js'
 import {
+  CHAR_DISPLAY,
+  DEATH_ANIM_SEC,
   HURT_SEC,
+  deathAnimDone,
   drawRanger,
   facingFromAngle,
   loadRangerAssets,
   resolveAnim,
+  resolveCharId,
 } from '../render/ranger.js'
-import { drawStickman } from '../render/stickman.js'
+import { loadDamageNums } from '../render/dmgnum.js'
 import {
   drawLevelUpFx,
   hasLevelUpFx,
@@ -30,14 +37,42 @@ import {
   queueLevelUpFx as enqueueLevelUp,
   stepLevelUpFx,
 } from '../render/levelup.js'
+import {
+  drawObjectiveFx,
+  queueObjectiveFx as enqueueObjective,
+  resetObjectiveFx,
+  stepObjectiveFx,
+} from '../render/objective.js'
 
 export { drawStickman, STICKMAN_H, STICKMAN_W } from '../render/stickman.js'
 export {
+  CHAR_DISPLAY,
+  CHAR_FOLDERS,
+  DEATH_ANIM_SEC,
+  deathAnimDone,
   drawRanger,
   facingFromAngle,
   loadRangerAssets,
   resolveAnim,
+  resolveCharId,
 } from '../render/ranger.js'
+export {
+  drawDamageNums,
+  loadDamageNums,
+  resetDamageNums,
+  spawnDamageNum,
+  spawnHealNum,
+  updateDamageNums,
+} from '../render/dmgnum.js'
+export {
+  OBJECTIVE_LIFE,
+  OBJECTIVE_TEXT,
+  drawObjectiveFx,
+  hasObjectiveFx,
+  queueObjectiveFx,
+  resetObjectiveFx,
+  stepObjectiveFx,
+} from '../render/objective.js'
 export {
   LEVELUP_LIFE,
   LEVELUP_SRC,
@@ -52,6 +87,12 @@ export {
 
 export const CHAR_NAME = '游侠'
 export const HP_MAX = 3
+/** 按角色初始心数。HP_MAX 仍是游侠默认。 */
+export const HP_BY_CHAR = {
+  ranger: 3,
+  warrior: 4,
+  mage: 2,
+}
 /** 设计移速单位 1.20 */
 export const PLAYER_SPEED_UNITS = 1.2
 export const PLAYER_SPEED = PLAYER_SPEED_UNITS * SPEED_PX_PER_UNIT
@@ -123,9 +164,13 @@ function drawScatter(ctx, player) {
 }
 
 /**
+ * P21：opts.onHurt 在实际扣血时被调用一次（无敌挡掉 / godMode 兜底不扣血不调；死亡那下也调）。
+ * 只发信号，不播音。
+ *
  * @param {{
  *   x?: number, y?: number, speed?: number, speedUnits?: number,
  *   keys?: object, random?: () => number, godMode?: boolean, name?: string,
+ *   charId?: 'ranger'|'warrior'|'mage', onHurt?: () => void,
  * }} [opts]
  */
 export function createPlayer(opts = {}) {
@@ -133,9 +178,13 @@ export function createPlayer(opts = {}) {
   const keys = opts.keys ?? { w: false, a: false, s: false, d: false }
   let unbind = () => {}
   const speedUnits = opts.speedUnits ?? PLAYER_SPEED_UNITS
+  const charId = resolveCharId(opts.charId)
+  const hp0 = HP_BY_CHAR[charId] ?? HP_MAX
+  const onHurt = opts.onHurt
 
   const player = {
-    name: opts.name ?? CHAR_NAME,
+    charId,
+    name: opts.name ?? CHAR_DISPLAY[charId] ?? CHAR_NAME,
     x: opts.x ?? WORLD_WIDTH / 2,
     y: opts.y ?? WORLD_HEIGHT / 2,
     w: BODY_W,
@@ -143,8 +192,8 @@ export function createPlayer(opts = {}) {
     /** 接触判定用缩小 hurtbox */
     hurtW: Math.max(4, Math.round(BODY_W * 0.55)),
     hurtH: Math.max(6, Math.round(BODY * 0.45)),
-    hp: HP_MAX,
-    hpMax: HP_MAX,
+    hp: hp0,
+    hpMax: hp0,
     speedUnits,
     speed: opts.speed ?? speedUnits * SPEED_PX_PER_UNIT,
     facing: 0,
@@ -159,6 +208,7 @@ export function createPlayer(opts = {}) {
     invuln: 0,
     scatter: [],
     levelUpFx: [],
+    objectiveT: 0,
     walkFrame: 0,
     moving: false,
     godMode: Boolean(opts.godMode),
@@ -167,8 +217,10 @@ export function createPlayer(opts = {}) {
     takeDamage,
     heal,
     addVitality,
+    addEmptyHpMax,
     lookAt,
     isInvincible: () => player.invuln > 0,
+    deathAnimDone: () => deathAnimDone(player),
     draw,
     loadAssets,
     bindInput,
@@ -181,6 +233,12 @@ export function createPlayer(opts = {}) {
     },
     queueLevelUpFx(n = 1) {
       return enqueueLevelUp(player, n, random)
+    },
+    queueObjectiveFx() {
+      return enqueueObjective(player)
+    },
+    resetObjectiveFx() {
+      resetObjectiveFx(player)
     },
     hasLevelUpFx() {
       return hasLevelUpFx(player)
@@ -216,6 +274,7 @@ export function createPlayer(opts = {}) {
     player.invuln = IFRAME_SEC
     player.hurtT = HURT_SEC
     spawnScatter(player, random)
+    onHurt?.()
     return true
   }
 
@@ -233,10 +292,16 @@ export function createPlayer(opts = {}) {
     return true
   }
 
+  function addEmptyHpMax() {
+    player.hpMax += 1
+    return true
+  }
+
   function update(dt) {
     if (dt <= 0) return
     player.animTime += dt
     stepLevelUpFx(player, dt)
+    stepObjectiveFx(player, dt)
     if (player.invuln > 0) {
       player.invuln = Math.max(0, player.invuln - dt)
     }
@@ -252,6 +317,7 @@ export function createPlayer(opts = {}) {
     if (player.hp <= 0) {
       player.moving = false
       player.charging = false
+      resetObjectiveFx(player)
       player.deathT += dt
       player.anim = 'Death'
       return
@@ -283,10 +349,15 @@ export function createPlayer(opts = {}) {
       drawStickman(ctx, player)
     }
     drawLevelUpFx(ctx, player)
+    drawObjectiveFx(ctx, player)
   }
 
   async function loadAssets() {
-    await Promise.all([loadRangerAssets(), loadLevelUpFx()])
+    await Promise.all([
+      loadRangerAssets(player.charId),
+      loadLevelUpFx(),
+      loadDamageNums(),
+    ])
   }
 
   function bindInput(io = {}) {

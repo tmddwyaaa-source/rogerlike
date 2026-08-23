@@ -2,6 +2,446 @@
 
 > M1 查收专用。禁止仅凭口头「完成了」标 done。
 
+## 2026-08-24 查收 — P24（M8 / M11 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| 路径边界（mtime 核对） | ✅ M8 只动 `ui/constants.js`、`ui/session.js`；M11 只动 `companions/**` |
+| 天行健文案 | ✅ **实机验证**：档 2/4/6/8 四条「随等级提高…（每 N 级 +X）」 |
+| 万物一心阈值 | ✅ `BOND_UNITY_THRESHOLDS=[2,4,6,8]`；**实机验证**：3 种跟班升级 → 档 2；悬停四条精简文案 |
+| 小金刚 | ✅ 大娃/黑洞 `bond: BOND_VAJRA`；**实机验证**：两种都选 → chip「小金刚 2」，悬停「大娃与黑洞两种都选择后解锁 / 档 2 · 敬请期待」 |
+| M11 新档位 | ✅ `UNITY_ATK_SHARE=0.2`、+0.2 设计单位（×80）、getPriorityTarget 消费含活目标/在表校验与回退；companions selftest PASS |
+| M1 接线 | ✅ `match.js`：combat 侧 `onPlayerDamage` 记录玩家击中活敌（跟班 onDamage 不经过，防自锁）；`createCompanions({ getPriorityTarget })`；每局重置 |
+| 全量 selftest | ✅ 7 模块全 RESULT PASS |
+| `npm run build` | ✅ 541ms |
+| 备注 | 档 8（优先目标）需 8 种跟班才可达，当前 4 种最多档 4；优先目标逻辑仅自测通过，实机验证待未来跟班扩充 |
+
+**结论**：M8 / M11 / M9 **pass**。P24 关环。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-24 派工 — P24（羁绊改版：天行健文案 / 万物一心 2-4-6-8 / 小金刚）
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P24 | ✅ 已写（M8 文案+阈值+小金刚；M11 新档位效果+优先目标；M1 getPriorityTarget 接线） |
+| GAME-SPEC §4.3 | ✅ 万物一心 2/4/6/8 新效果；新增小金刚行 |
+| 窗口 | M8 / M11 **in_progress**；M1 接线 pending |
+
+**结论**：等待 M8 / M11「请查收」。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 — M1 直改（拾取音效真根因：误读 notifyExp 返回值语义）
+
+| 检查项 | 结果 |
+|--------|------|
+| 现象 | 用户：拾取音只在与升级音重合时出现；其余全部正常 |
+| 实测（title 探针 + 无敌局） | ✅ `onCrystal(0)` 连续出现且 HUD 经验在涨 → `shell.notifyExp` 回传的是**本次升了几级**（普通结晶 = 0），不是「获得了经验」 |
+| 根因 | ✅ M1 在 P20 接线时把 `gained > 0` 当成「获得经验」，导致拾取音只在触发升级的那颗结晶播放（恰与升级音同帧） |
+| 修复 | ✅ `match.js` onCrystal：音效与升级判断解耦——每颗吸收即 `sfx.play('pickup')`；`gained` 仅用于 +1 特效；探针已全部移除 |
+| 验证 | ✅ match / ui selftest PASS；build 619ms |
+
+**结论**：pass。此前「素材电平低」是并存的次要因素（增益 ×5 仍有效），本条才是触发缺失的主因。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 — M1 直改（match.js 拾取音效去节流）
+
+| 检查项 | 结果 |
+|--------|------|
+| 用户反馈 | ✅ P23 后拾取音可闻但与升级音重合；要求：每颗结晶吸收即播、可叠加、不等待 |
+| 改动 | ✅ `match.js` onCrystal 去掉 100ms 节流（M1 集成路径）；`lastPickupSfxMs` 移除 |
+| 验证 | ✅ match / ui selftest PASS；build 551ms |
+
+**结论**：pass。设计表已同步。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 查收 — P23（M8 + M1 联调）
+
+| 检查项 | 结果 |
+|--------|------|
+| 路径边界（mtime 核对） | ✅ 本环只动 `ui/pixel.css`、`ui/sfx.js`、`ui/settings.js`、`views/GameShell.vue`、`views/SettingsView.vue`、`views/MoreView.vue` |
+| 增益表 | ✅ `SFX_GAIN = { pickup: 5.0, levelup: 2.8 }`；`a.volume = min(1, vol × gain)`；心跳走 `startHeartbeat` 不增益 |
+| 菜单钳制 | ✅ `.rl-screen` 四边全走 `var(--rl-stage-*, 回退)` |
+| 齿轮 / 「……」复位 | ✅ `.rl-gear top:10px right:10px`、`.rl-ellipsis left:10px bottom:10px`（窗口参照） |
+| 羁绊悬停 | ✅ `.rl-bond pointer-events:auto`；**实机验证**：hover 弹出「天行健：不同种类升级集齐解锁档位」+ 档 2/4/6/8 全档位（`reached` 深浅类在） |
+| 羁绊单列 | ✅ `.rl-bonds flex-direction: column; align-items: flex-end`；282px 保留，断言同步 |
+| 回忆详情 | ✅ `min(520px, 94vw)` 起、min-height 220、`rl-mem-lv` 等级突出 |
+| 测试右面板 | ✅ **实机验证**：「测试选项」面板承载全部测试项，关闭即收起 |
+| 三滑条 | ✅ **实机验证**：总音量/背景音乐/音效音量 三滑条 70%；`bgm = 总×背景`、`sfx = 总×音效`（watch 三项）；bgmVolume 默认 0.7 持久化 |
+| 全量 selftest | ✅ 7 模块全 RESULT PASS |
+| `npm run build` | ✅ 554ms |
+| 临时文件 | ✅ `__soundtest.html` 已删 |
+
+**结论**：M8 **pass**。P23 关环。拾取音效增益效果待用户实机复听确认。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 派工 — P23（拾取增益 / 菜单钳制 / 羁绊悬停 / 回忆排版 / 测试面板 / 三滑条）
+
+| 检查项 | 结果 |
+|--------|------|
+| 根因调查（音效） | ✅ M1 真机探针 + 浏览器解码实测：事件/play 调用/解码/接受度/音量全部正常；**拾取素材 RMS −28dB 过轻**（其他 −14~−19）→ 代码增益修复；`__soundtest.html` 临时页留作用户自验（P23 关环删） |
+| 根因调查（羁绊悬停） | ✅ `.rl-bonds` 容器 `pointer-events:none`（pixel.css:678）致 hover 永不触发；P20 结构从未可达 |
+| HANDOFF-P23 | ✅ 已写（M8 单窗 8 项；含音量三滑条模型：实际 = 总音量 × 分项） |
+| 窗口 | M8 **in_progress** |
+
+**结论**：等待 M8「请查收」。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 查收 — P22（M8 局内 UI + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| 路径边界（mtime 核对） | ✅ 本环只动 `ui/pixel.css`、`views/HudOverlay.vue`、`views/UpgradeView.vue`、`views/MoreView.vue` |
+| 深色框 `.rl-frame--dark` | ✅ pixel.css:52 |
+| 顶部通栏 | ✅ `.rl-topbar.rl-frame--dark`：左心/中计时/右侧位；`left/top/width` 全走 `var(--rl-stage-*, fallback)` |
+| 底部经验通栏 | ✅ `top: calc(stage-top + stage-height − 24px)` 对齐画布底；Lv/经验条/蓄力条并入 |
+| 齿轮下移 | ✅ `top: stage-top + 40px`（通栏下方）、`left: stage-left + stage-width − 46px`（画布右内侧） |
+| 升级卡 | ✅ 160px 深色卡面 |
+| 282px 断言 | ✅ 未变值，css 与 selftest 一致保留 |
+| 全量 selftest | ✅ 7 个模块全 RESULT PASS |
+| `npm run build` | ✅ 567ms；CSS 13.26→14.32 kB |
+| M1 接线 | ✅ `App.vue` `--rl-stage-*`（resize + ResizeObserver） |
+
+**结论**：M8 / M9 **pass**。P22 关环，UI 改版（P19 菜单环 + P22 局内环）全部落地。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 查收 — P21（M4 / M6 / M8 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| 路径边界（mtime 核对） | ✅ M4 只动 `player`；M6 只动 `enemies`（含 ice.js）`spawner`；M8 只动 `ui` `views`；`match.js` 未被子窗口碰 |
+| M4 `onHurt` | ✅ 实扣血调一次；无敌/godMode 不调；死亡那下也调 |
+| M6 数值 | ✅ `SNAIL_HP_PER=20`、`SLIME_X1_HP_PER=22`；`ICE_MAN_HP=3300`；`ICE_REGEN_DELAY_SEC=3`/`RANGE=BODY*2`/`PER_SEC=20`，进范围停并重置、不超上限、走 onHeal |
+| M8 sfx 加固 | ✅ `playing` Set 持有引用到 `ended`/`error`；`preload='auto'`；`shoot='射箭声音.wav'`；`hurt` 入表 |
+| M8 排版 / 音量 | ✅ `rl-nudge--inline` 提高等级同行；`sfxVolume` 默认 0.7 clamp 持久化；GameShell watch `sfx.setVolume`；音乐音量仍只控 BGM |
+| M1 接线 | ✅ `createPlayer({ onHurt: () => sfx.play('hurt') })` |
+| 全量 selftest | ✅ player / combat / enemies / world / companions / ui / match 全 RESULT PASS |
+| `npm run build` | ✅ 548ms |
+| 开游戏实机 | ✅ 5173 常驻；刷新即 P21 版（音效逐项请用户复听） |
+
+**结论**：M4 / M6 / M8 / M9 **pass**。P21 关环。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 派工 — P22（局内 UI：HUD 顶部通栏 / 齿轮下移 / 画布钳制 / 换装）
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P22 | ✅ 已写（M8 单窗；M1 的 App.vue 变量接线已完成并 build 通过） |
+| `App.vue` 画布矩形 → `--rl-stage-*` | ✅ resize + ResizeObserver 双通道 |
+| 窗口 | M8 **in_progress**；M9 接线 in_progress（已做完，待随环关闭） |
+
+**结论**：等待 M8「请查收」。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 派工 — P21（音效修复与新增 / 怪物成长 / 冰人回血 / 设置排版 / 音效音量）
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P21 | ✅ 已写（M4 onHurt / M6 数值与冰人回血 / M8 sfx 加固+排版+音效音量） |
+| 素材 | ✅ `射箭声音.wav`、`受伤音效.mp3` 两边拷入，SHA256 一致 |
+| pickup 不响排查 | 已排除：URL 可达（编码后 200）、文件为合法 ID3v2.4 MP3、onCrystal 路径正确、selftest 绿；指向 sfx.js 一次性 Audio 无引用被掐断 → P21 M8 加固修复 |
+| GAME-SPEC / 怪物属性表 / ASSETS | ✅ 数值、回血设定、音效清单已更新 |
+| 窗口 | M4 / M6 / M8 **in_progress**；M1 接线 pending |
+
+**结论**：等待 M4 / M6 / M8「请查收」。  
+**阻塞项**：无。P22（局内 UI）待 P21 关环后立即派。
+
+---
+
+## 2026-08-23 查收 — P20（M5 / M6 / M8 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| 路径边界（mtime 核对） | ✅ M5 只动 `combat` `weapons`；M6 只动 `spawner`；M8 只动 `ui` `views`；`match.js` 未被子窗口碰 |
+| M5 `onFire` | ✅ `hooks.onFire?.(fireKindForChar(id))`；不播音；combat selftest PASS（散射单次） |
+| M6 数值 | ✅ 蘑菇 32/10、蜗牛 50/15、x-1 120/17、蝎子 105/15；冰人 `ICE_MAN_HP=3000`、`ICE_DASH/BARRAGE/ORCHID_PERIOD=12/22/32`、重生 ×1.4ⁿ |
+| M8 文案 | ✅ 穿透「穿透 +1」；敏捷「移速 +0.15」且 `MOVE_SPEED_BONUS===0.15`；强化射击 `descFor(item, charId)` 游侠激光原文 / 其他「+15」（三选一+回忆） |
+| M8 羁绊悬停 | ✅ `.rl-bond-tip` + `.rl-bond-tier.reached` 深浅档位；绝对定位不占布局 |
+| M8 音效 | ✅ `ui/sfx.js` 8 键映射、心跳独占循环轨、音量跟随；GameShell 接 levelup/defeat/victory/heartbeat 四相位 |
+| M1 接线 `match.js` | ✅ combat hooks `onFire → sfx.play(kind)`；结晶 `onCrystal` pickup 节流 100ms |
+| 全量 selftest | ✅ player / combat / enemies / world / companions / ui / match 全 RESULT PASS |
+| `npm run build` | ✅ 551ms |
+| 开游戏实机 | ✅ Vite 5173 常驻（复用）；浏览器刷新即 P20 版 |
+
+**结论**：M5 / M6 / M8 / M9 **pass**。P20 全窗完成。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 派工 — P20（怪物血量 / 冰人 / 文案 / 羁绊悬停 / 音效）
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P20 | ✅ 已写（M5 钩子 / M6 数值 / M8 文案+悬停+音效） |
+| 音效素材 8 个 | ✅ 桌面 `Roger-png/游戏音乐` → `frontend/public/assets/游戏音乐/` + `assets/source/游戏音乐/`，SHA256 两边一致 |
+| M10 关闭 | ✅ 用户确认 20 个升级图标全部采用（唯快不破/精益求精三处一致）；「+1」特效永久程序绘制（P5/P9 遗留关闭） |
+| GAME-SPEC / 怪物属性表 | ✅ 数值与音效清单已更新 |
+| 窗口 | M5 / M6 / M8 **in_progress**；M1 接线 pending |
+
+**结论**：等待 M5 / M6 / M8「请查收」。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 查收 — P19（M8 UI 像素框架 · 菜单环）
+
+| 检查项 | 结果 |
+|--------|------|
+| 路径边界（mtime 核对） | ✅ 本环只动 `ui/pixel.css`、`ui/selftest.mjs`、`views/StartView.vue`、`views/SettingsView.vue`，无越界 |
+| token 层 | ✅ `:root` 变量齐全（色板 + 间距/字号标尺 + 遮罩/阴影）；`:root` 外零残留 hex；176 处 `var(--rl-*)` |
+| `.rl-frame` / `--pop` | ✅ 外墨内亮双层硬边框 + 硬投影；另有 `.rl-divider` / `.rl-ribbon` |
+| 像素红线 | ✅ 无圆角（仅 reset 0）/无渐变/无模糊；过渡只用 `steps(2, end)`；focus-visible 加强 |
+| 只改皮 | ✅ StartView script 与改版前逐字一致（props/emit/文案）；`rl-char-tip`/`pre-line` 机制原样；SettingsView 文案红线全在 |
+| toggle 色义 / 死样式 | ✅ `.rl-toggle.on` 用 `--rl-sub` 绿；`.rl-pick.locked`、`.rl-avatar.q` 已删 |
+| selftest | ✅ RESULT PASS（含新增 token 层 / rl-frame / 死样式断言） |
+| `npm run build` | ✅ 539ms；CSS 7.94→12.51 kB |
+| 开游戏实机 | ✅ M1 已开 5173 过菜单流（浏览器） |
+
+**结论**：M8 / P19 **pass**。P20 局内环（顶部通栏 / 齿轮下移 / 画布钳制 / 升级卡结算换装）待派。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-23 派工 — P19（UI 像素框架 · 菜单环）
+
+| 检查项 | 结果 |
+|--------|------|
+| 基线 `node src/ui/selftest.mjs` + `npm run build` | ✅ RESULT PASS；Vite 构建通过（P18 后代码） |
+| HANDOFF-P19 | ✅ 已写（M8 单窗：token 层 + `.rl-frame` + 标题/选角/难度/设置换装） |
+| GAME-SPEC §7 | ✅ 新增第 9 条视觉规范 |
+| 窗口 | M8 **in_progress**；P20（局内环：顶部通栏/齿轮下移/画布钳制）待 P19 查收后派 |
+
+**结论**：等待 M8「请查收」。  
+**阻塞项**：无。编号说明：P18 已被玩法环（蝎子/羁绊/难度二）占用并关闭，UI 环顺延为 P19/P20。
+
+---
+
+## 2026-08-23 查收 — P18（M5 / M6 / M7 / M8 / M11 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| M5 `combat/**` `weapons/**` | ✅ FIRE_INTERVAL 0.315；唯快不破仍 ÷1.2 |
+| M6 `enemies/**` `spawner/**` | ✅ 蝎子 300s；史莱姆 115/180s；冰人 CD 15/25/35、死后 180s 重生血 2800、掉 300；灰树 80 / 自损上限 8+分钟；getHpGrowthAdd |
+| M7 `world/**` `pickups/**` | ✅ treeHp extra；spawnCrystalBurst 300 抖动 |
+| M8 `ui/**` `views/**` | ✅ 羁绊不重复 id；去掉升级白送；难度二 2 杀+600s；右侧 rl-bonds |
+| M11 `companions/**` | ✅ setUnityTier 3/6/9 |
+| combat / enemies / world / companions / ui / match selftest | ✅ RESULT PASS |
+| `npm run build` | ✅ |
+| `match.js` | ✅ getHpGrowthAdd；spawnCrystalBurst；ice_man → addBossKill |
+
+**结论**：M5 / M6 / M7 / M8 / M11 / M9 **pass**。  
+**阻塞项**：唯快不破 / 精益求精图标仍待定（与本环无关）。
+
+---
+
+## 2026-08-23 派工 — P18
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P18 | ✅ 已写 |
+| 设计表 / GAME-SPEC / 怪物属性表 / ASSETS | ✅ 蝎子怪、羁绊、0.315、Boss 重生、难度二、灰树 80 / 自损上限 8 |
+| 素材 | ✅ `小怪/蝎子怪.png` 两边都有 |
+| 窗口 | M5 / M6 / M7 / M8 / M11 **in_progress**；M9 pending；M10 仍等唯快不破/精益求精 |
+
+**结论**：等待子窗口请查收。  
+**阻塞项**：唯快不破 / 精益求精图标未到（与本环无关）。
+
+---
+
+## 2026-08-22 查收 — P17（M5 / M6 / M7 / M8 / M11 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| M5 `combat/**` `weapons/**` | ✅ 1 身位长条；线性伤/长；3 大娃满蓄约 77px 非正方形；takeHit 实伤数字 |
+| M6 `enemies/**` `spawner/**` | ✅ 移速 0.62/0.77/0.87/1.17；甲像素黄边；takeHit 返回 14 |
+| M7 `world/**` | ✅ hitAt dealt；hitSlashAt OBB |
+| M8 `ui/**` `views/**` | ✅ 选角两行原文；bat 普通池 15；`upgrades/bat.png` |
+| M11 `companions/**` | ✅ 蝙蝠伤 7；每杀 200 回 1 心 |
+| combat / enemies / world / companions / ui / match selftest | ✅ RESULT PASS |
+| `npm run build` | ✅ |
+| `match.js` | ✅ `hitSlashAt`；跟班 `onHeal` |
+
+**结论**：M5 / M6 / M7 / M8 / M11 / M9 **pass**。  
+**阻塞项**：唯快不破 / 精益求精图标仍待定（与本环无关）。
+
+---
+
+## 2026-08-22 派工 — P17
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P17 | ✅ 已写 |
+| 设计表 / GAME-SPEC / 怪物属性表 / ASSETS | ✅ 战士 1 身位长条、移速再减、蝙蝠、甲描边、实伤数字 |
+| 素材 | ✅ `跟班/蝙蝠.png` 与 `upgrades/bat.png` 两边都有 |
+| 窗口 | M5 / M6 / M7 / M8 / M11 **in_progress**；M9 pending；M10 仍等唯快不破/精益求精 |
+
+**结论**：等待子窗口请查收。  
+**阻塞项**：唯快不破 / 精益求精图标未到（与本环无关）。
+
+---
+
+## 2026-08-21 查收 — P16（M5 / M6 / M8 / M11 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| M5 `combat/**` `weapons/**` | ✅ 扩散 alpha 淡出；crit 帽 100%；refine ×1.7；only_fast /1.2；游侠第一次 +5 激光，战士第一次 +15 无激光 |
+| M6 `enemies/**` `spawner/**` | ✅ 移速 0.65/0.8/0.90；蜗牛甲 1；冰人 draw 48 / 子弹 200 / 3 兰花；回 10；第 2 次回血叠甲；冰人移速仍 0.7 |
+| M8 `ui/**` `views/**` | ✅ 选角文案；pierce 16/31；crit「暴击率 +10」；empower 全角色；only_fast 门；refine / strange_egg；only_fast/refine 空白图 |
+| M11 `companions/**` | ✅ 蛋 100/300 阶段；20%/50%/80%；自己每杀 100 +1 |
+| M10 | ⏳ 唯快不破 / 精益求精待定，局内空白 |
+| combat / enemies / companions / ui / match selftest | ✅ RESULT PASS |
+| `npm run build` | ✅ |
+| `match.js` | ✅ `getKills: () => session.kills` |
+
+**结论**：M5 / M6 / M8 / M11 / M9 **pass**。M10 图标待定。  
+**阻塞项**：唯快不破、精益求精图标未到。
+
+---
+
+## 2026-08-21 派工 — P16
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P16 | ✅ 已写 |
+| 设计表 / GAME-SPEC / 怪物属性表 / ASSETS | ✅ 蛋阶段 100/300、甲、移速、强化射击全角色、冰人不减移速 |
+| 素材 | ✅ `跟班/奇怪的蛋-x/y/z.png` 与 `upgrades/strange_egg.png` 两边都有 |
+| 窗口 | M5 / M6 / M8 / M11 **in_progress**；M9 pending；M10 等唯快不破/精益求精图 |
+
+**结论**：等待子窗口请查收。  
+**阻塞项**：唯快不破 / 精益求精图标未到，局内空白方块。
+
+---
+
+## 2026-08-21 查收 — P15（M4 / M5 / M6 / M8 / M10 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| M4 `player/**` `render/**` | ✅ 局内不画目标字；queue 空实现 |
+| M5 `combat/**` `weapons/**` | ✅ 法师 ×3.0 / 公式 42.5 / 0.3s 扩散；战士身前+满蓄伤×1.6；暴击 0 / ×1.5 / +10 |
+| M6 `enemies/**` `spawner/**` | ✅ 冰人 2000 / 子弹 224 / 冲刺 8 身位 1～6；dummy 999/500/右侧 3 身位 |
+| M8 `ui/**` `views/**` | ✅ 难度悬停目标；crit 入池；自选升级+红 X；火柴人开关 |
+| M10 `upgrades/crit.png` | ✅ public + source 两边都有 |
+| player / combat / enemies / ui / match selftest | ✅ RESULT PASS |
+| `match.js` | ✅ 去掉 queueObjectiveFx；setDummyEnabled；木桩可出伤害数字 |
+| GameShell | ✅ ESC 先关 picker；grant-upgrade → applyUpgrade |
+
+**结论**：M4 / M5 / M6 / M8 / M10 / M9 **pass**。P15 全窗完成。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-21 派工 — P15
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P15 | ✅ 已写 |
+| 设计表 / GAME-SPEC / 怪物属性表 | ✅ 冰人 2000、冲刺 8 身位、法师×3.0 扩散、暴击、测试木桩 |
+| 窗口 | M4 / M5 / M6 / M8 **in_progress**；M9 pending；M10 等暴击图 |
+
+**结论**：等待子窗口请查收。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-20 查收 — P14（M4 / M5 / M6 / M8 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| M4 `player/**` `render/**` | ✅ spawnHealNum 绿边；OBJECTIVE_LIFE=5；createPlayer 不自动开始 |
+| M5 `combat/**` `weapons/**` | ✅ 强化箭矢x 激光 680；法师 ×2.6 / 未蓄 8px；战士无限穿透、击退 0.5×穿透、满蓄 ×1.6；knockbackScale |
+| M6 `enemies/**` `spawner/**` | ✅ 冰人 420s/1000/×0.5；兰花 1 血无接触；弹幕/冲刺/逃跑常量对齐 |
+| M8 `ui/**` `views/**` | ✅ 满蓄模式；testElapsedSec 0～600；选角悬停 4/22/0 |
+| player / combat / enemies / ui / match selftest | ✅ RESULT PASS |
+| `npm run build` | ✅ |
+| `match.js` | ✅ queueObjectiveFx；onHeal；开局 setElapsedSec |
+| GameShell 滑条 | ✅ 仅测试模式且时间滑条变化时写入 elapsed（避免改音量把时间打回 0） |
+
+**结论**：M4 / M5 / M6 / M8 / M9 **pass**。P14 全窗完成。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-20 派工 — P14
+
+| 检查项 | 结果 |
+|--------|------|
+| 素材拷入 public + source | ✅ 冰人 / 兰花 / 强化箭矢x / 怪物子弹 |
+| HANDOFF-P14 | ✅ 已写 |
+| 窗口 | M4 / M5 / M6 / M8 **in_progress**；M9 pending |
+
+**结论**：等待子窗口请查收。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-20 查收 — P13 M7 复验 + M1 接线
+
+| 检查项 | 结果 |
+|--------|------|
+| M7 `world/**` `pickups/**` | ✅ magnetBonus += 1；范围 2→3→4 身位 |
+| world selftest | ✅ RESULT PASS |
+| `App.vue` notifyExp 回传 | ✅ 结晶升级能入队 +1 |
+| `match.js` 进 levelup 当帧停顿 | ✅ 不再 shell.tick |
+| match / ui / combat selftest | ✅ RESULT PASS |
+| `npm run build` | ✅ |
+
+**结论**：M7 / M9 **pass**。P13 全窗完成。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-20 查收 — P13（M4 / M5 / M6 / M7 / M8）
+
+| 检查项 | 结果 |
+|--------|------|
+| M4 `player/**` `render/**` | ✅ HP_BY_CHAR 3/4/2；DMG_ADVANCE=12；≥100 黄 ≥200 红 |
+| M5 `combat/**` `weapons/**` | ✅ 图集切帧、法师 25/0/4/×2.3、战士 22/1/2/1.5 身位单次、大娃 +40%、强化 ceil×2.5/+2/溢出 |
+| M6 `enemies/**` `spawner/**` | ✅ SLIME_X1_UNLOCK_SEC=240；239 不刷、240 第一波 |
+| M7 `world/**` `pickups/**` | ❌ 仍 `magnetMul *= 1.5`；selftest 仍断言 ×1.5 / 2.25 |
+| M8 `ui/**` `views/**` | ✅ 磁铁/大娃/强化射击文案；HUD 跟 hpMax |
+| player / combat / enemies / ui selftest | ✅ RESULT PASS |
+| world selftest | ⚠️ 绿，但是旧规格（×1.5），不算本环完成 |
+| `match.js` 接线 | ⏸ 等 M7 |
+
+**结论**：M4 / M5 / M6 / M8 **pass**。M7 **fail** 打回。  
+**阻塞项**：磁铁未改为每次 +1 身位。
+
+---
+
+## 2026-08-20 查收 — P12（M4 / M5 / M8 / M11 + M1 接线）
+
+| 检查项 | 结果 |
+|--------|------|
+| M4 路径 `player/**` `render/**` | ✅ charId / deathAnimDone / addEmptyHpMax / dmgnum.js |
+| M5 路径 `combat/**` `weapons/**` | ✅ 法球、挥砍不飞、满蓄×1.25、empower_shot、onDamage；挥砍/强化箭未 chromaBlack |
+| M8 路径 `ui/**` `views/**` | ✅ 三角色解锁、空血 11/21/31、强化射击仅游侠 |
+| M11 路径 `companions/**` | ✅ 命中 onDamage / spawnDamageNum |
+| `match.js` 接线 | ✅ charId、deathAnimDone 后再 notifyDead、伤害数字绘制 |
+| player / combat / ui / companions / match selftest | ✅ RESULT PASS |
+| `npm run build` | ✅ |
+
+**结论**：M4 / M5 / M8 / M11 / M9 **pass**。  
+**阻塞项**：无。
+
+---
+
 ## 2026-08-12 — M1 开工准备（规格与素材）
 
 | 检查项 | 结果 |

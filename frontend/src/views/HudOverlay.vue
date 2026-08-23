@@ -1,8 +1,9 @@
 <script setup>
+/** HUD 心数跟 hpMax（法师 2 / 战士 4 / 游侠 3），不要写死 3 格。 */
 defineOptions({ inheritAttrs: false })
 defineProps({
-  hp: { type: Number, default: 3 },
-  hpMax: { type: Number, default: 3 },
+  hp: { type: Number, default: 0 },
+  hpMax: { type: Number, default: 0 },
   charge: { type: Number, default: 0 },
   chargeMax: { type: Number, default: 0.75 },
   charging: { type: Boolean, default: false },
@@ -25,35 +26,30 @@ function chargePct(charge, chargeMax) {
 </script>
 
 <template>
-  <aside class="rl-hud">
-    <div class="rl-row names">
+  <header class="rl-topbar rl-frame--dark">
+    <div class="rl-topbar-side">
       <span>{{ charName }}</span>
+      <div class="rl-hearts">
+        <span
+          v-for="(on, i) in hearts(hp, hpMax)"
+          :key="i"
+          class="rl-heart"
+          :class="{ on }"
+        />
+      </div>
     </div>
-    <div class="rl-hearts">
-      <span
-        v-for="(on, i) in hearts(hp, hpMax)"
-        :key="i"
-        class="rl-heart"
-        :class="{ on }"
-      />
+    <span class="rl-topbar-time">{{ timeText }}</span>
+    <div class="rl-topbar-side" aria-hidden="true"></div>
+  </header>
+  <footer class="rl-botbar rl-frame--dark">
+    <span>Lv.{{ level }}</span>
+    <div class="rl-bar grow">
+      <i :style="{ width: `${Math.min(100, (exp / Math.max(1, expNeed)) * 100)}%` }" />
     </div>
-    <div class="rl-row">
-      <span>蓄力</span>
-      <span>{{ charging ? '蓄力中' : '就绪' }}</span>
-    </div>
+    <span>{{ exp }}/{{ expNeed }}</span>
     <div class="rl-bar charge">
       <i :style="{ width: `${chargePct(charge, chargeMax)}%` }" />
     </div>
-    <div class="rl-row">
-      <span>Lv.{{ level }}</span>
-      <span>{{ exp }}/{{ expNeed }}</span>
-    </div>
-    <div class="rl-bar">
-      <i :style="{ width: `${Math.min(100, (exp / Math.max(1, expNeed)) * 100)}%` }" />
-    </div>
-    <div class="rl-row">
-      <span>存活</span>
-      <span>{{ timeText }}</span>
-    </div>
-  </aside>
+    <span>{{ charging ? '蓄力中' : '就绪' }}</span>
+  </footer>
 </template>

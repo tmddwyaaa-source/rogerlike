@@ -105,8 +105,16 @@ assert('session time', ui.session.elapsedSec > 0)
 assert('world size', WORLD_WIDTH === BODY * 500 && WORLD_HEIGHT === BODY * 500)
 
 const matchSrc = readFileSync(new URL('./match.js', import.meta.url), 'utf8')
+const appSrc = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 assert('no start setLevel', !matchSrc.includes('setLevel'))
 assert('crystal queues +1', matchSrc.includes('queueLevelUpFx'))
+assert('notifyExp returns gained', appSrc.includes('return getShell()?.notifyExp'))
+assert(
+  'crystal levelup freezes before tick',
+  /env\.update[\s\S]*phase\(\) === 'levelup'[\s\S]*tryBeginUpgradeOffer[\s\S]*return[\s\S]*shell\.tick/.test(
+    matchSrc,
+  ),
+)
 assert(
   'pause still steps +1',
   matchSrc.includes('stepLevelUpFx'),
@@ -122,11 +130,35 @@ assert(
   matchSrc.includes("from './companions/index.js'") &&
     matchSrc.includes('createCompanions') &&
     matchSrc.includes('companions.update') &&
-    matchSrc.includes('companions.draw'),
+    matchSrc.includes('companions.draw') &&
+    matchSrc.includes('getKills') &&
+    matchSrc.includes('hitSlashAt'),
+)
+assert('begin passes charId', matchSrc.includes('charId'))
+assert('waits deathAnimDone', matchSrc.includes('deathAnimDone'))
+assert('draws damage nums', matchSrc.includes('drawDamageNums') && matchSrc.includes('updateDamageNums'))
+assert('onDamage wired', matchSrc.includes('onDamage'))
+assert('spawnDamageNum wired', matchSrc.includes('spawnDamageNum'))
+assert('onHeal wired', matchSrc.includes('onHeal') && matchSrc.includes('spawnHealNum'))
+assert('hpGrowthAdd wired', matchSrc.includes('getHpGrowthAdd') && matchSrc.includes("=== '2'"))
+assert('spawnCrystalBurst wired', matchSrc.includes('spawnCrystalBurst'))
+assert(
+  'ice kill addBossKill',
+  matchSrc.includes("ent?.kind === 'ice_man'") && matchSrc.includes('addBossKill'),
+)
+assert('no queueObjectiveFx on begin', !matchSrc.includes('queueObjectiveFx'))
+assert('dummy wired', matchSrc.includes('setDummyEnabled') && matchSrc.includes('testDummy'))
+assert('test elapsed on begin', matchSrc.includes('setElapsedSec') && matchSrc.includes('testElapsedSec'))
+const shellSrc = readFileSync(new URL('../views/GameShell.vue', import.meta.url), 'utf8')
+assert(
+  'slider elapsed gated',
+  shellSrc.includes('elapsedChanged') && shellSrc.includes('settings.testMode'),
 )
 
 let gobCalls = 0
 let dmgBonus = 0
+let eggCalls = 0
+let batCalls = 0
 assert(
   'goblin applyUpgrade + bonus',
   applyUpgrade('goblin', {
@@ -135,6 +167,22 @@ assert(
       addDamageBonus(n) { dmgBonus += n },
     },
   }) === true && gobCalls === 1 && dmgBonus === 10,
+)
+assert(
+  'strange_egg applyUpgrade',
+  applyUpgrade('strange_egg', {
+    companions: {
+      addEgg() { eggCalls += 1 },
+    },
+  }) === true && eggCalls === 1,
+)
+assert(
+  'bat applyUpgrade',
+  applyUpgrade('bat', {
+    companions: {
+      addBat() { batCalls += 1 },
+    },
+  }) === true && batCalls === 1,
 )
 
 ui.session.addExp(15, { combat })
