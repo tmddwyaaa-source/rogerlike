@@ -6,6 +6,7 @@
  * P13：法师 2 心 / 战士 4 心；伤害数字收间距、≥100 黄边 ≥200 红边。
  * P14：回血绿边 spawnHealNum；开局目标 queueObjectiveFx（不自动开始）。
  * P15：局内不再画开局目标字。
+ * P25：三娃护甲（armor / addArmor / getArmor）、六娃失锁脉冲（unlockLevel / applyUnlockPulse / unlockDurationFor）。
  */
 import {
   BODY,
@@ -101,6 +102,36 @@ export const SCATTER_COUNT = 16
 export const SCATTER_LIFE = 0.7
 export const WALK_FPS = 10
 
+/** P25 三娃护甲：整数层，可无限叠，抵挡一次完整伤害。 */
+export const ARMOR_OUTLINE = '#e0b84a'
+
+/** P25 六娃失锁脉冲（角色侧常量）。 */
+export const UNLOCK_PULSE_INTERVAL_SEC = 10
+export const UNLOCK_RADIUS_UNITS = 3
+export const UNLOCK_RADIUS = UNLOCK_RADIUS_UNITS * BODY
+export const UNLOCK_BASE_SEC = 1.0
+export const UNLOCK_PER_LAYER_SEC = 0.5
+
+/** P27 六娃失锁扩散圈。 */
+export const UNLOCK_RING_COLOR = '#3F48CC'
+export const UNLOCK_RING_LIFE_SEC = 0.6
+
+/** 失锁时长：基础 1.0s，每层 +0.5s。 */
+export function unlockDurationFor(layers) {
+  return UNLOCK_BASE_SEC + UNLOCK_PER_LAYER_SEC * Math.max(0, layers | 0)
+}
+
+/** P27 扩散圈进度 0→1；接近边缘(1) 时颜色最淡。 */
+export function unlockRingProgress(ring) {
+  if (!ring || !(ring.dur > 0)) return 0
+  return Math.max(0, Math.min(1, (ring.t ?? 0) / ring.dur))
+}
+
+/** P27 扩散圈透明度：越接近范围边缘越淡。 */
+export function unlockRingAlpha(ring) {
+  return 1 - unlockRingProgress(ring)
+}
+
 const CODE_TO_WASD = {
   KeyW: 'w',
   KeyA: 'a',
@@ -163,14 +194,43 @@ function drawScatter(ctx, player) {
   }
 }
 
+/** P27 六娃失锁扩散圈：每次脉冲从角色向外扩散，接近边缘越淡，不超范围。 */
+function stepUnlockRings(player, dt) {
+  for (let i = player.unlockRings.length - 1; i >= 0; i--) {
+    const ring = player.unlockRings[i]
+    ring.t += dt
+    if (ring.t >= ring.dur) player.unlockRings.splice(i, 1)
+  }
+}
+
+function drawUnlockRings(ctx, player) {
+  const rings = player.unlockRings
+  if (!ctx || !rings || !rings.length) return
+  if (typeof ctx.beginPath !== 'function' || typeof ctx.arc !== 'function') return
+  const prevAlpha = ctx.globalAlpha
+  for (const ring of rings) {
+    const progress = unlockRingProgress(ring)
+    const radius = ring.r * progress
+    if (radius <= 0.5) continue
+    ctx.globalAlpha = Math.max(0, Math.min(1, unlockRingAlpha(ring)))
+    ctx.strokeStyle = UNLOCK_RING_COLOR
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.arc(ring.x, ring.y, radius, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  ctx.globalAlpha = prevAlpha
+}
+
 /**
  * P21：opts.onHurt 在实际扣血时被调用一次（无敌挡掉 / godMode 兜底不扣血不调；死亡那下也调）。
- * 只发信号，不播音。
+ * P25：armor 可叠护甲（addArmor / getArmor）；六娃失锁脉冲（addUnlockLevel / applyUnlockPulse）。
  *
  * @param {{
  *   x?: number, y?: number, speed?: number, speedUnits?: number,
  *   keys?: object, random?: () => number, godMode?: boolean, name?: string,
  *   charId?: 'ranger'|'warrior'|'mage', onHurt?: () => void,
+ *   getTargets?: () => object[], onUnlockPulse?: (info: object) => void,
  * }} [opts]
  */
 export function createPlayer(opts = {}) {
@@ -181,6 +241,8 @@ export function createPlayer(opts = {}) {
   const charId = resolveCharId(opts.charId)
   const hp0 = HP_BY_CHAR[charId] ?? HP_MAX
   const onHurt = opts.onHurt
+  const getTargets = opts.getTargets
+  const onUnlockPulse = opts.onUnlockPulse
 
   const player = {
     charId,
@@ -206,6 +268,11 @@ export function createPlayer(opts = {}) {
     animTime: 0,
     anim: 'Idle',
     invuln: 0,
+    armor: 0,
+    unlockLevel: 0,
+    unlockTimer: 0,
+    unlockPulseCount: 0,
+    unlockRings: [],
     scatter: [],
     levelUpFx: [],
     objectiveT: 0,
@@ -220,6 +287,15 @@ export function createPlayer(opts = {}) {
     addEmptyHpMax,
     lookAt,
     isInvincible: () => player.invuln > 0,
+    addArmor,
+    getArmor,
+    addUnlockLevel,
+    setUnlockLevel,
+    currentUnlockDuration,
+    applyUnlockPulse,
+    isTargetBlind,
+    isEnemyUnlocked,
+    unlockRemaining,
     deathAnimDone: () => deathAnimDone(player),
     draw,
     loadAssets,
@@ -267,6 +343,14 @@ export function createPlayer(opts = {}) {
 
   function takeDamage(n = 1) {
     if (n <= 0 || player.hp <= 0 || player.invuln > 0) return false
+    // P25 三娃护甲：先扣 1 层，抵挡该次完整伤害（该次不掉血，不触发 onHurt）。
+    if (player.armor > 0) {
+      player.armor -= 1
+      player.invuln = IFRAME_SEC
+      player.hurtT = HURT_SEC
+      spawnScatter(player, random)
+      return false
+    }
     let next = player.hp - n
     if (player.godMode) next = Math.max(1, next)
     if (next === player.hp) return false
@@ -297,6 +381,85 @@ export function createPlayer(opts = {}) {
     return true
   }
 
+  function addArmor(n = 1) {
+    const add = Math.max(0, Math.floor(Number(n) || 0))
+    player.armor += add
+    return player.armor
+  }
+
+  function getArmor() {
+    return player.armor
+  }
+
+  function addUnlockLevel(n = 1) {
+    const add = Math.max(0, Math.floor(Number(n) || 0))
+    player.unlockLevel += add
+    return player.unlockLevel
+  }
+
+  function setUnlockLevel(n) {
+    player.unlockLevel = Math.max(0, Math.floor(Number(n) || 0))
+    return player.unlockLevel
+  }
+
+  function currentUnlockDuration() {
+    return unlockDurationFor(player.unlockLevel)
+  }
+
+  /** P25/P30 六娃失锁：对 3 身位内活敌写入剩余秒数 unlockT（M6/enemies 只读并负责衰减）。 */
+  function applyUnlockPulse(targets, duration) {
+    const dur = duration ?? unlockDurationFor(player.unlockLevel)
+    if (!Array.isArray(targets)) return 0
+    const r = UNLOCK_RADIUS
+    let n = 0
+    for (const t of targets) {
+      if (!t || (t.hp != null && t.hp <= 0)) continue
+      const d = Math.hypot((t.x ?? 0) - player.x, (t.y ?? 0) - player.y)
+      if (d <= r) {
+        t.unlockT = Math.max(t.unlockT ?? 0, dur)
+        n += 1
+      }
+    }
+    return n
+  }
+
+  /** M6/enemies 约定读取的失锁状态接口：目标此刻是否失锁（不锁定角色）。 */
+  function isTargetBlind(ent) {
+    return (ent?.unlockT ?? 0) > 0
+  }
+
+  function isEnemyUnlocked(ent) {
+    return isTargetBlind(ent)
+  }
+
+  function unlockRemaining(ent) {
+    return Math.max(0, ent?.unlockT ?? 0)
+  }
+
+  function stepUnlockPulse(dt) {
+    if (player.unlockLevel <= 0 || player.hp <= 0) return
+    player.unlockTimer += dt
+    while (player.unlockTimer >= UNLOCK_PULSE_INTERVAL_SEC) {
+      player.unlockTimer -= UNLOCK_PULSE_INTERVAL_SEC
+      player.unlockPulseCount += 1
+      const duration = unlockDurationFor(player.unlockLevel)
+      // P27 扩散圈特效：每次脉冲从角色中心扩散。
+      player.unlockRings.push({
+        x: player.x,
+        y: player.y,
+        t: 0,
+        dur: UNLOCK_RING_LIFE_SEC,
+        r: UNLOCK_RADIUS,
+      })
+      const targets = getTargets?.()
+      let count = 0
+      if (Array.isArray(targets)) {
+        count = applyUnlockPulse(targets, duration)
+      }
+      onUnlockPulse?.({ duration, count, radius: UNLOCK_RADIUS })
+    }
+  }
+
   function update(dt) {
     if (dt <= 0) return
     player.animTime += dt
@@ -312,6 +475,8 @@ export function createPlayer(opts = {}) {
       player.attackT = Math.max(0, player.attackT - dt)
     }
     stepScatter(player, dt)
+    stepUnlockPulse(dt)
+    stepUnlockRings(player, dt)
     applyFacing()
 
     if (player.hp <= 0) {
@@ -348,6 +513,7 @@ export function createPlayer(opts = {}) {
     if (!drawRanger(ctx, player) && player.hp > 0) {
       drawStickman(ctx, player)
     }
+    drawUnlockRings(ctx, player)
     drawLevelUpFx(ctx, player)
     drawObjectiveFx(ctx, player)
   }

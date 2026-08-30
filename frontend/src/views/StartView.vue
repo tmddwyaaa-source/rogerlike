@@ -1,6 +1,9 @@
 <script setup>
+import { ref } from 'vue'
 import { CHARACTERS, DIFFICULTY_ONE, DIFFICULTY_TWO, GAME_TITLE, OBJECTIVE_TEXT, OBJECTIVE_TEXT_TWO, formatCharStats } from '../ui/constants.js'
 import RangerPortrait from './RangerPortrait.vue'
+
+const hoverId = ref('')
 
 defineProps({
   step: { type: String, default: 'menu' },
@@ -37,10 +40,13 @@ const emit = defineEmits([
           :key="ch.id"
           class="rl-pick on rl-frame"
           type="button"
+          @mouseenter="hoverId = ch.id"
+          @mouseleave="hoverId = ''"
           @click="emit('pick-char', ch.id)"
         >
           <div class="rl-avatar ranger">
-            <RangerPortrait :src="ch.idleSrc" />
+            <RangerPortrait :src="ch.idleSrc" :animate="hoverId === ch.id" />
+            <img class="rl-avatar-shadow" src="/assets/characters/Other/Shadow.png" alt="" />
           </div>
           <span class="rl-pick-name">{{ ch.name }}</span>
           <span class="rl-char-tip">{{ formatCharStats(ch) }}</span>

@@ -60,6 +60,21 @@ import {
   slashLength,
   slashThick,
   warriorKnockback,
+  FIRE_DURATION_SEC,
+  FIRE_DMG_PER_PICK,
+  FIRE_DMG_PER_PICK_BOOST,
+  PULSE_INTERVAL_SEC,
+  PULSE_RADIUS_MUL,
+  PULSE_DMG_MUL,
+  PULSE_SLOW,
+  PULSE_SLOW_SEC,
+  fireDpsPerPick,
+  waterSlowPct,
+  waterSlowSec,
+  knockbackBonusForPicks,
+  BASE_KNOCKBACK_BODIES,
+  erseChance,
+  erseChancePerPick,
 } from '../weapons/index.js'
 
 export {
@@ -130,6 +145,21 @@ export {
   slashLength,
   slashThick,
   warriorKnockback,
+  FIRE_DURATION_SEC,
+  FIRE_DMG_PER_PICK,
+  FIRE_DMG_PER_PICK_BOOST,
+  PULSE_INTERVAL_SEC,
+  PULSE_RADIUS_MUL,
+  PULSE_DMG_MUL,
+  PULSE_SLOW,
+  PULSE_SLOW_SEC,
+  fireDpsPerPick,
+  waterSlowPct,
+  waterSlowSec,
+  knockbackBonusForPicks,
+  BASE_KNOCKBACK_BODIES,
+  erseChance,
+  erseChancePerPick,
 } from '../weapons/index.js'
 
 const STEP_PX = 4
@@ -229,6 +259,15 @@ function hurt(target, damage) {
   return damage
 }
 
+/** 返回 { dealt(血量封顶), applied(实际造成、不按余血截断) }，供伤害数字显示。 */
+function dealDamage(target, damage) {
+  const beforeHp = target.hp ?? 0
+  const dealt = hurt(target, damage)
+  const afterHp = target.hp ?? beforeHp
+  const applied = Math.max(0, damage)
+  return { dealt, applied }
+}
+
 function chromaBlack(img) {
   if (typeof document === 'undefined') return img
   const c = document.createElement('canvas')
@@ -292,6 +331,8 @@ export function createCombat(opts = {}) {
   }
   const bullets = []
   const hitFx = []
+  const pulses = []
+  let pulseTimer = 0
   let unbind = () => {}
   let holding = false
   let pendingHold = false
@@ -312,9 +353,9 @@ export function createCombat(opts = {}) {
     else player.charging = on
   }
 
-  function notifyDamage(ent, dmg) {
+  function notifyDamage(ent, dmg, meta) {
     if (!ent || !(dmg > 0)) return
-    if (typeof hooks.onDamage === 'function') hooks.onDamage(ent, dmg)
+    if (typeof hooks.onDamage === 'function') hooks.onDamage(ent, dmg, meta)
   }
 
   function spawnShot(ang, damage, knockback, pierceLeft, sizeMul, spec) {
@@ -349,6 +390,9 @@ export function createCombat(opts = {}) {
       vy: Math.sin(ang) * speed,
       ang,
       damage,
+      baseDamage: spec.baseDamage ?? damage,
+      crit: Boolean(spec.crit),
+      critMul: spec.critMul ?? 1,
       payload: null,
       knockback,
       pierceLeft,
@@ -395,17 +439,22 @@ export function createCombat(opts = {}) {
     const id = resolveCharId(player)
     const empower = id === 'ranger' && (weapon.empowerPicks | 0) >= 1 && r >= 1
     const attack = weapon.attack ?? player?.attack ?? ATTACK_BASE
-    let damage = shotDamage(r, attack, {
+    const baseDamage = shotDamage(r, attack, {
       empowerFull: empower,
       charId: id,
       pierceBonus: weapon.pierceBonus ?? 0,
     })
+    let damage = baseDamage
+    let hitCrit = false
+    let hitCritMul = 1
     if (rollCrit(weapon.critRate ?? 0)) {
-      damage *= critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0)
+      hitCrit = true
+      hitCritMul = critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0)
+      damage *= hitCritMul
     }
-    const knockback = id === 'warrior'
+    const knockback = (id === 'warrior'
       ? warriorKnockback(weapon.pierceBonus ?? 0)
-      : knockbackForCharge(r)
+      : knockbackForCharge(r)) + BASE_KNOCKBACK_BODIES * BODY + knockbackBonusForPicks(weapon.knockbackPicks ?? 0)
     const pierceLeft = pierceForChar(
       id,
       r,
@@ -433,6 +482,9 @@ export function createCombat(opts = {}) {
         kind,
         speed,
         variant,
+        baseDamage,
+        crit: hitCrit,
+        critMul: hitCritMul,
         overflowOn: empower,
         expandOn: id === 'mage' && r > 0,
         infinitePierce: id === 'warrior',
@@ -473,12 +525,77 @@ export function createCombat(opts = {}) {
     return tryFire(ratio)
   }
 
+  function burnDpsFor(ent) {
+    const picks = weapon.siwaPicks || 0
+    if (!picks) return 0
+    const atk = weapon.attack ?? player?.attack ?? ATTACK_BASE
+    return fireDpsPerPick(weapon.vajraComplete) * atk * picks
+  }
+
+  function applyIgnite(ent) {
+    if (!ent || ent.hp <= 0) return
+    const picks = weapon.siwaPicks || 0
+    if (picks <= 0) return
+    const dps = burnDpsFor(ent)
+    if (dps <= 0) return
+    ent.burnLeft = FIRE_DURATION_SEC
+    ent.burnDps = dps
+    ent.burnAccum = 0
+  }
+
+  function applySlow(ent, pct = waterSlowPct(weapon.vajraComplete), sec = waterSlowSec(weapon.wuwaPicks || 1)) {
+    if (!ent || ent.hp <= 0) return
+    if (!(pct > 0) || !(sec > 0)) return
+    // M6 移动消费：ent.slowFactor = 速度乘子（0.8=减速20%），ent.slowLeft = 剩余秒（combat 每帧扣减）。
+    ent.slowFactor = 1 - pct
+    ent.slowLeft = Math.max(ent.slowLeft ?? 0, sec)
+  }
+
+  function applyHitStatus(ent) {
+    if (!ent || ent.hp <= 0) return
+    applyIgnite(ent)
+    if ((weapon.wuwaPicks || 0) > 0) applySlow(ent)
+  }
+
+  function triggerPulse() {
+    if (!weapon.vajraComplete || !player) return
+    const atk = weapon.attack ?? player?.attack ?? ATTACK_BASE
+    const base = atk * PULSE_DMG_MUL
+    let dmg = base
+    let hitCrit = false
+    let critMul = 1
+    if (rollCrit(weapon.critRate ?? 0)) {
+      hitCrit = true
+      critMul = critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0)
+      dmg *= critMul
+    }
+    const R = BODY * PULSE_RADIUS_MUL
+    for (const ent of targets) {
+      if (!ent || ent.hp <= 0) continue
+      const dx = ent.x - player.x
+      const dy = ent.y - player.y
+      if (dx * dx + dy * dy > R * R) continue
+      const { applied } = dealDamage(ent, dmg)
+      const disp = applied
+      const baseA = hitCrit ? (disp / critMul) : disp
+      notifyDamage(ent, disp, { base: baseA, crit: hitCrit, critMul, damage: disp })
+      // 七色脉冲：减速 30%/0.4s；不击退、不点燃、不破六娃失锁。
+      applySlow(ent, PULSE_SLOW, PULSE_SLOW_SEC)
+    }
+    pulses.push({ x: player.x, y: player.y, r: R, t: 0, life: 0.9 })
+  }
+
   function strike(ent, b, deal) {
     const hpBefore = ent.hp ?? 0
-    const dealt = hurt(ent, deal)
-    notifyDamage(ent, dealt)
+    const { dealt, applied } = dealDamage(ent, deal)
+    const disp = applied
+    const crit = Boolean(b.crit)
+    const critMul = b.critMul ?? 1
+    const base = crit ? (disp / critMul) : disp
+    notifyDamage(ent, disp, { base, crit, critMul, damage: disp })
     applyKnockback(ent, b.vx || Math.cos(b.ang), b.vy || Math.sin(b.ang), b.knockback)
     spawnHitFx(b.x, b.y, b.ang)
+    applyHitStatus(ent)
     b.hitSet.add(ent)
     return leftoverDamage(dealt, hpBefore)
   }
@@ -543,10 +660,14 @@ export function createCombat(opts = {}) {
   function applyWorldHit(b, res) {
     if (!res || !res.hit) return false
     spawnHitFx(b.x, b.y, b.ang)
-    const dealt = res.dealt ?? b.damage
-    if (dealt > 0) {
-      if (res.tree) notifyDamage(res.tree, dealt)
-      else notifyDamage({ x: b.x, y: b.y, knockbackable: false }, dealt)
+    const display = b.damage
+    if (display > 0) {
+      const crit = Boolean(b.crit)
+      const critMul = b.critMul ?? 1
+      const base = crit ? (display / critMul) : display
+      const meta = { base, crit, critMul, damage: display }
+      if (res.tree) notifyDamage(res.tree, display, meta)
+      else notifyDamage({ x: b.x, y: b.y, knockbackable: false }, display, meta)
     }
     if (b.kind !== 'slash') b.alive = false
     return b.kind !== 'slash'
@@ -629,10 +750,63 @@ export function createCombat(opts = {}) {
       stepBullet(bullets[i], dt)
       if (!bullets[i].alive) bullets.splice(i, 1)
     }
+    for (const ent of targets) {
+      if (!ent || ent.hp <= 0) {
+        if (ent) {
+          ent.burnLeft = 0
+          ent.burnDps = 0
+          ent.burnAccum = 0
+          ent.slowLeft = 0
+          ent.slowFactor = null
+        }
+        continue
+      }
+      if ((ent.burnLeft ?? 0) > 0) {
+        ent.burnAccum = (ent.burnAccum ?? 0) + dt
+        while (ent.burnLeft > 0 && ent.burnAccum >= 1) {
+          ent.burnAccum -= 1
+          const dps = ent.burnDps || 0
+          if (dps > 0) {
+            const { applied } = dealDamage(ent, dps)
+            notifyDamage(ent, applied, { base: applied, crit: false, critMul: 1, damage: applied })
+          }
+          if (ent.hp <= 0) break
+        }
+        ent.burnLeft = Math.max(0, ent.burnLeft - dt)
+        if (ent.burnLeft <= 0) {
+          ent.burnLeft = 0
+          ent.burnDps = 0
+          ent.burnAccum = 0
+        }
+      } else if (ent.burnDps) {
+        ent.burnDps = 0
+        ent.burnAccum = 0
+      }
+      if ((ent.slowLeft ?? 0) > 0) {
+        ent.slowLeft = Math.max(0, ent.slowLeft - dt)
+        if (ent.slowLeft <= 0) {
+          ent.slowLeft = 0
+          ent.slowFactor = null
+        }
+      }
+    }
+    if (weapon.vajraComplete) {
+      pulseTimer += dt
+      while (pulseTimer >= PULSE_INTERVAL_SEC) {
+        pulseTimer -= PULSE_INTERVAL_SEC
+        triggerPulse()
+      }
+    } else {
+      pulseTimer = 0
+    }
     const bloodLife = BLOOD_FRAMES / BLOOD_FPS
     for (let i = hitFx.length - 1; i >= 0; i--) {
       hitFx[i].t += dt
       if (hitFx[i].t >= bloodLife) hitFx.splice(i, 1)
+    }
+    for (let i = pulses.length - 1; i >= 0; i--) {
+      pulses[i].t += dt
+      if (pulses[i].t >= (pulses[i].life ?? 0.4)) pulses.splice(i, 1)
     }
   }
 
@@ -739,11 +913,32 @@ export function createCombat(opts = {}) {
     ctx.restore()
   }
 
+  const PULSE_HUES = [0, 51.4, 102.9, 154.3, 205.7, 257.1, 308.6]
+  function drawPulse(ctx, p) {
+    // 七色光环：按角度分布 7 个色相，快速向外扩散并循环/呼吸。
+    const period = 0.45
+    const phase = ((p.t / period) % 1)
+    const rr = p.r * (0.25 + 0.75 * phase)
+    const alpha = (1 - phase) * 0.85
+    const seg = (Math.PI * 2) / PULSE_HUES.length
+    ctx.save()
+    ctx.lineWidth = 2.5
+    for (let i = 0; i < PULSE_HUES.length; i++) {
+      ctx.globalAlpha = alpha
+      ctx.strokeStyle = `hsl(${PULSE_HUES[i]}, 95%, 60%)`
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, rr, i * seg, (i + 1) * seg)
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+
   function draw(ctx) {
     if (!ctx) return
     drawChargeBar(ctx)
     for (const b of bullets) drawProjectile(ctx, b)
     for (const fx of hitFx) drawBlood(ctx, fx)
+    for (const p of pulses) drawPulse(ctx, p)
   }
 
   function bindInput(io = {}) {
@@ -816,6 +1011,13 @@ export function createCombat(opts = {}) {
       if (ok && player) player.attack = weapon.attack
       return ok
     },
+    setVajraComplete: (on) => {
+      weapon.setVajraComplete?.(on)
+      weapon.vajraComplete = Boolean(on)
+      if (!on) pulseTimer = 0
+    },
+    getVajraComplete: () => Boolean(weapon.vajraComplete),
+    getPulseTimer: () => pulseTimer,
     applyKnockback,
     getRecoil: () => 0,
     getSwing: () => 0,

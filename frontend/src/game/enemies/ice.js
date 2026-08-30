@@ -11,6 +11,7 @@ import {
   ICE_REGEN_PER_SEC,
   ICE_REGEN_RANGE,
   ICE_VIEW_PAD,
+  ICE_LEAVE_MARGIN,
   ORCHID_ARMOR_EVERY,
   ORCHID_HEAL_AMOUNT,
   ORCHID_SPEED_MUL,
@@ -43,6 +44,8 @@ function worldClamp(ent) {
 
 export function stepIceManMove(ent, player, camera, dt, random) {
   if (ent.hp <= 0) return
+  // P26 五娃减速：slowLeft>0 时移动乘 slowFactor（消费端，不改 combat 写入逻辑）。
+  const slow = (ent.slowLeft ?? 0) > 0 ? (ent.slowFactor ?? 1) : 1
   if ((ent.fleeT ?? 0) > 0) {
     ent.fleeT = Math.max(0, ent.fleeT - dt)
     if (ent.fleeT <= 0) ent.hurtAcc = 0
@@ -54,7 +57,7 @@ export function stepIceManMove(ent, player, camera, dt, random) {
   }
 
   if (ent.dashPhase === 'dash') {
-    const spd = ent.dashSpd ?? playerSpeedPx(player) * ICE_DASH_SPEED_MUL
+    const spd = (ent.dashSpd ?? playerSpeedPx(player) * ICE_DASH_SPEED_MUL) * slow
     const dx = ent.dashDx ?? 0
     const dy = ent.dashDy ?? 0
     const left = Math.max(0, ICE_DASH_DIST - (ent.dashTraveled ?? 0))
@@ -68,24 +71,21 @@ export function stepIceManMove(ent, player, camera, dt, random) {
 
   const flee = (ent.fleeT ?? 0) > 0
   if (flee && player) {
-    const spd = SPEED_PX_PER_UNIT * (playerSpeedUnits(player) + ICE_FLEE_SPEED_ADD)
+    // P27：冰人可离开视野；逃跑不强制回视图。
+    const spd = SPEED_PX_PER_UNIT * (playerSpeedUnits(player) + ICE_FLEE_SPEED_ADD) * slow
     const dx = ent.x - player.x
     const dy = ent.y - player.y
     const len = Math.hypot(dx, dy) || 1
     ent.x += (dx / len) * spd * dt
     ent.y += (dy / len) * spd * dt
-    if (camera) {
-      const c = clampToView(ent.x, ent.y, camera, ICE_VIEW_PAD)
-      ent.x = c.x
-      ent.y = c.y
-    }
     worldClamp(ent)
     return
   }
 
-  const spd = ent.wanderSpd ?? SPEED_PX_PER_UNIT * 0.7 * 1.2
-  if (camera && !inCameraView(ent.x, ent.y, camera, 0)) {
-    const c = clampToView(ent.x, ent.y, camera, ICE_VIEW_PAD)
+  const spd = (ent.wanderSpd ?? SPEED_PX_PER_UNIT * 0.7 * 1.2) * slow
+  // P27：仅当完全离开视野（超出 1 身位）且未逃跑时才回可见范围。
+  if (camera && !inCameraView(ent.x, ent.y, camera, ICE_LEAVE_MARGIN)) {
+    const c = clampToView(ent.x, ent.y, camera, ICE_LEAVE_MARGIN)
     moveToward(ent, c.x, c.y, spd, dt)
     worldClamp(ent)
     return
@@ -100,14 +100,6 @@ export function stepIceManMove(ent, player, camera, dt, random) {
   }
   ent.x += (ent.wanderDx ?? 1) * spd * dt
   ent.y += (ent.wanderDy ?? 0) * spd * dt
-  if (camera) {
-    const next = clampToView(ent.x, ent.y, camera, ICE_VIEW_PAD)
-    if (next.x !== ent.x || next.y !== ent.y) {
-      ent.x = next.x
-      ent.y = next.y
-      ent.wanderT = 0
-    }
-  }
   worldClamp(ent)
 }
 
@@ -140,7 +132,8 @@ export function stepIceManRegen(ent, player, dt, hooks) {
 export function stepOrchidMove(ent, others, dt) {
   if (ent.hp <= 0) return
   const tgt = lowestHpTarget(ent, others)
-  const spd = SPEED_PX_PER_UNIT * ORCHID_SPEED_MUL
+  const slow = (ent.slowLeft ?? 0) > 0 ? (ent.slowFactor ?? 1) : 1
+  const spd = SPEED_PX_PER_UNIT * ORCHID_SPEED_MUL * slow
   if (tgt) moveToward(ent, tgt.x, tgt.y, spd, dt)
   worldClamp(ent)
 }

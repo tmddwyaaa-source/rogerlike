@@ -7,7 +7,16 @@
 import { BODY } from '../constants.js'
 import { createPickupField } from '../pickups/pickups.js'
 import { createTreeField } from './trees.js'
+import { createDecorationField } from './decorations.js'
 import {
+  ADVANCED_CRYSTAL_COLOR,
+  ADVANCED_CRYSTAL_EXP,
+  CRYSTAL_COLOR,
+  CRYSTAL_EXP,
+  CRYSTAL_SIZE,
+  DECOR_PADDING,
+  DECOR_STICK_COUNT,
+  DECOR_STONE_COUNT,
   MAGNET_BONUS_STEP,
   MAGNET_RANGE,
   PICKUP_SPEED,
@@ -232,6 +241,163 @@ assert(
   envBurst.pickups.length === 12 &&
     envBurst.pickups.every((i) => Math.hypot(i.x, i.y) <= BODY + 1e-9),
 )
+
+
+// —— P25 高级结晶 ——
+const advExp = []
+const advPk = createPickupField({ hooks: { onCrystal: (n) => advExp.push(n) } })
+assert('spawnCrystalAt wired on field', typeof advPk.spawnCrystalAt === 'function')
+advPk.spawnCrystal(0, 0)
+advPk.spawnCrystalAt(0, 0, { advanced: true })
+assert('spawnCrystalAt creates both kinds', advPk.items.length === 2)
+const normGem = advPk.items.find((i) => i.advanced === false)
+const advGem = advPk.items.find((i) => i.advanced === true)
+assert('normal crystal advanced=false', !!normGem && normGem.advanced === false)
+assert('advanced crystal advanced=true', !!advGem && advGem.advanced === true)
+advPk.update(0.016, focus)
+assert('normal grants 1 exp', advExp.includes(CRYSTAL_EXP))
+assert('advanced grants 6 exp', advExp.includes(ADVANCED_CRYSTAL_EXP))
+assert('advanced exp = normal + 5', ADVANCED_CRYSTAL_EXP === CRYSTAL_EXP + 5)
+
+const advEnv = createEnvironment({ random: () => 0.5 })
+assert('env spawnCrystalAt wired', typeof advEnv.spawnCrystalAt === 'function')
+advEnv.spawnCrystalAt(1000, 0, { advanced: true })
+const farAdvanced = advEnv.pickups.find((i) => i.advanced)
+advEnv.pullAllCrystals()
+assert('blackhole marks advanced crystal', farAdvanced && farAdvanced.forcedPull === true)
+advEnv.updatePickups(0.05, focus)
+assert('advanced crystal flies toward player', farAdvanced && farAdvanced.x < 1000)
+
+const advMag = createPickupField()
+advMag.spawnCrystalAt(MAGNET_RANGE + 4, 0, { advanced: true })
+const advGx = advMag.items[0].x
+advMag.update(0.05, focus)
+assert('advanced not pulled outside base magnet', advMag.items[0].x === advGx)
+advMag.spawnCrystalAt(MAGNET_RANGE - 4, 0, { advanced: true })
+const advGx2 = advMag.items[1].x
+advMag.update(0.05, focus)
+assert('advanced pulled inside base magnet', advMag.items[1].x < advGx2)
+
+
+// —— P28 高级结晶紫边（渲染层外观断言） ——
+assert('advanced outer color distinct from normal', ADVANCED_CRYSTAL_COLOR !== CRYSTAL_COLOR)
+function fakeCtx() {
+  const calls = []
+  return {
+    calls,
+    fillStyle: '',
+    fillRect(x, y, w, h) { calls.push({ x, y, w, h, fillStyle: this.fillStyle }) },
+  }
+}
+const advDraw = createPickupField()
+advDraw.spawnCrystalAt(10, 10, { advanced: true })
+const advCtx = fakeCtx()
+advDraw.draw(advCtx)
+assert(
+  'advanced crystal drawn with purple outer layer',
+  advCtx.calls.some((c) => c.fillStyle === ADVANCED_CRYSTAL_COLOR),
+)
+const purpleRects = advCtx.calls.filter((c) => c.fillStyle === ADVANCED_CRYSTAL_COLOR)
+assert(
+  'purple outer layer has thick arms (not only 2px tips)',
+  purpleRects.some((c) => c.w >= 4 && c.h > CRYSTAL_SIZE) &&
+    purpleRects.some((c) => c.h >= 4 && c.w > CRYSTAL_SIZE),
+)
+const normDraw = createPickupField()
+normDraw.spawnCrystalAt(10, 10, { advanced: false })
+const normCtx = fakeCtx()
+normDraw.draw(normCtx)
+assert(
+  'normal crystal has no purple outer layer',
+  !normCtx.calls.some((c) => c.fillStyle === ADVANCED_CRYSTAL_COLOR),
+)
+
+
+// —— P30 地图背景装饰物 ——
+function lcg(seed) {
+  let s = seed >>> 0
+  return () => {
+    s = (Math.imul(s, 1103515245) + 12345) >>> 0
+    return (s >>> 16) / 65536
+  }
+}
+function decorOverlap(a, b) {
+  const p = DECOR_PADDING
+  return (
+    a.x < b.x + b.w / 2 + p &&
+    a.x + a.w > b.x - b.w / 2 - p &&
+    a.y < b.y + b.h / 2 + p &&
+    a.y + a.h > b.y - b.h / 2 - p
+  )
+}
+
+// 直接字段：数量 / 不重叠
+const decoField = createDecorationField({ random: lcg(2026) })
+decoField.seed([], 11000, 11000)
+assert(
+  'deco total ' + (DECOR_STICK_COUNT + DECOR_STONE_COUNT),
+  decoField.items.length === DECOR_STICK_COUNT + DECOR_STONE_COUNT,
+)
+assert(
+  'deco sticks ' + DECOR_STICK_COUNT,
+  decoField.items.filter((d) => d.kind === 'stick').length === DECOR_STICK_COUNT,
+)
+assert(
+  'deco stones ' + DECOR_STONE_COUNT,
+  decoField.items.filter((d) => d.kind === 'stone').length === DECOR_STONE_COUNT,
+)
+let decoOverlap = false
+outer: for (let i = 0; i < decoField.items.length; i++) {
+  for (let j = i + 1; j < decoField.items.length; j++) {
+    if (decorOverlap(decoField.items[i], decoField.items[j])) {
+      decoOverlap = true
+      break outer
+    }
+  }
+}
+assert('decorations do not overlap', !decoOverlap)
+
+// 与树不重叠
+const oneTree = [{ x: 5000, y: 5000, w: 100, h: 140 }]
+const decoTree = createDecorationField({ random: lcg(303) })
+decoTree.seed(oneTree, 11000, 11000)
+let decoTreeOverlap = false
+for (const d of decoTree.items) {
+  if (decorOverlap(d, { x: 5000, y: 5000, w: 100, h: 140 })) {
+    decoTreeOverlap = true
+    break
+  }
+}
+assert('decorations avoid trees', !decoTreeOverlap)
+
+// env 集成：ensureSeed 播种 + 静态 + 可绘制（背景层）
+const envDec = createEnvironment({ random: lcg(404) })
+envDec.update(0, { x: 0, y: 0 }, { x: 0, y: 0 }, 0)
+assert(
+  'env decorations count',
+  envDec.decorations.length === DECOR_STICK_COUNT + DECOR_STONE_COUNT,
+)
+assert(
+  'env decorationsField wired',
+  typeof envDec.decorationsField.seed === 'function',
+)
+const snap = envDec.decorations
+  .map((d) => `${d.x.toFixed(2)},${d.y.toFixed(2)}`)
+  .join('|')
+envDec.update(0, { x: 0, y: 0 }, { x: 0, y: 0 }, 0)
+assert(
+  'decorations static across updates',
+  envDec.decorations
+    .map((d) => `${d.x.toFixed(2)},${d.y.toFixed(2)}`)
+    .join('|') === snap,
+)
+let decoDrawOk = true
+try {
+  envDec.draw(fakeCtx(), { x: 0, y: 0 })
+} catch (e) {
+  decoDrawOk = false
+}
+assert('env.draw renders decorations (background layer)', decoDrawOk)
 
 console.log(failed ? `RESULT FAIL (${failed})` : 'RESULT PASS')
 process.exit(failed ? 1 : 0)

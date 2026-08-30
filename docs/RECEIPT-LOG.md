@@ -2,17 +2,274 @@
 
 > M1 查收专用。禁止仅凭口头「完成了」标 done。
 
+## 2026-08-29 查收 — P33（M8）
+
+| 检查项 | 结果 |
+|--------|------|
+| 路径边界（mtime 核对） | ✅ 只动 `ui/pixel.css`、`ui/selftest.mjs`、`views/StartView.vue`、`views/MoreView.vue` |
+| 选角阴影 | ✅ 实机验证：3 张角色卡各含 `img.rl-avatar-shadow`，src=`Other/Shadow.png`；CSS 26×12（对局 2× 换算）、上缘贴脚线 |
+| 回忆布局 | ✅ `rl-mem-cols`：升级面板 `flex: 0 0 62%`、`rl-mem-bond-rail` 竖排裸 chip；实机详情页渲染正常（无羁绊记录显示占位文案） |
+| 悬停保留 | ✅ `rl-bond-tip` + `rl-bond-tier` 机制在 |
+| selftest / build | ✅ RESULT PASS；430ms |
+
+**结论**：M8 **pass**。P33 关环。立绘下移量与阴影观感待用户实机最终拍板。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-29 派工 — P33（选角阴影 / 回忆布局重排 / 阴影贴身）
+
+| 检查项 | 结果 |
+|--------|------|
+| HANDOFF-P33 | ✅ 已写（M8 单窗：选角立绘下移+Shadow 阴影；回忆页升级选项 ≥60%、羁绊改局内同款裸 chip 右置、两栏总宽=黑框宽、悬停提示保留；黑框内立绘阴影贴身） |
+| 窗口 | M8 **in_progress** |
+
+**结论**：等待 M8「请查收」。  
+**阻塞项**：无。
+
+---
+
 ## 2026-08-24 — 项目交接
 
 | 检查项 | 结果 |
 |--------|------|
-| 交接文档 | ✅ 根目录 `交接计划.md`：现状 / 文档地图 / 协作协议 / P25 全部设计定稿（含两处待定项与推荐默认）/ 工程拆分 / 发布流程 / 踩坑实录 |
+| 交接文档 | ✅ `docs/交接计划.md`（与 FIX-PLAN/HANDOFF 系列同处）：现状 / 文档地图 / 协作协议 / P25 全部设计定稿（含两处待定项与推荐默认）/ 工程拆分 / 发布流程 / 踩坑实录 |
 | P25 设计定稿 | ✅ 与负责人逐项确认：毒刺怪（260/20/45s 阶、0.70+0.02 无帽、抗 1 身位、4 结晶 20% 高级）、高级结晶（紫边 +5 经验逐个掷）、冰人（抗 70%、3800、150 结晶 10%）、七兄弟（千里眼高级 20%/层、三娃护甲层、四娃 10%攻/s、五娃 20%/0.3s 高级、六娃失锁脉冲、七娃改名）、羁绊小金刚（仅档 7，七色脉冲 1.5 身位 ×1.3 / 30%/0.4s）、击退高级项、蝎子 5s 错峰、弹幕 17s、红圈预警、环绕生成、移速纯时间制 |
 | 进行中移交 | M10 图标（负责人手绘中）；毒刺怪贴图待核实落盘；待定项 2 条（五娃 +0.2/层 单位、四娃五娃高级池范围） |
 | 后续 | 项目移交第三方小组，按 `交接计划.md` §六 拆分实施 P25 |
 
 **结论**：交接完成。  
 **阻塞项**：无。
+
+---
+
+## 2026-08-28 查收 — P32（M8 ✅ / M5 ✅）
+
+用户：窗口已完成，请查收。
+
+### 磁盘核对
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M8 | 回忆界面立绘下移 + 底部阴影 + 悬停（信息+待机动画，与选角一致）；羁绊显示模块 + 属性条两栏布局 + 羁绊悬停提示；高级升级机制（等级 %5 必出高级 + 其余槽独立 30%）；击退文案 +1 | ✅ MoreView.vue/pixel.css/session.js/constants.js、ui/selftest.mjs 全 PASS |
+| M5 | 所有角色基础击退 0.5 身位；高级「击退」0.5→1；combat 自测同步 | ✅ weapons/index.js（BASE_KNOCKBACK_BODIES=0.5、KNOCKBACK_BONUS_BODIES=1）、combat/index.js spawnShot 加基础击退、combat selftest 全 PASS |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| 7 模块 selftest | ✅ 全 RESULT PASS |
+| npm run build | ✅ 467ms |
+
+**结论**：M8 / M5 **pass**。P32 关环（回忆界面立绘/阴影/悬停 + 羁绊模块两栏布局 + 高级升级：等级%5必出、必出当次其余槽独立30%（**非必出等级不出高级**，打回修复后确认） + 所有角色基础击退0.5 + 高级击退+1）。
+
+---
+
+## 2026-08-24 查收 — P30（M11 ✅ / M4 ✅ / M7 ✅ / M1 ✅）
+## 2026-08-24 查收 — P30（M11 ✅ / M4 ✅ / M7 ✅ / M1 ✅）
+
+用户：所有窗口已完成，请查收。
+
+### 磁盘核对
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M11 | 恶魔软性跟随 | ✅ `companions` 恶魔改为软跟随（不空气墙抽搐；仍优先离角色最近的怪；selftest 通过） |
+| M4 | 六娃范围 3 身位 | ✅ `UNLOCK_RADIUS_UNITS=3`、`UNLOCK_RADIUS=3*BODY` |
+| M7 | 地图背景装饰物 | ✅ `DECOR_STICK_COUNT=25`/`STONE=75`、`createDecorationField`（不重叠、静态、`env.draw` 背景层；world selftest 通过） |
+| M1 | 素材落盘（8 张装饰物） | ✅ 已拷两边 |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| 7 模块 selftest | ✅ 全 RESULT PASS |
+| `npm run build` | ✅ 439ms |
+
+**结论**：M11 / M4 / M7 / M1 **pass**。P30 关环（恶魔软跟随、六娃 3 身位、地图火柴堆/石头背景装饰已落地）。
+
+---
+
+## 2026-08-28 查收 — P31（M1 直调：装饰物密度/大小）
+
+用户：火柴堆/石头太少、素材太大 → 数量再翻几倍、大小改 1/3（用保底下限）。方案 A 已拍板：石头 2400 / 火柴堆 800，绘制缩放 1/3 但最长边不低于 6/7px。
+
+### 磁盘核对
+
+| 检查项 | 结果 |
+|--------|------|
+| 常量 | ✅ `DECOR_STICK_COUNT=800`、`DECOR_STONE_COUNT=2400`、`DECOR_DRAW_SCALE=1/3`、`DECOR_STICK_MIN_SIZE=7`、`DECOR_STONE_MIN_SIZE=6` |
+| 播种 | ✅ `decorations.js` 改**抖动网格**：全图均匀、数量 3200 精确可达、与树/装饰物不重叠、静态 |
+| 绘制 | ✅ 源图 ×1/3 缩放（保底 6/7px），碰撞盒对齐绘制尺寸 |
+| world selftest | ✅ `deco total 3200 / sticks 800 / stones 2400 / 不重叠 / 避开树 / env 集成` |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| 7 模块 selftest | ✅ 全 RESULT PASS |
+| `npm run build` | ✅ 2.02s |
+
+**结论**：M1 直调 **pass**。地图装饰物：火柴堆 800 / 石头 2400（每屏平均≈2.4 个），绘制 1/3 且保底 6/7px，"随处可见"已落地。
+
+---
+
+## 2026-08-24 查收 — P29（M7 ✅ / M8 ✅ / M11 ✅ / M1 ✅）
+
+用户：所有窗口已完成，请查收。
+
+### 磁盘核对
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M7 | 强化结晶紫边 | ✅ `pickups.js` 紫十字加宽包住蓝十字（world selftest：紫边厚臂、非小尖） |
+| M8 | 回忆角色立绘 | ✅ `MoreView` 血条左侧 `RangerPortrait`（`memories.js` 记录 charId/charName） |
+| M8 | 选角 hover 待机动画 | ✅ `StartView` hover 时 `RangerPortrait :animate="hoverId===id"` |
+| M8 | 万物一心计数/显示复核 | ✅ `listActiveBonds` 仅 `bondRank` 非 0 才 push；`syncUnity` 按 `uniqueBondCount` |
+| M11 | 万物一心消费复核 | ✅ `setUnityTier` tier0 清增益（companions selftest：tier 0 clears unity gain） |
+| M1 | `syncUnity` 运行时探针（`[A1:unity]` 日志） | ✅ 已加 |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| 7 模块 selftest | ✅ 全 RESULT PASS |
+| `npm run build` | ✅ 449ms |
+
+**结论**：M7 / M8 / M11 / M1 **pass**，P29 关环。**万物一心“1种就2档”**：按代码 `bondRank(count=1)=0`、`tier0` 无增益，M8/M11 复核无误——**疑似旧构建缓存**，请在实机**硬刷新（Ctrl+Shift+R）**；若仍复现，控制台 `[A1:unity] rank=…` 发我。
+
+---
+
+0
+## 2026-08-24 查收 — P28（M4 ✅ / M5 ✅ / M7 ✅ / M8 ✅ / M11 ✅ / M1 ✅）
+
+用户：所有窗口已完成，请查收。
+
+### 磁盘核对
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M7 | 高级结晶紫边 | ✅ pickups.js 垫紫色外覆层（world selftest：advanced 紫边/普通无紫） |
+| M5 | 七色脉冲七彩动画 | ✅ combat drawPulse 用 hsl(PULSE_HUES[i]) 七彩 |
+| M5 | 伤害数字不截断+暴击数据 | ✅ notifyDamage(ent,disp,{base,crit,critMul,damage}) |
+| M4 | 伤害数字动画 | ✅ dmgnum.js：先非暴击→红色×倍率→滚动到实际 |
+| M8 | 三娃新机制 | ✅ session：sanwaN=max(1,11−次数)，每次选 +1 甲、每 N 级再发并重置 |
+| M8 | 跟班升级文案/入池 | ✅ tamer/demon/slime_gg/companionship 入池+文案 |
+| M11 | 驯兽师/恶魔/史莱姆gg/伴我同行 | ✅ companions：addTamer/addDemon/addSlimeGG/addCompanionship；恶魔 3 身位/近角色优先/角色伤联动 |
+| M1 | main.js 全局错误外显；match.js onDemonLink 接线（角色伤害联动）；素材落盘 | ✅ |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| 7 模块 selftest | ✅ 全 RESULT PASS |
+| npm run build | ✅ 637ms |
+
+**结论**：M4 / M5 / M7 / M8 / M11 **pass**；M1 已补 onDemonLink 接线（恶魔角色伤害联动）。**待实机**：恶魔改武器后攻击重算的持久化（若后续升级覆盖，联调再加固）。
+
+> ⚠️ **P28 后查（伤害数字封顶）**：M5 连续 3 次零改动（`dealDamage.applied` 仍 `beforeHp-afterHp`、selftest 仍用无 takeHit mock），M1 按协议**硬停接管**：`dealDamage.applied = Math.max(0, damage)`、selftest 改用真实钳血敌人断言 `d===DMG_MAX`、并把旧断言改为 raw；另补 `match.js` `onDamage/onPlayerDamage` 透传 `meta`。7 模块 selftest + build 全绿。详见 `docs/BLOCKERS/M5-伤害数字封顶-hardstop-M1接管.md`。
+
+---
+
+## 2026-08-24 查收 — P27（M4 ✅ / M5 ✅ / M6 ✅ / M8 ✅）
+
+用户：所有窗口已完成，请查收。
+
+### 磁盘核对
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M4 | 六娃 `#3F48CC` 扩散圈 | ✅ `UNLOCK_RING_COLOR=#3F48CC` + `drawUnlockRings`（越扩越淡、不超半径） |
+| M4 | 三娃护盾视觉 | ✅ `render/ranger.js` `getArmoredShadow` 给**阴影素材**描 `ARMOR_OUTLINE=#e0b84a`；`drawArmorOutline` 矩形已删 |
+| M5 | 四娃基础燃烧 30%/s | ✅ `FIRE_DMG_PER_PICK=0.3`/BOOST 0.4；selftest `0.3/0.4` + `ignite dps 30%` |
+| M6 | 红圈全怪（含裂怪）/ 怪物成长 / 冰人（4000、可离开、伤害2、子弹蓝）/ 强化怪 | ✅ |
+| M8 | 小金刚文本两行/三娃每3个1甲/四娃文案30% | ✅ |
+| M1 | `match.js` `hpGrowthAdd=10` | ✅ 已做 |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| 7 模块 selftest | ✅ 全 RESULT PASS |
+| `npm run build` | ✅ 522ms |
+
+**结论**：M4 / M5 / M6 / M8 **pass**。P27 关环（小金刚文本、全怪红圈、六娃扩散圈、怪物成长、冰人、强化怪、四娃30%、三娃每3个1甲均已落地）。
+
+---
+
+## 2026-08-24 派工 — P26（P25 回修）
+
+| 检查项 | 结果 |
+|--------|------|
+| 定案 | 拾取音效 −50%；小金刚羁绊展示/配色对齐前两羁绊（达 7 才显示）；三娃护盾→素材轮廓黄边；毒刺怪基础 6；五娃减速真 bug（enemies 未读 slowFactor）；四娃/五娃粒子（红/蓝、越升越浅、生灭）；六娃失锁真 bug（getTargets 未传 + unlockUntil/unlockT 字段不一致）；红圈占位保留（等 M10） |
+| HANDOFF-P26 | ✅ 已写（M4/M6/M8；M1 接线） |
+| M1 接线 | ✅ `match.js`：createPlayer 传 `getTargets`；createEnemies hooks 补 `isTargetBlind`（桥接 `player.isEnemyUnlocked`） |
+| 验证 | ✅ match selftest PASS；`npm run build` 580ms |
+
+**结论**：等待 M4 / M6 / M8「请查收」。  
+**阻塞项**：无。
+
+---
+
+## 2026-08-24 查收 — P26（M4 ✅ / M8 ✅ / M6 ✅）
+
+用户：其他窗口已完工，请查收。
+
+### 磁盘核对
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M4 | 三娃护盾：素材最外圈描黄，去竖长方形 | ✅ |
+| M6 | 毒刺怪基础 6 | ✅ `STINGER_COUNT0=6`（`6+floor(秒/180)`） |
+| M6 | 五娃减速消费 | ✅ `enemies/index.js:354` / `ice.js:47,145` 移动乘 `slowFactor??1` |
+| M6 | 四娃红 / 五娃蓝粒子 | ✅ `enemies/index.js` particles（burn/slow、上升、越升越浅、结束/死亡清） |
+| M6 | 红圈占位保留 | ✅ |
+| M8 | 拾取音效 −50% | ✅ `SFX_GAIN.pickup=2.5` |
+| M8 | 小金刚展示/配色对齐前两羁绊 | ✅ |
+| M1 | 六娃 `match.js` 接线 | ✅ |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| 7 模块 selftest | ✅ 全 RESULT PASS（含 enemies 减速/粒子断言） |
+| `npm run build` | ✅ 564ms |
+| mtime 证据 | `enemies/index.js` 08-25 22:32、`spawner/index.js` 08-25 22:30 → M6 已改 |
+
+**结论**：M4 / M6 / M8 **pass**。P26 关环（六娃、五娃减速、四娃/五娃粒子、毒刺怪 6、拾取音效 −50%、小金刚展示对齐均已落地）。
+
+---
+
+## 2026-08-24 查收 — P25（M4 / M5 / M6 / M7 / M8 + M1 接线）
+
+用户：其他窗口已完工，请查收。
+
+### 磁盘核对
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M4 | 三娃护甲（`armor/addArmor/getArmor`，可叠、挡一次完整伤）；六娃失锁脉冲角色侧（`unlockDurationFor` 1.0s 起 +0.5s/层、applyUnlockPulse、unlockRemaining） | ✅ `player/index.js` + `player/selftest.mjs` |
+| M5 | 四娃点燃（3s、10%/s、+10%/层）、五娃减速（20%/0.3s、+0.2s/层）、七色脉冲（3.0s、1.5 身位、×1.3、30%/0.4s、不击退/不点燃/不破失锁）、高级击退（+0.5 身位/层）、集齐后大娃/二娃/四娃/五娃 +10%（加法） | ✅ `combat/index.js` + `weapons/index.js` |
+| M6 | 毒刺怪（300s 接管蘑菇怪、260/20@45s、0.70+0.02 无帽、抗 1 身位、4 结晶 20% 高级）、冰人（3800/0.3/150 结晶 10%/弹幕 17s）、红圈预警 0.8s、环绕生成、蝎子独立 CD（首射 0~5s 错峰、5s 节奏）、失锁敌人侧消费 | ✅ `enemies/`、`spawner/` 与 selftest |
+| M7 | 高级结晶（紫边、+5 经验、`spawnCrystalAt` 独立概率、advanced 标记、磁铁/黑洞照吸） | ✅ `world/`、`pickups/` 与 selftest |
+| M8 | 七兄弟入池文案（二娃~六娃、黑洞改名七娃、大娃保留）、四选一、小金刚 chip「小金刚 n/7」悬停、HUD 护甲显示、高级击退入池 | ✅ `ui/constants.js`、`ui/session.js`、`views/HudOverlay.vue` |
+| 路径边界 | `match.js` 未被子窗口改动（M1 集成路径干净） | ✅ |
+
+### M1 接线
+
+| 检查项 | 结果 |
+|--------|------|
+| 合体触发 | ✅ `match.js` 新增 `syncVajra()`：读 `session.bonds` 的 `BOND_VAJRA`，`complete` 时 `combat.setVajraComplete(true)`（七色脉冲随之在 combat.update 触发） |
+| 失锁/护甲钩子 | ✅ 失锁由 enemies 读 player.unlockRemaining；护甲 HUD 由 session.snapshot.armor → GameShell → HudOverlay |
+
+### 自测
+
+| 检查项 | 结果 |
+|--------|------|
+| player / combat / enemies / world / companions / ui / match selftest | ✅ 全部 RESULT PASS |
+| `npm run build` | ✅ 522ms |
+| 实机 | ✅ M1 打开 `http://localhost:5173/`（复用 Vite；浏览器已在对应窗口打开） |
+
 
 ---
 

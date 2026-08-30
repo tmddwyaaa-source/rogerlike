@@ -58,6 +58,21 @@ import {
   slashLength,
   slashThick,
   warriorKnockback,
+  FIRE_DURATION_SEC,
+  FIRE_DMG_PER_PICK,
+  FIRE_DMG_PER_PICK_BOOST,
+  PULSE_INTERVAL_SEC,
+  PULSE_RADIUS_MUL,
+  PULSE_DMG_MUL,
+  PULSE_SLOW,
+  PULSE_SLOW_SEC,
+  fireDpsPerPick,
+  waterSlowPct,
+  waterSlowSec,
+  knockbackBonusForPicks,
+  BASE_KNOCKBACK_BODIES,
+  erseChance,
+  erseChancePerPick,
 } from './index.js'
 
 let failed = 0
@@ -155,8 +170,8 @@ assert('attackT set', player.attackT > 0)
 for (let i = 0; i < 30; i++) combat.update(0.016)
 assert('full dmg 40', creep.hp === 80 - DMG_MAX)
 assert(
-  'full knockback 2 BODY',
-  Math.abs(creep.x - (player.x + 40 + BODY * 2)) < 0.5,
+  'full knockback 2.5 BODY',
+  Math.abs(creep.x - (player.x + 40 + BODY * 2.5)) < 0.5,
 )
 
 const tap = makeCreep(40)
@@ -166,7 +181,7 @@ assert('charging on', player.charging === true && cTap.charging === true)
 cTap.releaseCharge()
 for (let i = 0; i < 30; i++) cTap.update(0.016)
 assert('tap dmg 20', tap.hp === 80 - DMG_MIN)
-assert('tap kb 1 BODY', Math.abs(tap.x - (player.x + 40 + BODY)) < 0.5)
+assert('tap kb 1.5 BODY', Math.abs(tap.x - (player.x + 40 + BODY * 1.5)) < 0.5)
 
 const hold = makeCreep(40)
 const cHold = createCombat({ player, targets: [hold] })
@@ -242,7 +257,7 @@ const cSnail = createCombat({ player, targets: [snailTap] })
 const snailX = snailTap.x
 cSnail.tryFire(0)
 for (let i = 0; i < 30; i++) cSnail.update(0.016)
-assert('combat uncharged + resist → 0 kb', Math.abs(snailTap.x - snailX) < 0.5)
+assert('combat uncharged + resist → 0.5 BODY', Math.abs(snailTap.x - (snailX + BODY * 0.5)) < 0.5)
 
 let worldHits = 0
 const cWorld = createCombat({
@@ -420,7 +435,7 @@ const slash = cWar.bullets[0]
 assert('warrior slash', slash.kind === 'slash' && slash.vx === 0 && slash.vy === 0)
 assert('warrior full dmg ×1.6 live', Math.abs(slash.damage - WARRIOR_ATTACK * 1.6) < 1e-9)
 assert('warrior full sizeMul 1.6 live', Math.abs(slash.sizeMul - WARRIOR_FULL_SIZE) < 1e-9)
-assert('warrior full kb 0', slash.knockback === 0)
+assert('warrior full kb 0.5 BODY', Math.abs(slash.knockback - BODY * 0.5) < 1e-9)
 {
   const len = SLASH_RANGE * WARRIOR_FULL_SIZE
   const far = wP.x + SLASH_BODY_FRONT + len
@@ -516,7 +531,7 @@ const wKbP0 = {
 }
 const cKb0 = createCombat({ player: wKbP0, targets: [wKb0] })
 cKb0.tryFire(0)
-assert('warrior pierce0 kb 0', Math.abs(wKb0.x - (player.x + SLASH_RANGE)) < 0.5)
+assert('warrior pierce0 kb 0.5 BODY', Math.abs(wKb0.x - (player.x + SLASH_RANGE + BODY * 0.5)) < 0.5)
 
 const wKb2 = {
   x: player.x + SLASH_RANGE,
@@ -539,7 +554,7 @@ const cKb2 = createCombat({ player: wKbP2, targets: [wKb2], weapon: wKbW })
 cKb2.applyUpgrade('pierce')
 cKb2.applyUpgrade('pierce')
 cKb2.tryFire(0)
-assert('warrior pierce2 kb BODY', Math.abs(wKb2.x - (player.x + SLASH_RANGE + BODY)) < 0.5)
+assert('warrior pierce2 kb 1.5 BODY', Math.abs(wKb2.x - (player.x + SLASH_RANGE + BODY * 1.5)) < 0.5)
 
 const hugP = {
   x: player.x,
@@ -838,7 +853,8 @@ const cTh = createCombat({
 cTh.tryFire(1)
 for (let i = 0; i < 30; i++) cTh.update(0.016)
 assert('uses takeHit', takeHitN >= 1)
-assert('pops takeHit dealt', thLog[0] === 7)
+// P28 B2：伤害数字为原始命中伤害（DMG_MAX），不因 takeHit 实际扣减而截断。
+assert('pops raw damage not clamped', thLog[0] === DMG_MAX)
 
 assert('FIRE_INTERVAL 0.315', FIRE_INTERVAL === 0.315)
 assert('KNOCKBACK_DIST === BODY', KNOCKBACK_DIST === BODY)
@@ -944,6 +960,127 @@ assert(
   'instant mode onFire',
   cSfxFast.bullets.length === 1 && fastLog.length === 1 && fastLog[0] === 'shoot',
 )
+
+// P25 M5：四娃点燃 / 五娃减速 / 高级击退 / 七色脉冲 / 集齐后效果 +10%
+assert('FIRE_DURATION_SEC 3', FIRE_DURATION_SEC === 3)
+assert('FIRE_DMG_PER_PICK 0.3/0.4', FIRE_DMG_PER_PICK === 0.3 && FIRE_DMG_PER_PICK_BOOST === 0.4)
+assert('fireDpsPerPick boost', fireDpsPerPick(false) === 0.3 && fireDpsPerPick(true) === 0.4)
+assert('waterSlowPct boost', waterSlowPct(false) === 0.2 && waterSlowPct(true) === 0.3)
+assert('waterSlowSec layers', waterSlowSec(1) === 0.3 && Math.abs(waterSlowSec(2) - 0.5) < 1e-9)
+assert('BASE_KNOCKBACK_BODIES 0.5', BASE_KNOCKBACK_BODIES === 0.5)
+assert('knockback bonus 2 picks = 2 BODY', Math.abs(knockbackBonusForPicks(2) - BODY * 2) < 1e-9)
+assert('erse chance base', erseChance(1, false) === 20 && erseChance(3, false) === 60)
+assert('erse chance boost', erseChance(1, true) === 30 && erseChance(4, true) === 100)
+assert('erse chance cap', erseChance(6, false) === 100)
+
+{
+  const eW = createBow()
+  assert('erse picks', eW.applyUpgrade('erse') === true && eW.ersePicks === 1)
+}
+
+const fireP2 = mkFireP()
+const fireW2 = createBow()
+const fireHit2 = makeCreep(40, 200)
+const cFire2 = createCombat({ player: fireP2, targets: [fireHit2], weapon: fireW2 })
+cFire2.applyUpgrade('siwa')
+assert('siwa picks', fireW2.siwaPicks === 1)
+cFire2.tryFire(1)
+for (let i = 0; i < 30; i++) cFire2.update(0.016)
+assert('ignite applied', fireHit2.burnLeft > 2 && fireHit2.burnLeft <= FIRE_DURATION_SEC)
+assert('ignite dps 30% atk', Math.abs(fireHit2.burnDps - ATTACK_BASE * 0.3) < 1e-9)
+const hpAfterHit = fireHit2.hp
+for (let i = 0; i < 60; i++) cFire2.update(1 / 60)
+assert('burn tick ~6 per sec', Math.abs(fireHit2.hp - hpAfterHit + ATTACK_BASE * 0.3) < 0.01)
+
+const waterP2 = mkFireP()
+const waterW2 = createBow()
+const waterHit2 = makeCreep(40, 200)
+const cWater2 = createCombat({ player: waterP2, targets: [waterHit2], weapon: waterW2 })
+cWater2.applyUpgrade('wuwa')
+cWater2.applyUpgrade('wuwa')
+cWater2.tryFire(1)
+for (let i = 0; i < 20; i++) cWater2.update(0.016)
+assert('slow factor 0.8', Math.abs(waterHit2.slowFactor - 0.8) < 1e-9)
+assert('slow left > 0.1', waterHit2.slowLeft > 0.1)
+
+const kbP2 = mkFireP()
+const kbW2 = createBow()
+const kbHit2 = makeCreep(40, 200)
+const p25KbC = createCombat({ player: kbP2, targets: [kbHit2], weapon: kbW2 })
+p25KbC.applyUpgrade('knockback')
+assert('knockback picks', kbW2.knockbackPicks === 1)
+p25KbC.tryFire(1)
+for (let i = 0; i < 30; i++) p25KbC.update(0.016)
+assert('knockback +1 BODY advanced', Math.abs(kbHit2.x - (player.x + 40 + BODY * 3.5)) < 0.5)
+
+const pulseP2 = mkFireP()
+const pulseW2 = createBow()
+const pulseHit2 = makeCreep(BODY, 200)
+const cPulse2 = createCombat({ player: pulseP2, targets: [pulseHit2], weapon: pulseW2 })
+cPulse2.setVajraComplete(true)
+assert('vajra flag', cPulse2.getVajraComplete() === true && pulseW2.vajraComplete === true)
+cPulse2.update(PULSE_INTERVAL_SEC)
+assert('pulse dmg attack×1.3', Math.abs(pulseHit2.hp - (200 - ATTACK_BASE * PULSE_DMG_MUL)) < 1e-9)
+assert('pulse slow 30%/0.4s', Math.abs(pulseHit2.slowFactor - (1 - PULSE_SLOW)) < 1e-9 && pulseHit2.slowLeft === PULSE_SLOW_SEC)
+assert('pulse constants', PULSE_RADIUS_MUL === 1.5 && PULSE_DMG_MUL === 1.3 && PULSE_SLOW === 0.3 && PULSE_SLOW_SEC === 0.4)
+
+{
+  const gW2 = createBow()
+  gW2.applyUpgrade('giant')
+  assert('giant base 1.4', Math.abs(gW2.sizeMul - 1.4) < 1e-9)
+  gW2.setVajraComplete(true)
+  assert('giant boost 1.5', Math.abs(gW2.sizeMul - 1.5) < 1e-9)
+  assert('giantSizeMul boost', Math.abs(giantSizeMul(1, true) - 1.5) < 1e-9)
+}
+
+const fbP2 = mkFireP()
+const fbW2 = createBow()
+fbW2.applyUpgrade('siwa')
+fbW2.setVajraComplete(true)
+const fbHit2 = makeCreep(40, 200)
+const cFb2 = createCombat({ player: fbP2, targets: [fbHit2], weapon: fbW2 })
+cFb2.tryFire(1)
+for (let i = 0; i < 30; i++) cFb2.update(0.016)
+assert('fire boost dps 40%', Math.abs(fbHit2.burnDps - ATTACK_BASE * 0.4) < 1e-9)
+
+// P28 B2/B3：伤害数字传实际伤害（不按剩余血量截断）+ 暴击倍率信息
+const truncP = mkFireP()
+const truncW = createBow()
+const truncHit = makeCreep(40, 5)
+// 真实敌人 takeHit：hp 会被钳到 0，且返回实扣（血量封顶）。用它才能验证「显示不按余血截断」。
+truncHit.takeHit = (dmg) => {
+  const before = truncHit.hp
+  const dealt = Math.min(before, dmg)
+  truncHit.hp = Math.max(0, before - dmg)
+  return dealt
+}
+const truncLog = []
+const cTrunc = createCombat({
+  player: truncP,
+  targets: [truncHit],
+  weapon: truncW,
+  hooks: { onDamage: (t, d, meta) => truncLog.push({ t, d, meta }) },
+})
+cTrunc.tryFire(1)
+for (let i = 0; i < 30; i++) cTrunc.update(0.016)
+assert('damage not truncated by hp', truncLog.length >= 1 && truncLog[0].d === DMG_MAX)
+assert('non-crit meta', truncLog[0].meta && truncLog[0].meta.crit === false && truncLog[0].meta.critMul === 1)
+
+const critP = mkFireP()
+const critW = createBow()
+critW.critRate = 100
+const critHit = makeCreep(40, 200)
+const critLog = []
+const cCrit = createCombat({
+  player: critP,
+  targets: [critHit],
+  weapon: critW,
+  hooks: { onDamage: (t, d, meta) => critLog.push({ t, d, meta }) },
+})
+cCrit.tryFire(1)
+for (let i = 0; i < 30; i++) cCrit.update(0.016)
+assert('crit dmg full', critLog.length >= 1 && Math.abs(critLog[0].d - DMG_MAX * CRIT_DAMAGE_MUL) < 1e-9)
+assert('crit meta', critLog[0].meta.crit === true && critLog[0].meta.critMul === CRIT_DAMAGE_MUL && Math.abs(critLog[0].meta.base - DMG_MAX) < 1e-9)
 
 console.log(
   `\ncharge=${CHARGE_MAX_SEC}s attack=${ATTACK_BASE} full×2 interval=${FIRE_INTERVAL}s BODY=${BODY}`,

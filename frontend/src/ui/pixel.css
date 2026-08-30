@@ -261,6 +261,12 @@
   background: var(--rl-red);
 }
 
+.rl-armor {
+  color: var(--rl-btn);
+  font-size: var(--rl-f1);
+  letter-spacing: 1px;
+}
+
 .rl-bar {
   width: 120px;
   height: 6px;
@@ -305,6 +311,8 @@
 
 .rl-cards {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--rl-s3);
 }
 
@@ -459,11 +467,29 @@
 }
 
 .rl-avatar.ranger {
+  position: relative;
   width: 64px;
-  height: 64px;
-  padding: 0;
+  height: 76px;
+  padding: 12px 0 0;
   overflow: hidden;
   background: var(--rl-paper);
+}
+
+/* 立绘在卡框内整体下移：画布顶留 12px，脚线随之下移，阴影贴脚 */
+.rl-avatar .rl-ranger-idle {
+  position: relative;
+  z-index: 1;
+}
+
+/* 选角脚下阴影：对局同款 Shadow.png 按 2×（13×6→26×12），上缘在脚线上 4px */
+.rl-avatar-shadow {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26px;
+  height: 12px;
+  image-rendering: pixelated;
 }
 
 .rl-ranger-idle {
@@ -818,11 +844,18 @@
 /* 回忆详情：终局大面板——等级醒目、属性分区 */
 .rl-mem-hero {
   display: flex;
-  flex-direction: column;
-  gap: var(--rl-s2);
+  flex-direction: row;
+  align-items: center;
+  gap: var(--rl-s3);
   margin-bottom: var(--rl-s3);
   padding: var(--rl-s3) var(--rl-s4);
   color: var(--rl-paper);
+}
+
+.rl-mem-hero-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rl-s2);
 }
 
 .rl-mem-hero-top {
@@ -901,6 +934,79 @@
 
 .rl-mem-icon:hover .rl-mem-tip {
   display: block;
+}
+
+/* P32 回忆：立绘悬停/阴影 + 羁绊模块与升级选项两列布局 */
+.rl-mem-portrait {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px;
+}
+
+.rl-mem-shadow {
+  display: block;
+  width: 26px;
+  height: 12px;
+  margin-top: -26px;
+  position: relative;
+  z-index: 0;
+  image-rendering: pixelated;
+}
+
+/* 回忆立绘阴影贴身：立绘在上层压住阴影，间距与对局一致 */
+.rl-mem-portrait .rl-ranger-idle {
+  position: relative;
+  z-index: 1;
+}
+
+.rl-mem-char-tip {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + var(--rl-s2));
+  transform: translateX(-50%);
+  max-width: 260px;
+  padding: var(--rl-s1) var(--rl-s2);
+  border: 2px solid var(--rl-ink);
+  background: var(--rl-paper);
+  color: var(--rl-ink);
+  font-size: var(--rl-f1);
+  line-height: 1.4;
+  white-space: pre-line;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.rl-mem-portrait:hover .rl-mem-char-tip {
+  display: block;
+}
+
+.rl-mem-cols {
+  display: flex;
+  gap: var(--rl-s3);
+  align-items: flex-start;
+  margin-top: var(--rl-s3);
+}
+
+/* 升级选项占 ≥60%，羁绊裸 chip 竖排占右侧；两栏合计 = 黑框宽 */
+.rl-mem-cols > .rl-panel {
+  flex: 0 0 62%;
+  min-width: 0;
+}
+
+.rl-mem-bond-rail {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--rl-s2);
+}
+
+.rl-mem-cols .rl-panel h3 {
+  margin: 0;
 }
 
 /* ---- 弹窗 / 自选 ---- */

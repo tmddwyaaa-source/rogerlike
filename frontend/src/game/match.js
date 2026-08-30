@@ -25,6 +25,7 @@ import {
 import { stepLevelUpFx } from './render/levelup.js'
 import { createEnvironment } from './world/index.js'
 import { getSharedSfx } from '../ui/sfx.js'
+import { BOND_VAJRA } from '../ui/constants.js'
 
 const sfx = getSharedSfx()
 
@@ -57,23 +58,36 @@ export function createMatchRuntime(opts) {
   let deathArmed = false
   let starting = false
 
-  function onDamage(ent, dmg) {
+  function onDamage(ent, dmg, meta) {
     if (!ent || !(dmg > 0)) return
-    spawnDamageNum(ent.x, ent.y, dmg, ent)
+    spawnDamageNum(ent.x, ent.y, dmg, ent, meta)
   }
 
   // 万物一心档 8「优先攻击角色正在攻击的目标」：只记玩家（combat）打中的活敌；
   // 跟班的 onDamage 不经过这里，避免跟班追自己打过的目标。
   let lastPlayerTarget = null
+  let demonAtkBonus = 0
+  let demonAtkApplied = 0
 
-  function onPlayerDamage(ent, dmg) {
-    onDamage(ent, dmg)
+  function onPlayerDamage(ent, dmg, meta) {
+    onDamage(ent, dmg, meta)
     if (ent && dmg > 0 && ent.hp > 0) lastPlayerTarget = ent
   }
 
   function onHeal(ent, n) {
     if (!ent || !(n > 0)) return
     spawnHealNum(ent.x, ent.y, n, ent)
+  }
+
+  // P28 恶魔：角色伤害联动——把跟班联动加成加到角色攻击（combat.pistol.attack）。
+  function applyDemonLink(bonus) {
+    demonAtkBonus = Number(bonus) || 0
+    const delta = demonAtkBonus - demonAtkApplied
+    if (!delta) return
+    demonAtkApplied = demonAtkBonus
+    const pist = combat?.pistol
+    if (pist) pist.attack = (pist.attack ?? player?.attack ?? 20) + delta
+    else if (player) player.attack = (player.attack ?? 20) + delta
   }
 
   function io() {
@@ -108,6 +122,27 @@ export function createMatchRuntime(opts) {
     }
   }
 
+  // M1 临时探针（P29 万物一心 tier）：记录羁绊 rank，便于定位“1 种就 2 档”。
+  let lastUnityRank = null
+  function probeUnity() {
+    const bonds = shell.ui?.session?.bonds
+    const u = Array.isArray(bonds) ? bonds.find((b) => b.id === 'unity') : null
+    const rank = u ? (u.rank ?? 0) : 0
+    if (rank !== lastUnityRank) {
+      lastUnityRank = rank
+      console.log('[A1:unity] rank=', rank, 'picked=', (shell.ui?.session?.picked ?? []).map((p) => p.id).join(','))
+    }
+  }
+
+  // 小金刚集齐 → combat.setVajraComplete（合体触发七色脉冲）。M1 接线：读 session.bonds，完整时置位。
+  function syncVajra() {
+    if (!combat?.setVajraComplete) return
+    const bonds = shell.ui?.session?.bonds
+    const v = Array.isArray(bonds) ? bonds.find((b) => b.id === BOND_VAJRA) : null
+    // P26 起小金刚条目不再带 complete，只有 rank（集齐=7）。
+    combat.setVajraComplete(Boolean(v && (v.rank ?? 0) >= 7))
+  }
+
   function teardown() {
     player?.unbindInput?.()
     combat?.unbindInput?.()
@@ -129,7 +164,7 @@ export function createMatchRuntime(opts) {
   }
 
   function hpGrowthAdd() {
-    return String(shell.ui?.session?.difficulty) === '2' ? 5 : 0
+    return String(shell.ui?.session?.difficulty) === '2' ? 10 : 0
   }
 
   function tryBeginUpgradeOffer() {
@@ -158,6 +193,7 @@ export function createMatchRuntime(opts) {
         godMode: settings.testMode && settings.godMode,
         charId,
         onHurt: () => sfx.play('hurt'),
+        getTargets: () => foes?.targets ?? [],
       })
       engine.setFollowTarget(player)
       player.bindInput(io())
@@ -187,6 +223,7 @@ export function createMatchRuntime(opts) {
         hooks: {
           spawnCrystal: (x, y) => env.spawnCrystal(x, y),
           spawnCrystalBurst: (x, y, n) => env.spawnCrystalBurst(x, y, n),
+          isTargetBlind: (ent) => Boolean(player?.isEnemyUnlocked?.(ent)),
           onKill: (ent) => {
             shell.ui.addKill()
             if (ent?.kind === 'ice_man') shell.ui.addBossKill?.()
@@ -224,6 +261,7 @@ export function createMatchRuntime(opts) {
         hooks: {
           onDamage,
           onHeal: (n) => onHeal(player, n),
+          onDemonLink: applyDemonLink,
         },
       })
       await companions.loadAssets()
@@ -240,6 +278,8 @@ export function createMatchRuntime(opts) {
   }
 
   function update(dt) {
+    syncVajra()
+    probeUnity()
     if (!active || !player || !env || !foes || !combat || !companions) return
     const p = phase()
     if (p !== 'playing') {

@@ -119,8 +119,15 @@ export function createEngine(canvas) {
     if (!running) return
     const dt = last ? Math.min(0.05, (t - last) / 1000) : 0
     last = t
-    tick(dt)
-    draw()
+    try {
+      tick(dt)
+      draw()
+    } catch (err) {
+      // 单帧异常：停帧（避免崩溃循环重置），再抛给 window.onerror → 页面浮层显示，便于定位根因。
+      running = false
+      cancelAnimationFrame(raf)
+      throw err
+    }
     raf = requestAnimationFrame(frame)
   }
 

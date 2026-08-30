@@ -3,6 +3,7 @@
  * 黑底抠透明。Image 不可用时（Node 自测）返回 null，由火柴人兜底。
  */
 import { assetUrl } from '../../assetUrl.js'
+import { ARMOR_OUTLINE, outlinePixels } from '../enemies/outline.js'
 
 export const FRAME_W = 32
 export const FRAME_H = 32
@@ -55,6 +56,36 @@ const ANIMS = ['Idle', 'Walk', 'Attack', 'Hurt', 'Death']
 
 const caches = Object.create(null)
 const pendings = Object.create(null)
+/** P27 三娃护盾：角色脚下阴影素材最外圈描黄（同敌人 outlineSheet 像素描边）。 */
+const armoredShadowCache = Object.create(null)
+
+function getArmoredShadow(charId, sheets) {
+  const id = resolveCharId(charId)
+  if (armoredShadowCache[id]) return armoredShadowCache[id]
+  const sh = sheets?.Shadow
+  if (!sh || !sh.naturalWidth || typeof document === 'undefined') return null
+  try {
+    const c = document.createElement('canvas')
+    c.width = sh.naturalWidth || sh.width
+    c.height = sh.naturalHeight || sh.height
+    const g = c.getContext('2d')
+    g.drawImage(sh, 0, 0)
+    const ring = outlinePixels(
+      g.getImageData(0, 0, c.width, c.height).data,
+      c.width,
+      c.height,
+      ARMOR_OUTLINE,
+    )
+    const out = document.createElement('canvas')
+    out.width = c.width
+    out.height = c.height
+    out.getContext('2d').putImageData(new ImageData(ring, c.width, c.height), 0, 0)
+    armoredShadowCache[id] = out
+    return out
+  } catch {
+    return null
+  }
+}
 
 function buildSrc(charId) {
   const folder = CHAR_FOLDERS[resolveCharId(charId)]
@@ -180,10 +211,18 @@ function spriteOrigin(player) {
   }
 }
 
-function drawShadow(ctx, player, sheets) {
-  const sh = sheets?.Shadow
-  if (!sh) return
+function drawShadow(ctx, player, sheets, armored = false) {
+  const src = armored ? getArmoredShadow(player?.charId, sheets) : sheets?.Shadow
+  const fallback = sheets?.Shadow
+  if (!src && !fallback) return
+  const img = src || fallback
+  const sw = img.naturalWidth || img.width
+  const sh = img.naturalHeight || img.height
   ctx.drawImage(
+    img,
+    0,
+    0,
+    sw,
     sh,
     Math.round(player.x - SHADOW_W / 2),
     Math.round(footY(player) - SHADOW_TUCK),
@@ -225,8 +264,9 @@ export function drawRanger(ctx, player, sheets) {
 
   const inv = player.invuln ?? 0
   const dead = (player.hp ?? 1) <= 0
+  const armored = (player.armor ?? 0) > 0
   if (!dead && inv > 0 && Math.floor(inv * 12) % 2 === 0) {
-    drawShadow(ctx, player, pack)
+    drawShadow(ctx, player, pack, armored)
     return true
   }
 
@@ -239,7 +279,7 @@ export function drawRanger(ctx, player, sheets) {
   const img = pack[key]
   const { dx, dy } = spriteOrigin(player)
 
-  drawShadow(ctx, player, pack)
+  drawShadow(ctx, player, pack, armored)
   if (!img) return Boolean(pack.Shadow)
 
   const fi = Math.max(0, frameIndex(player, anim))

@@ -81,8 +81,8 @@ function assert(name, cond) {
 }
 
 assert('title 类幸存者', createMatchUi().title === '类幸存者')
-assert('normal pool 15', UPGRADES.filter((u) => u.tier !== 'advanced').length === 15)
-assert('advanced 5', UPGRADES.filter((u) => u.tier === 'advanced').length === 5)
+assert('normal pool 20', UPGRADES.filter((u) => u.tier !== 'advanced').length === 20)
+assert('advanced 10', UPGRADES.filter((u) => u.tier === 'advanced').length === 10)
 assert('upgrade 暴击', UPGRADES.find((u) => u.id === 'crit')?.title === '暴击')
 assert('暴击文案', UPGRADES.find((u) => u.id === 'crit')?.desc === '暴击率 +10')
 assert('upgrade 唯快不破', UPGRADES.find((u) => u.id === 'only_fast')?.title === '唯快不破' && UPGRADES.find((u) => u.id === 'only_fast')?.tier === 'advanced')
@@ -94,25 +94,28 @@ assert('OBJECTIVE_TEXT_TWO', OBJECTIVE_TEXT_TWO === '目标：击败Boss 2次，
 assert('DIFFICULTY_TWO', DIFFICULTY_TWO.id === '2' && DIFFICULTY_TWO.name === '难度二')
 assert('bondRank qian', bondRank(BOND_QIAN, 1) === 0 && bondRank(BOND_QIAN, 2) === 2 && bondRank(BOND_QIAN, 5) === 4 && bondRank(BOND_QIAN, 8) === 8)
 assert('bondRank unity', bondRank(BOND_UNITY, 1) === 0 && bondRank(BOND_UNITY, 2) === 2 && bondRank(BOND_UNITY, 5) === 4 && bondRank(BOND_UNITY, 8) === 8)
-assert('bondRank vajra', bondRank(BOND_VAJRA, 1) === 0 && bondRank(BOND_VAJRA, 2) === 2)
+assert('bondRank vajra', bondRank(BOND_VAJRA, 1) === 0 && bondRank(BOND_VAJRA, 6) === 0 && bondRank(BOND_VAJRA, 7) === 7)
 assert('qianDesired lv6 r2', Math.abs(qianDesired(6, 2).speed - 0.03) < 1e-9 && qianDesired(6, 2).atk === 0)
 assert('qian 敏捷 bond', UPGRADES.find((u) => u.id === 'move_speed')?.bond === BOND_QIAN)
 assert(
   '羁绊档位表',
   BOND_TIERS.qian.map((t) => t.rank).join() === '2,4,6,8' &&
     BOND_TIERS.unity.map((t) => t.rank).join() === '2,4,6,8' &&
-    BOND_TIERS.vajra.map((t) => t.rank).join() === '2' &&
+    BOND_TIERS.vajra.length === 2 &&
+    BOND_TIERS.vajra.map((t) => t.rank).join() === '7,7' &&
     BOND_TIERS.qian.every((t) => t.text.includes('随等级提高')) &&
-    BOND_TIERS.vajra[0].text === '敬请期待' &&
+    BOND_TIERS.vajra[0].text.includes('七色脉冲') &&
+    BOND_TIERS.vajra[1].text.includes('+10%') &&
     Boolean(BOND_DESC.qian) &&
     Boolean(BOND_DESC.unity) &&
     Boolean(BOND_DESC.vajra),
 )
 assert('unity 蝙蝠 bond', UPGRADES.find((u) => u.id === 'bat')?.bond === BOND_UNITY)
 assert(
-  '大娃黑洞入小金刚',
-  UPGRADES.find((u) => u.id === 'giant')?.bond === BOND_VAJRA &&
-    UPGRADES.find((u) => u.id === 'blackhole')?.bond === BOND_VAJRA,
+  '七兄弟入小金刚羁绊',
+  ['giant', 'erse', 'sanwa', 'siwa', 'wuwa', 'liuwa', 'blackhole'].every(
+    (id) => UPGRADES.find((u) => u.id === id)?.bond === BOND_VAJRA,
+  ),
 )
 assert(
   'chars 三角色',
@@ -166,7 +169,7 @@ assert('upgrade 敏捷', UPGRADES.find((u) => u.id === 'move_speed')?.title === 
 assert('upgrade 技巧', UPGRADES.find((u) => u.id === 'reload')?.title === '技巧')
 assert('upgrade 力量', UPGRADES.some((u) => u.id === 'power'))
 assert('力量文案 +10', UPGRADES.find((u) => u.id === 'power')?.desc === '伤害 +10')
-assert('upgrade 黑洞', UPGRADES.find((u) => u.id === 'blackhole')?.title === '黑洞')
+assert('黑洞改名七娃', UPGRADES.find((u) => u.id === 'blackhole')?.title === '七娃')
 assert(
   '黑洞文案',
   UPGRADES.find((u) => u.id === 'blackhole')?.desc === '吸收全地图经验结晶',
@@ -181,6 +184,26 @@ assert(
   '大娃文案',
   UPGRADES.find((u) => u.id === 'giant')?.desc === '每次弹体大小 +40%',
 )
+assert('upgrade 二娃', UPGRADES.find((u) => u.id === 'erse')?.title === '二娃·千里眼' && UPGRADES.find((u) => u.id === 'erse')?.tier === 'advanced')
+assert('二娃文案', UPGRADES.find((u) => u.id === 'erse')?.desc === '三选一 20%/层 概率变四选一')
+assert('upgrade 三娃', UPGRADES.find((u) => u.id === 'sanwa')?.title === '三娃·铜头铁臂' && UPGRADES.find((u) => u.id === 'sanwa')?.tier !== 'advanced')
+assert('三娃文案', UPGRADES.find((u) => u.id === 'sanwa')?.desc === '获得 1 层护甲；之后每升 N 级再获得 1 层（N=11−已选次数，可叠）')
+assert('upgrade 四娃', UPGRADES.find((u) => u.id === 'siwa')?.title === '四娃·喷火' && UPGRADES.find((u) => u.id === 'siwa')?.tier === 'advanced')
+assert('四娃文案', UPGRADES.find((u) => u.id === 'siwa')?.desc === '命中点燃 3 秒，每秒 30% 攻击（+10%/层）')
+assert('upgrade 五娃', UPGRADES.find((u) => u.id === 'wuwa')?.title === '五娃·吐水' && UPGRADES.find((u) => u.id === 'wuwa')?.tier === 'advanced')
+assert('五娃文案', UPGRADES.find((u) => u.id === 'wuwa')?.desc === '命中减速 20%、0.3 秒（+0.2 秒/层）')
+assert('upgrade 六娃', UPGRADES.find((u) => u.id === 'liuwa')?.title === '六娃·隐身' && UPGRADES.find((u) => u.id === 'liuwa')?.tier !== 'advanced')
+assert('六娃文案', UPGRADES.find((u) => u.id === 'liuwa')?.desc === '每 10 秒失锁脉冲：1.5 身位内敌人 1.0 秒不锁定（+0.5 秒/层）')
+assert('upgrade 击退', UPGRADES.find((u) => u.id === 'knockback')?.title === '击退' && UPGRADES.find((u) => u.id === 'knockback')?.tier === 'advanced')
+assert('击退文案', UPGRADES.find((u) => u.id === 'knockback')?.desc === '命中击退 +1 身位')
+assert('upgrade 驯兽师', UPGRADES.find((u) => u.id === 'tamer')?.title === '驯兽师' && UPGRADES.find((u) => u.id === 'tamer')?.tier !== 'advanced')
+assert('驯兽师文案', UPGRADES.find((u) => u.id === 'tamer')?.desc === '跟班伤害 +5、跟班移速 +0.05')
+assert('upgrade 恶魔', UPGRADES.find((u) => u.id === 'demon')?.title === '恶魔' && UPGRADES.find((u) => u.id === 'demon')?.tier === 'advanced')
+assert('恶魔文案', UPGRADES.find((u) => u.id === 'demon')?.desc === '生成 1 个恶魔跟班（基础伤害 10+角色伤害×20%）')
+assert('upgrade 史莱姆gg', UPGRADES.find((u) => u.id === 'slime_gg')?.title === '史莱姆gg')
+assert('史莱姆gg文案', UPGRADES.find((u) => u.id === 'slime_gg')?.desc === '生成 2 个史莱姆跟班（g-1、g-2），基础伤害 5')
+assert('upgrade 伴我同行', UPGRADES.find((u) => u.id === 'companionship')?.title === '伴我同行')
+assert('伴我同行文案', UPGRADES.find((u) => u.id === 'companionship')?.desc === '角色每击杀 100 怪物，跟班伤害 +1（+0.5/层）')
 assert('survive win 600', SURVIVE_WIN_SEC === 600)
 assert('testElapsed default 0', defaultSettings().testElapsedSec === 0)
 assert('testDummy default false', defaultSettings().testDummy === false)
@@ -442,6 +465,14 @@ assert(
 )
 const eggHost = {}
 assert('蛋 hook 留给 M11', applyUpgrade('strange_egg', { env: eggHost }) === true && eggHost.pendingEgg === 1)
+const tamerHost = {}
+assert('驯兽师 hook 留给 M11', applyUpgrade('tamer', { env: tamerHost }) === true && tamerHost.pendingTamer === 1)
+const demonHost = {}
+assert('恶魔 hook 留给 M11', applyUpgrade('demon', { env: demonHost }) === true && demonHost.pendingDemon === 1)
+const slimeHost = {}
+assert('史莱姆gg hook 留给 M11', applyUpgrade('slime_gg', { env: slimeHost }) === true && slimeHost.pendingSlimeGG === 1)
+const compHost = {}
+assert('伴我同行 hook 留给 M11', applyUpgrade('companionship', { env: compHost }) === true && compHost.pendingCompanionship === 1)
 const fastHost = {}
 assert('唯快不破 hook', applyUpgrade('only_fast', fastHost) === true && fastHost.pendingOnlyFast === 1)
 const refineHost = {}
@@ -451,17 +482,24 @@ assert(
   availableUpgrades(null, { tier: 'advanced', charId: 'warrior' }).some((u) => u.id === 'goblin'),
 )
 
-const fifth = pickUpgradeChoices(null, 3, () => 0, { offerIndex: 5 })
-assert(
-  '第5次 rng<0.3 含地精',
-  fifth.length === 3 && fifth.filter((c) => c.id === 'goblin').length === 1,
-)
-const fourth = pickUpgradeChoices(null, 3, () => 0, { offerIndex: 4 })
-assert('第4次不含高级', fourth.length === 3 && !fourth.some((c) => c.tier === 'advanced' || c.id === 'goblin'))
-const fifthMiss = pickUpgradeChoices(null, 3, () => 0.5, { offerIndex: 5 })
-assert('第5次 30% 未中', !fifthMiss.some((c) => c.id === 'goblin'))
-const tenth = pickUpgradeChoices(null, 3, () => 0, { offerIndex: 10 })
-assert('第10次可出地精', tenth.some((c) => c.id === 'goblin'))
+const advAt5 = pickUpgradeChoices(null, 3, () => 0.9, { level: 5 })
+assert('第5级必出高级', advAt5.length === 3 && advAt5.some((c) => c.tier === 'advanced'))
+const advAll4 = pickUpgradeChoices(null, 3, () => 0, { level: 4 })
+assert('level4 rng0 非必出不出高级', advAll4.length === 3 && !advAll4.some((c) => c.tier === 'advanced'))
+const advNone4 = pickUpgradeChoices(null, 3, () => 0.9, { level: 4 })
+assert('level4 rng0.9 全普通', advNone4.length === 3 && !advNone4.some((c) => c.tier === 'advanced'))
+const advAll5 = pickUpgradeChoices(null, 3, () => 0, { level: 5 })
+assert('level5 rng0 全高级', advAll5.length === 3 && advAll5.every((c) => c.tier === 'advanced'))
+
+const erseTwo = createPistol()
+erseTwo.applyUpgrade('erse')
+erseTwo.applyUpgrade('erse')
+const fourChoices = pickUpgradeChoices({ pistol: erseTwo, chargeMax: CHARGE_MAX_SEC }, 3, () => 0, {})
+assert('二娃 2 层 rng0 变四选一', fourChoices.length === 4)
+const threeChoices = pickUpgradeChoices({ pistol: erseTwo, chargeMax: CHARGE_MAX_SEC }, 3, () => 0.9, {})
+assert('二娃 rng 高仍三选一', threeChoices.length === 3)
+const zeroErse = pickUpgradeChoices({ pistol: createPistol(), chargeMax: CHARGE_MAX_SEC }, 3, () => 0, {})
+assert('无二娃仍三选一', zeroErse.length === 3)
 
 const sum2 = summarizePicked([
   { id: 'move_speed' },
@@ -504,8 +542,12 @@ const hudWar = createSession().snapshot({ hp: 4, hpMax: 4 })
 assert('HUD 跟 hpMax 战士', hudWar.hpMax === 4 && hudWar.hp === 4)
 const hudRanger = createSession().snapshot({ hp: 3, hpMax: 3 })
 assert('HUD 跟 hpMax 游侠', hudRanger.hpMax === 3)
+const armorPl = createPlayer()
+armorPl.addArmor(3)
+assert('HUD armor 层数', createSession().snapshot(armorPl).armor === 3)
 const mems = loadMemories()
 assert('memory saved', mems.length >= 1 && mems[0].upgrades[0]?.title === '敏捷')
+assert('memory 存 charId', typeof mems[0]?.charId === 'string')
 assert('memory cap', MEMORY_CAP === 10)
 
 const zeroBow = createPistol()
@@ -715,6 +757,7 @@ const unityComps = {
   addBat() {},
   addEgg() {},
 }
+assert('跟班新升级入万物一心', ['tamer', 'demon', 'slime_gg', 'companionship'].every((id) => UPGRADES.find((u) => u.id === id)?.bond === BOND_UNITY))
 sUnity.grantUpgrade('goblin', { companions: unityComps })
 assert('unity 1 种无档', unityTier === 0 && sUnity.bonds.length === 0)
 sUnity.grantUpgrade('rabbit', { companions: unityComps })
@@ -743,15 +786,44 @@ assert('unity pending 4 种档 4', unityHost.pendingUnityTier === 4)
 
 const sVajra = createSession()
 sVajra.start('1')
+const vajraPl = createPlayer()
 const vajraBow = createPistol()
-sVajra.grantUpgrade('giant', { pistol: vajraBow })
-assert('vajra 1 种无档', sVajra.bonds.every((b) => b.id !== BOND_VAJRA))
-sVajra.grantUpgrade('blackhole', {})
+const vajraEnv = createEnvironment({ random: () => 0.5 })
+const vajraCtx = { player: vajraPl, pistol: vajraBow, env: vajraEnv }
+const vajraChip = () => sVajra.bonds.find((b) => b.id === BOND_VAJRA)
+sVajra.grantUpgrade('giant', vajraCtx)
+assert('vajra 1 种无档', vajraChip() === undefined)
+sVajra.grantUpgrade('blackhole', vajraCtx)
+assert('vajra 2 种仍无档', vajraChip() === undefined)
+sVajra.grantUpgrade('erse', vajraCtx)
+sVajra.grantUpgrade('sanwa', vajraCtx)
+sVajra.grantUpgrade('siwa', vajraCtx)
+sVajra.grantUpgrade('wuwa', vajraCtx)
+sVajra.grantUpgrade('liuwa', vajraCtx)
 assert(
-  'vajra 2 种档 2',
-  sVajra.bonds.some((b) => b.id === BOND_VAJRA && b.title === BOND_VAJRA_TITLE && b.rank === 2),
+  'vajra 集齐 7 才显示 档 7',
+  vajraChip()?.rank === 7 && vajraChip()?.title === BOND_VAJRA_TITLE,
 )
-assert('vajra 档位文案', bondTiers(BOND_VAJRA).length === 1 && bondTiers(BOND_VAJRA)[0].text === '敬请期待')
+assert(
+  'vajra 档位文案',
+  bondTiers(BOND_VAJRA).length === 2 &&
+    bondTiers(BOND_VAJRA).every((t) => t.rank === 7) &&
+    bondTiers(BOND_VAJRA)[0].text.includes('七色脉冲') &&
+    bondTiers(BOND_VAJRA)[1].text.includes('+10%'),
+)
+
+const sSanwa = createSession()
+sSanwa.start('1')
+const sanwaPl = createPlayer()
+const sanwaBow = createPistol()
+const sanwaEnv = createEnvironment({ random: () => 0.5 })
+const sanwaCtx = { player: sanwaPl, pistol: sanwaBow, env: sanwaEnv }
+assert('三娃立即 +1 甲', sSanwa.grantUpgrade('sanwa', sanwaCtx) === true && sanwaPl.armor === 1)
+sSanwa.grantUpgrade('sanwa', sanwaCtx)
+assert('三娃可叠两次 +2 甲', sanwaPl.armor === 2)
+// 第 2 次已选 → N = max(1, 11-2) = 9；升 9 级再给 1 甲。
+sSanwa.addExp(expSum(1, 10), sanwaCtx)
+assert('三娃每9级再1甲', sanwaPl.armor === 3)
 
 const uiBoss = createMatchUi()
 uiBoss.start('2')
@@ -930,7 +1002,7 @@ assert('sfx 未知不播', sfxA.play('nope') === false)
 assert('SFX_GAIN 表', SFX_GAIN.pickup > 1 && SFX_GAIN.levelup > 1 && (SFX_GAIN.slash ?? 1) === 1)
 const sfxGain = createSfx({ audioCtor: FakeAudio, volume: 0.1 })
 sfxGain.play('pickup')
-assert('sfx pickup 增益×5', Math.abs(FakeAudio.last.volume - 0.5) < 1e-9)
+assert('sfx pickup 增益×2.5', Math.abs(FakeAudio.last.volume - 0.25) < 1e-9)
 sfxGain.play('levelup')
 assert('sfx levelup 增益×2.8', Math.abs(FakeAudio.last.volume - 0.28) < 1e-9)
 sfxGain.play('slash')
@@ -980,6 +1052,7 @@ assert('shell 写入 charId', shellSrc.includes('session.charId') && shellSrc.in
 assert('shell setElapsedSec', shellSrc.includes('setElapsedSec'))
 assert('shell picker ESC', shellSrc.includes('isUpgradePickerOpen') && shellSrc.includes('grant-upgrade'))
 assert('shell bonds', shellSrc.includes('rl-bonds') && shellSrc.includes('hud.bonds') && shellSrc.includes('grantUpgrade'))
+assert('shell 小金刚通用chip', shellSrc.includes('{{ b.title }} {{ b.rank }}') && !shellSrc.includes('b.count') && !shellSrc.includes('变身'))
 assert(
   'shell sfx 4 相位',
   shellSrc.includes('getSharedSfx') &&
@@ -1006,11 +1079,14 @@ assert(
   'HUD 双通栏',
   hudSrc.includes('rl-topbar') && hudSrc.includes('rl-botbar') && hudSrc.includes('rl-frame--dark'),
 )
+assert('HUD 护甲显示', hudSrc.includes('armor') && hudSrc.includes('rl-armor'))
 
 const startSrc = readFileSync(join(here, '../views/StartView.vue'), 'utf8')
 assert('char RangerPortrait', startSrc.includes('RangerPortrait') && startSrc.includes('CHARACTERS'))
 assert('char 解锁三角色', startSrc.includes('ch.id') && startSrc.includes('pick-char') && !startSrc.includes('敬请期待'))
 assert('char hover stats', startSrc.includes('formatCharStats') && startSrc.includes('rl-char-tip'))
+assert('选角 hover 待机动画', startSrc.includes('animate') && startSrc.includes('hoverId'))
+assert('选角脚下阴影', startSrc.includes('Shadow.png') && startSrc.includes('rl-avatar-shadow'))
 assert('难度悬停目标', startSrc.includes('OBJECTIVE_TEXT') && startSrc.includes('OBJECTIVE_TEXT_TWO') && startSrc.includes('DIFFICULTY_TWO') && startSrc.includes('rl-diff-pick'))
 assert('char 不用人', !startSrc.includes('人'))
 
@@ -1040,6 +1116,16 @@ assert('matchUi beginUpgradeOffer', typeof createMatchUi().beginUpgradeOffer ===
 
 const moreSrc = readFileSync(join(here, '../views/MoreView.vue'), 'utf8')
 assert('回忆用 PixelIcon', moreSrc.includes('PixelIcon') && moreSrc.includes('summarizePicked'))
+assert('回忆角色立绘', moreSrc.includes('RangerPortrait') && moreSrc.includes('memCharId') && moreSrc.includes('memIdleSrc'))
+assert(
+  '回忆羁绊模块',
+  moreSrc.includes('rl-mem-bond-rail') && moreSrc.includes('listActiveBonds') && moreSrc.includes('BOND_DESC') && moreSrc.includes('bondTiers'),
+)
+assert(
+  '回忆羁绊裸 chip',
+  moreSrc.includes('rl-bond-tip') && moreSrc.includes('reached') && !moreSrc.includes('rl-mem-bonds'),
+)
+assert('回忆立绘悬停/阴影', moreSrc.includes('rl-mem-char-tip') && moreSrc.includes('rl-mem-shadow') && moreSrc.includes('Shadow.png') && moreSrc.includes(':animate'))
 assert('回忆 ×n 无序号文案', moreSrc.includes('×{{ u.count }}') && !moreSrc.includes('i + 1') && !moreSrc.includes('u.title'))
 assert('回忆悬停效果', moreSrc.includes('descFor') && moreSrc.includes('rl-mem-tip') && moreSrc.includes(':title'))
 assert('回忆也显示 ×1', moreSrc.includes('×{{ u.count }}') && !moreSrc.includes('u.count > 1'))
@@ -1074,7 +1160,12 @@ assert('齿轮回窗口角', /\.rl-gear\s*\{[^}]*top:\s*10px[^}]*right:\s*10px/.
 assert('省略号回窗口角', /\.rl-ellipsis\s*\{[^}]*left:\s*10px[^}]*bottom:\s*10px/.test(pixelCss))
 assert('羁绊可悬停', /\.rl-bond\s*\{[^}]*pointer-events:\s*auto/.test(pixelCss))
 assert('羁绊单列', /\.rl-bonds\s*\{[^}]*flex-direction:\s*column/.test(pixelCss))
+assert('小金刚用默认配色', !pixelCss.includes('.rl-bond--vajra'))
 assert('死样式 rl-divider 已删', !pixelCss.includes('.rl-divider'))
+assert('选角阴影贴脚', /\.rl-avatar-shadow\s*\{[^}]*width:\s*26px[^}]*height:\s*12px/.test(pixelCss))
+assert('回忆阴影贴身', /\.rl-mem-shadow\s*\{[^}]*margin-top:\s*-26px/.test(pixelCss))
+assert('升级选项占 62%', /\.rl-mem-cols\s*>\s*\.rl-panel\s*\{[^}]*62%/.test(pixelCss))
+assert('羁绊独立大框已删', !pixelCss.includes('.rl-mem-bonds') && !pixelCss.includes('.rl-mem-bond-tip'))
 assert('token 层 :root', pixelCss.includes(':root') && pixelCss.includes('--rl-ink') && pixelCss.includes('--rl-paper'))
 assert('rl-frame 通用类', pixelCss.includes('.rl-frame') && pixelCss.includes('.rl-frame--pop'))
 assert('死样式已删', !pixelCss.includes('.rl-pick.locked') && !pixelCss.includes('.rl-avatar.q'))

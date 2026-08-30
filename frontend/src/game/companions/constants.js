@@ -1,5 +1,5 @@
 import { assetUrl } from '../../assetUrl.js'
-import { BODY } from '../constants.js'
+import { BODY, SPEED_PX_PER_UNIT } from '../constants.js'
 
 /** 地精贴图：32×32 单帧，绘制约同小怪。 */
 export const GOBLIN_SRC = assetUrl('assets/跟班/地精.png')
@@ -41,6 +41,31 @@ export const UNITY_SPEED_ADD = 16
 /** 无敌人时绕角色停驻的半径。 */
 export const GOBLIN_FOLLOW_DIST = BODY
 export const BLACK_KEY = 12
+
+/** P28 B1 驯兽师：所有跟班伤害 +5、移速 +0.05（设计单位），可叠。 */
+export const TAMER_DMG = 5
+/** 0.05 设计单位 × SPEED_PX_PER_UNIT(80)。 */
+export const TAMER_SPEED_ADD = 0.05 * SPEED_PX_PER_UNIT
+export const DEMON_SRC = assetUrl('assets/跟班/恶魔.png')
+/** P28 B4 恶魔：基础伤 10 + 角色伤害×20%；常驻角色 3 身位内、打 1 单位。 */
+export const DEMON_DMG_BASE = 10
+export const DEMON_ATK_RATIO = 0.2
+/** 3 身位（BODY=22）＝ 66 px。 */
+export const DEMON_KEEP_RADIUS = 3 * BODY
+/** P30 恶魔软跟随：舒适环绕距离（2 身位）。 */
+export const DEMON_COMFORT_RADIUS = 2 * BODY
+export const DEMON_MAX_TARGETS = 1
+export const SLIME_GG_SRC = {
+  1: assetUrl('assets/跟班/史莱姆g-1.png'),
+  2: assetUrl('assets/跟班/史莱姆g-2.png'),
+}
+/** P28 B5 史莱姆gg：生成 g-1/g-2 两跟班，基础伤 5。 */
+export const SLIME_GG_DMG = 5
+export const SLIME_GG_MAX_TARGETS = 1
+/** P28 B6 伴我同行：角色每跨 100 杀，按当时 rate 加跟班伤害。 */
+export const COMPANIONSHIP_KILL_STEP = 100
+export const COMPANIONSHIP_RATE_BASE = 1
+export const COMPANIONSHIP_RATE_STEP = 0.5
 
 /** ceil(15 + 攻击×0.6) + companionBonus。攻击 20、加成 10 → 37。 */
 export function goblinDamage(attack, bonus = 0) {
@@ -101,6 +126,18 @@ export function eggDamage(attack, stage = 1, eggKills = 0, bonus = 0) {
     Math.floor((Number(eggKills) || 0) / EGG_KILL_BONUS_EVERY) +
     (Number(bonus) || 0)
   )
+}
+
+/** P28 B4 恶魔：floor(10 + 角色伤害×0.2) + bonus。attack 用含恶魔联动的有效角色伤害。 */
+export function demonDamage(attack, bonus = 0) {
+  const base = DEMON_DMG_BASE + Math.floor((Number(attack) || 0) * DEMON_ATK_RATIO)
+  return base + (Number(bonus) || 0)
+}
+
+/** 恶魔联动：每档 5 点额外跟班伤害 → 角色伤害 +（3 + 恶魔次数−1）。 */
+export function demonAttackPerBonus(demonCount) {
+  const n = Math.max(1, Number(demonCount) || 1)
+  return 3 + (n - 1)
 }
 
 /** 绕圆心均匀槽位；n≥2 时相邻中心距 = chord。 */

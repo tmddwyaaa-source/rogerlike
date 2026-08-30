@@ -18,26 +18,32 @@ import {
 
 export const DIFFICULTY_STEP_SEC = 45
 
+/** P25 生成预警：出生前落点先显示红圈此时长再出现。 */
+export const SPAWN_WARN_SEC = 0.8
+/** P25 环绕生成：落在视野边缘外 1～3 身位环带。 */
+export const SPAWN_PAD_MIN = BODY
+export const SPAWN_PAD_MAX = BODY * 3
+
 export const CREEP_HP = 32
 export const CREEP_SPAWN_COUNT0 = 5
 export const CREEP_INTERVAL0 = 5
 export const CREEP_SPEED_MUL0 = 0.62
 export const SPLIT_SPEED_MUL0 = 0.77
-export const SPEED_MUL_PER_TIER = 0.04
+export const SPEED_MUL_PER_TIER = 0.03
 export const SPEED_MUL_CAP = 1.4
 export const ARMOR_DMG_MUL = 0.7
-export const MUSHROOM_HP_PER_TIER = 10
+export const MUSHROOM_HP_PER_TIER = 15
 export const MUSHROOM_COUNT_STEP_SEC = 120
 
 export const SNAIL_UNLOCK_SEC = 120
 export const SNAIL_HP0 = 50
-export const SNAIL_HP_PER = 20
+export const SNAIL_HP_PER = 25
 export const SNAIL_HP_STEP_SEC = 40
 export const SNAIL_COUNT0 = 4
 export const SNAIL_COUNT_STEP_SEC = 45
 export const SNAIL_INTERVAL = 5
 export const SNAIL_SPEED0 = 0.62
-export const SNAIL_SPEED_PER = 0.03
+export const SNAIL_SPEED_PER = 0.02
 export const SNAIL_SPEED_STEP_SEC = 45
 
 export const GRAY_HP0 = 80
@@ -134,12 +140,12 @@ export function snailSpeedPx(elapsedSec) {
 
 export const SLIME_X1_UNLOCK_SEC = 180
 export const SLIME_X1_HP0 = 120
-export const SLIME_X1_HP_PER = 22
+export const SLIME_X1_HP_PER = 27
 export const SLIME_X1_STEP_SEC = 45
 export const SLIME_X1_INTERVAL = 15
 export const SLIME_X1_COUNT0 = 6
 export const SLIME_X1_SPEED0 = 0.87
-export const SLIME_X1_SPEED_PER = 0.03
+export const SLIME_X1_SPEED_PER = 0.02
 export const SLIME_X3_HP_FACTOR = 0.25
 export const SLIME_X3_SPEED_BONUS = 0.1
 export const SLIME_X1_CRYSTALS = 2
@@ -218,10 +224,40 @@ export function grayTreeHp(t) {
 }
 
 /**
- * 环形带选点：视野矩形外、距焦点 ≤ SPAWN_R_NEAR。
+ * P25 环绕生成：优先落在「视野边缘外 1～3 身位」的矩形环带（从近到远包围角色），
+ * 再兜底原环形带。均保证视野外且距焦点 ≤ SPAWN_R_NEAR。
  * @returns {{ x: number, y: number }}
  */
 export function pickNearOutOfView(focus, camera, random, margin = 14) {
+  for (let i = 0; i < 40; i++) {
+    const pad = SPAWN_PAD_MIN + random() * (SPAWN_PAD_MAX - SPAWN_PAD_MIN)
+    const x0 = camera.x - pad
+    const y0 = camera.y - pad
+    const x1 = camera.x + VIEW_WIDTH + pad
+    const y1 = camera.y + VIEW_HEIGHT + pad
+    const w = x1 - x0
+    const h = y1 - y0
+    const per = 2 * (w + h)
+    const t = random() * per
+    let x
+    let y
+    if (t < w) {
+      x = x0 + t
+      y = y0
+    } else if (t < w + h) {
+      x = x1
+      y = y0 + (t - w)
+    } else if (t < w + h + w) {
+      x = x1 - (t - w - h)
+      y = y1
+    } else {
+      x = x0
+      y = y1 - (t - w - h - w)
+    }
+    x = clamp(x, margin, WORLD_WIDTH - margin)
+    y = clamp(y, margin, WORLD_HEIGHT - margin)
+    if (isNearAndOutOfView(x, y, focus.x, focus.y, camera, SPAWN_R_NEAR)) return { x, y }
+  }
   const rMin = VIEW_HALF_DIAG + 24
   const rMax = SPAWN_R_NEAR
   const span = Math.max(8, rMax - rMin)
@@ -230,9 +266,7 @@ export function pickNearOutOfView(focus, camera, random, margin = 14) {
     const r = rMin + random() * span
     const x = clamp(focus.x + Math.cos(ang) * r, margin, WORLD_WIDTH - margin)
     const y = clamp(focus.y + Math.sin(ang) * r, margin, WORLD_HEIGHT - margin)
-    if (isNearAndOutOfView(x, y, focus.x, focus.y, camera, SPAWN_R_NEAR)) {
-      return { x, y }
-    }
+    if (isNearAndOutOfView(x, y, focus.x, focus.y, camera, SPAWN_R_NEAR)) return { x, y }
   }
   const candidates = [
     { x: camera.x + VIEW_WIDTH + 32, y: focus.y },
@@ -253,19 +287,20 @@ export function pickNearOutOfView(focus, camera, random, margin = 14) {
 
 export const SCORPION_UNLOCK_SEC = 300
 export const SCORPION_HP0 = 105
-export const SCORPION_HP_PER = 15
+export const SCORPION_HP_PER = 20
 export const SCORPION_HP_STEP_SEC = 45
 export const SCORPION_COUNT0 = 2
 export const SCORPION_COUNT_STEP_SEC = 30
 export const SCORPION_INTERVAL = 20
 export const SCORPION_SPEED0 = 0.8
-export const SCORPION_SPEED_PER = 0.05
+export const SCORPION_SPEED_PER = 0.04
 export const SCORPION_SPEED_STEP_SEC = 45
 export const SCORPION_CRYSTALS = 2
 export const SCORPION_CHASE_RANGE = BODY * 8
 export const SCORPION_HOLD_RANGE = BODY * 3
 export const SCORPION_FLEE_STOP = BODY * 7
-export const SCORPION_SHOT_PERIOD = 10
+export const SCORPION_SHOT_PERIOD = 5
+export const SCORPION_FIRST_SHOT_RAND_MAX_SEC = 5
 export const SCORPION_BULLET_SPEED = 180
 
 export function scorpionAge(elapsedSec) {
@@ -289,20 +324,65 @@ export function scorpionSpeedPx(elapsedSec) {
   return SPEED_PX_PER_UNIT * scorpionSpeedMul(elapsedSec)
 }
 
+/** P25 毒刺怪：300s 起接管蘑菇怪刷怪位；肉盾、击退抗性 1 身位、掉 4 结晶每个 20% 高级。 */
+export const STINGER_UNLOCK_SEC = 300
+export const STINGER_HP0 = 260
+export const STINGER_HP_PER = 25
+export const STINGER_HP_STEP_SEC = 45
+export const STINGER_COUNT0 = 6
+export const STINGER_COUNT_DIV = 180
+export const STINGER_INTERVAL = 5
+export const STINGER_SPEED0 = 0.7
+export const STINGER_SPEED_PER = 0.04
+export const STINGER_SPEED_STEP_SEC = 45
+export const STINGER_CRYSTALS = 4
+export const STINGER_ADVANCED_CHANCE = 0.2
+
+/** P27 强化怪（难度二）：概率 min(1, 0.02 + 0.02×floor(分钟))；每颗结晶 50% 高级。 */
+export const ELITE_CHANCE_BASE = 0.02
+export const ELITE_CHANCE_PER_MIN = 0.02
+export const ELITE_ADVANCED_CHANCE = 0.5
+
+export function stingerAge(elapsedSec) {
+  return Math.max(0, elapsedSec - STINGER_UNLOCK_SEC)
+}
+
+/** 毒刺怪血：260 + (25+extra)×floor((秒−300)/45)。 */
+export function stingerHp(elapsedSec, extra = 0) {
+  return STINGER_HP0 + (STINGER_HP_PER + extra) * Math.floor(stingerAge(elapsedSec) / STINGER_HP_STEP_SEC)
+}
+
+/** 每波 6 + floor(秒/180) 只；未到 300s 为 0。 */
+export function stingerSpawnCount(elapsedSec) {
+  if (elapsedSec < STINGER_UNLOCK_SEC) return 0
+  return STINGER_COUNT0 + Math.floor(Math.max(0, elapsedSec) / STINGER_COUNT_DIV)
+}
+
+/** 0.70 + 0.04×floor((秒−300)/45)，无帽。 */
+export function stingerSpeedMul(elapsedSec) {
+  return STINGER_SPEED0 + STINGER_SPEED_PER * Math.floor(stingerAge(elapsedSec) / STINGER_SPEED_STEP_SEC)
+}
+
+export function stingerSpeedPx(elapsedSec) {
+  return SPEED_PX_PER_UNIT * stingerSpeedMul(elapsedSec)
+}
+
 export const ICE_MAN_UNLOCK_SEC = 420
-export const ICE_MAN_HP = 3300
+export const ICE_MAN_HP = 4000
+/** P25：每个结晶独立 10% 概率为高级结晶。 */
+export const ICE_MAN_ADVANCED_CHANCE = 0.1
 /** P21 脱战回血：2 身位内无角色持续此时长后，每 1 秒回 ICE_REGEN_PER_SEC。 */
 export const ICE_REGEN_DELAY_SEC = 3
 export const ICE_REGEN_RANGE = BODY * 2
 export const ICE_REGEN_PER_SEC = 20
 export const ICE_MAN_HP_GROWTH = 1.4
 export const ICE_MAN_RESPAWN_SEC = 180
-export const ICE_MAN_CRYSTALS = 300
+export const ICE_MAN_CRYSTALS = 150
 
 export function iceManRespawnHp(deaths) {
   return Math.round(ICE_MAN_HP * ICE_MAN_HP_GROWTH ** Math.max(0, deaths))
 }
-export const ICE_MAN_KNOCKBACK_SCALE = 0.5
+export const ICE_MAN_KNOCKBACK_SCALE = 0.3
 export const ICE_MAN_SPEED_MUL = 0.7
 export const ICE_FLEE_HURT = 400
 export const ICE_FLEE_SEC = 10
@@ -313,11 +393,12 @@ export const ICE_DASH_DIST = BODY * 8
 export const ICE_DASH_SPEED_MUL = 3.2
 export const ICE_DASH_MIN = 1
 export const ICE_DASH_MAX = 6
-export const ICE_BARRAGE_PERIOD = 22
+export const ICE_BARRAGE_PERIOD = 17
 export const ICE_BARRAGE_PATTERN_GAP = 0.65
 export const ICE_BARRAGE_SEQ_GAP = 0.15
 export const ICE_BARRAGE_PATTERNS = ['corners_sim', 'cross_sim', 'corners_seq', 'cross_seq']
 export const ICE_BULLET_SPEED = 200
+export const ICE_BULLET_DMG = 2
 export const ICE_ORCHID_PERIOD = 32
 export const ICE_ORCHID_COUNT = 3
 export const ORCHID_HP = 1
@@ -327,6 +408,8 @@ export const ORCHID_HEAL_AMOUNT = 10
 export const ORCHID_ARMOR_EVERY = 2
 export const ORCHID_HEAL_RANGE = BODY * 3
 export const ICE_VIEW_PAD = 18
+/** P27：冰人完全离开视野（超出 1 身位）且未逃跑时才回视野。 */
+export const ICE_LEAVE_MARGIN = BODY
 export const DUMMY_HP = 999
 export const DUMMY_REGEN_PER_SEC = 500
 export const DUMMY_OFFSET = BODY * 3

@@ -83,6 +83,29 @@ export const FIRE_COOLDOWN = FIRE_INTERVAL
 export const BULLET_SPEED = ARROW_SPEED
 export const BULLET_SRC = ARROW_SRC
 
+/** M5/P27 四娃·喷火：命中点燃 3 秒；每层每秒 30% 攻击（集齐后 40%）。 */
+export const FIRE_DURATION_SEC = 3
+export const FIRE_DMG_PER_PICK = 0.3
+export const FIRE_DMG_PER_PICK_BOOST = 0.4
+/** M5 五娃·吐水：命中减速 20%（集齐后 30%）；基础 0.3s，每层 +0.2s。 */
+export const WATER_SLOW_BASE = 0.2
+export const WATER_SLOW_BOOST = 0.3
+export const WATER_SLOW_SEC = 0.3
+export const WATER_SLOW_ADD_SEC = 0.2
+/** P32 所有角色基础击退：初始 0.5 身位。 */
+export const BASE_KNOCKBACK_BODIES = 0.5
+/** P32 高级「击退」：每层 +1 身位。 */
+export const KNOCKBACK_BONUS_BODIES = 1
+/** M5 二娃·千里眼：三选一 20%/层 概率变四选一（集齐后 30%/层）。 */
+export const ERSE_CHANCE_PER_PICK = 20
+export const ERSE_CHANCE_PER_PICK_BOOST = 30
+/** M5 小金刚七色脉冲。 */
+export const PULSE_INTERVAL_SEC = 3.0
+export const PULSE_RADIUS_MUL = 1.5
+export const PULSE_DMG_MUL = 1.3
+export const PULSE_SLOW = 0.3
+export const PULSE_SLOW_SEC = 0.4
+
 export function chargeRatio(charge, chargeMax) {
   if (!(chargeMax > 0)) return 1
   return Math.max(0, Math.min(1, charge / chargeMax))
@@ -225,9 +248,41 @@ export function fireAngles(base, extraFront = 0, backCount = 0, stepDeg = SPREAD
   return angs
 }
 
-export function giantSizeMul(picks) {
+export function giantSizeMul(picks, vajraComplete = false) {
   const n = Math.max(0, picks | 0)
-  return 1 + 0.4 * n
+  const per = vajraComplete ? 0.5 : 0.4
+  return 1 + per * n
+}
+
+/** 四娃点燃 DPS（每层每秒占攻击的比例）。集齐后每层 40%，否则 30%。 */
+export function fireDpsPerPick(vajraComplete = false) {
+  return vajraComplete ? FIRE_DMG_PER_PICK_BOOST : FIRE_DMG_PER_PICK
+}
+
+/** 五娃减速幅度。集齐后 30%，否则 20%。 */
+export function waterSlowPct(vajraComplete = false) {
+  return vajraComplete ? WATER_SLOW_BOOST : WATER_SLOW_BASE
+}
+
+/** 五娃减速时长：基础 0.3s，每层 +0.2s。 */
+export function waterSlowSec(picks = 1) {
+  const n = Math.max(1, picks | 0)
+  return WATER_SLOW_SEC + WATER_SLOW_ADD_SEC * (n - 1)
+}
+
+/** 高级「击退」：每层 +1 身位。 */
+export function knockbackBonusForPicks(picks = 0) {
+  return Math.max(0, picks | 0) * KNOCKBACK_BONUS_BODIES * BODY
+}
+
+/** 二娃四选一概率 %/层。集齐后 30%，否则 20%。 */
+export function erseChancePerPick(vajraComplete = false) {
+  return vajraComplete ? ERSE_CHANCE_PER_PICK_BOOST : ERSE_CHANCE_PER_PICK
+}
+
+/** 二娃四选一总概率（%）。层数越多越高，封顶 100。 */
+export function erseChance(picks = 0, vajraComplete = false) {
+  return Math.min(100, Math.max(0, picks | 0) * erseChancePerPick(vajraComplete))
 }
 
 /**
@@ -254,6 +309,11 @@ export function createBow(opts = {}) {
     critRate: 0,
     refinePicks: 0,
     onlyFastPicks: 0,
+    ersePicks: 0,
+    siwaPicks: 0,
+    wuwaPicks: 0,
+    knockbackPicks: 0,
+    vajraComplete: false,
     dualShot: false,
     infiniteAmmo: Boolean(opts.infiniteAmmo),
     mag: 0,
@@ -265,6 +325,10 @@ export function createBow(opts = {}) {
     applyUpgrade,
     setInfiniteAmmo(v) {
       weapon.infiniteAmmo = Boolean(v)
+    },
+    setVajraComplete(on) {
+      weapon.vajraComplete = Boolean(on)
+      weapon.sizeMul = giantSizeMul(weapon.giantPicks, weapon.vajraComplete)
     },
     effectiveChargeMax,
   }
@@ -301,7 +365,23 @@ export function createBow(opts = {}) {
     }
     if (id === 'giant') {
       weapon.giantPicks += 1
-      weapon.sizeMul = giantSizeMul(weapon.giantPicks)
+      weapon.sizeMul = giantSizeMul(weapon.giantPicks, weapon.vajraComplete)
+      return true
+    }
+    if (id === 'erse') {
+      weapon.ersePicks = (weapon.ersePicks || 0) + 1
+      return true
+    }
+    if (id === 'siwa') {
+      weapon.siwaPicks = (weapon.siwaPicks || 0) + 1
+      return true
+    }
+    if (id === 'wuwa') {
+      weapon.wuwaPicks = (weapon.wuwaPicks || 0) + 1
+      return true
+    }
+    if (id === 'knockback') {
+      weapon.knockbackPicks = (weapon.knockbackPicks || 0) + 1
       return true
     }
     if (id === 'empower_shot') {

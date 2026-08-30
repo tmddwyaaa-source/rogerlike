@@ -49,6 +49,7 @@ export function saveMemory(entry) {
     chargeMax: entry.chargeMax ?? 0.75,
     charging: Boolean(entry.charging),
     charName: entry.charName || '游侠',
+    charId: entry.charId || 'ranger',
     kills: entry.kills ?? 0,
     upgrades: Array.isArray(entry.upgrades) ? entry.upgrades.slice() : [],
     difficulty: entry.difficulty ?? '1',

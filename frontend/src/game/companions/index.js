@@ -10,7 +10,16 @@ import {
   BAT_MAX_TARGETS,
   BAT_SRC,
   BLACK_KEY,
+  COMPANIONSHIP_KILL_STEP,
+  COMPANIONSHIP_RATE_BASE,
+  COMPANIONSHIP_RATE_STEP,
   CONTACT_INSET_RATIO,
+  DEMON_ATK_RATIO,
+  DEMON_COMFORT_RADIUS,
+  DEMON_DMG_BASE,
+  DEMON_KEEP_RADIUS,
+  DEMON_MAX_TARGETS,
+  DEMON_SRC,
   EGG_MAX_TARGETS,
   EGG_SRC,
   GOBLIN_DRAW,
@@ -20,8 +29,15 @@ import {
   GOBLIN_SRC,
   RABBIT_MAX_TARGETS,
   RABBIT_SRC,
+  SLIME_GG_DMG,
+  SLIME_GG_MAX_TARGETS,
+  SLIME_GG_SRC,
+  TAMER_DMG,
+  TAMER_SPEED_ADD,
   UNITY_TIER_ELITE,
   batDamage,
+  demonAttackPerBonus,
+  demonDamage,
   eggDamage,
   eggStage,
   goblinDamage,
@@ -38,7 +54,16 @@ export {
   BAT_MAX_TARGETS,
   BAT_SRC,
   BLACK_KEY,
+  COMPANIONSHIP_KILL_STEP,
+  COMPANIONSHIP_RATE_BASE,
+  COMPANIONSHIP_RATE_STEP,
   CONTACT_INSET_RATIO,
+  DEMON_ATK_RATIO,
+  DEMON_COMFORT_RADIUS,
+  DEMON_DMG_BASE,
+  DEMON_KEEP_RADIUS,
+  DEMON_MAX_TARGETS,
+  DEMON_SRC,
   EGG_KILL_BONUS_EVERY,
   EGG_MAX_TARGETS,
   EGG_MUL,
@@ -55,6 +80,11 @@ export {
   RABBIT_DMG,
   RABBIT_MAX_TARGETS,
   RABBIT_SRC,
+  SLIME_GG_DMG,
+  SLIME_GG_MAX_TARGETS,
+  SLIME_GG_SRC,
+  TAMER_DMG,
+  TAMER_SPEED_ADD,
   UNITY_ATK_SHARE,
   UNITY_ELITE_FLAT,
   UNITY_FLAT,
@@ -64,6 +94,8 @@ export {
   UNITY_TIER_FLAT,
   UNITY_TIER_TARGETS,
   batDamage,
+  demonAttackPerBonus,
+  demonDamage,
   eggDamage,
   eggStage,
   goblinDamage,
@@ -277,8 +309,19 @@ export function createCompanions(opts = {}) {
   let rabbitSheet = null
   let batSheet = null
   const eggSheets = { 1: null, 2: null, 3: null }
+  let demonSheet = null
+  const slimeGGSheets = { 1: null, 2: null }
   let companionBonus = 0
   let unityTier = 0
+  let tamerCount = 0
+  let tamerDamageBonus = 0
+  let tamerSpeedAdd = 0
+  let demonCount = 0
+  let demonAttackBonus = 0
+  let slimeCount = 0
+  let companionshipCount = 0
+  let companionshipProgress = 0
+  let companionshipDamageBonus = 0
 
   function unityAdd() {
     return unityDamageAdd(unityTier, getAttack())
@@ -292,8 +335,57 @@ export function createCompanions(opts = {}) {
     return unitySpeedBonus(unityTier)
   }
 
+  function companionExtras() {
+    return companionBonus + tamerDamageBonus + companionshipDamageBonus
+  }
+
+  /** 恶魔联动口径：仅升级/羁绊额外加的跟班伤害（含万物一心档位加成）。 */
+  function extraCompanionBonus() {
+    return companionExtras() + unityAdd()
+  }
+
+  /** 恶魔对角色伤害的联动加值；未选恶魔为 0。 */
+  function computeDemonAttackBonus() {
+    if (demonCount <= 0) return 0
+    const per = Math.floor(extraCompanionBonus() / 5)
+    return per * demonAttackPerBonus(demonCount)
+  }
+
+  function recomputeDemonLink() {
+    demonAttackBonus = computeDemonAttackBonus()
+    if (typeof hooks.onDemonLink === 'function') hooks.onDemonLink(demonAttackBonus)
+    return demonAttackBonus
+  }
+
+  function effectiveAttack() {
+    return (Number(getAttack()) || 0) + demonAttackBonus
+  }
+
+  function tamerSpeedTotal() {
+    return tamerSpeedAdd
+  }
+
+  function companionshipRate() {
+    return COMPANIONSHIP_RATE_BASE + COMPANIONSHIP_RATE_STEP * Math.max(0, companionshipCount - 1)
+  }
+
+  function processCompanionship() {
+    if (companionshipCount <= 0) return 0
+    const marks = Math.floor((Number(getKills()) || 0) / COMPANIONSHIP_KILL_STEP)
+    let gained = 0
+    while (companionshipProgress < marks) {
+      companionshipProgress += 1
+      companionshipDamageBonus += companionshipRate()
+      gained += companionshipRate()
+    }
+    if (gained > 0) recomputeDemonLink()
+    return gained
+  }
+
   function setUnityTier(tier) {
+    const prev = unityTier
     unityTier = Math.max(0, Number(tier) || 0)
+    if (unityTier !== prev) recomputeDemonLink()
     return unityTier
   }
 
@@ -337,32 +429,44 @@ export function createCompanions(opts = {}) {
   function strike(g, targets) {
     const extra = extraTargets()
     const add = unityAdd()
+    const bc = companionExtras()
     if (g.kind === 'egg') {
       const stage = eggStage(getKills())
       const maxN = (EGG_MAX_TARGETS[stage] ?? 1) + extra
       applyHits(
         g,
         pickChainVictims(g, targets, maxN),
-        eggDamage(getAttack(), stage, g.eggKills, companionBonus) + add,
+        eggDamage(getAttack(), stage, g.eggKills, bc) + add,
       )
       return
     }
     if (g.kind === 'rabbit' || g.kind === 'bat') {
       const baseMax = g.kind === 'bat' ? BAT_MAX_TARGETS : RABBIT_MAX_TARGETS
       const dmg =
-        (g.kind === 'bat' ? batDamage(companionBonus) : rabbitDamage(companionBonus)) + add
+        (g.kind === 'bat' ? batDamage(bc) : rabbitDamage(bc)) + add
       applyHits(g, pickRabbitVictims(g, targets, baseMax + extra), dmg)
+      return
+    }
+    if (g.kind === 'demon') {
+      const dmg = demonDamage(effectiveAttack(), bc) + add
+      applyHits(g, pickRabbitVictims(g, targets, DEMON_MAX_TARGETS + extra), dmg)
+      return
+    }
+    if (g.kind === 'slime') {
+      const dmg = SLIME_GG_DMG + bc + add
+      applyHits(g, pickRabbitVictims(g, targets, SLIME_GG_MAX_TARGETS + extra), dmg)
       return
     }
     applyHits(
       g,
       pickGoblinVictims(g, targets, extra),
-      goblinDamage(getAttack(), companionBonus) + add,
+      goblinDamage(getAttack(), bc) + add,
     )
   }
 
   function addDamageBonus(n = 0) {
     companionBonus += Number(n) || 0
+    recomputeDemonLink()
     return companionBonus
   }
 
@@ -385,7 +489,7 @@ export function createCompanions(opts = {}) {
       y: player?.y ?? 0,
       w: GOBLIN_DRAW,
       h: GOBLIN_DRAW,
-      speed: player?.speed ?? 0,
+      speed: (player?.speed ?? 0) + tamerSpeedTotal(),
       atkAcc: 0,
       knockbackable: false,
       chase: null,
@@ -422,6 +526,55 @@ export function createCompanions(opts = {}) {
     return g
   }
 
+  /** P28 B1 驯兽师：所有跟班伤害 +5、移速 +0.05（可叠）。 */
+  function addTamer() {
+    tamerCount += 1
+    tamerDamageBonus += TAMER_DMG
+    tamerSpeedAdd += TAMER_SPEED_ADD
+    for (const g of list) g.speed += TAMER_SPEED_ADD
+    recomputeDemonLink()
+    return tamerCount
+  }
+
+  /**
+   * P28 B4 恶魔：常驻角色 3 身位内、打 1 单位、优先离角色最近。
+   * 角色联动：getDemonAttackBonus() 产生的「角色伤害加值」由 M1/M8 接线到角色攻击，
+   * getAttack() 应返回不含该联动加值的基础攻击，避免恶魔基础伤重复计入。
+   */
+  function addDemon() {
+    demonCount += 1
+    const g = makeCompanion('demon', '恶魔')
+    g.demonIndex = demonCount
+    list.push(g)
+    relayoutAroundPlayer()
+    recomputeDemonLink()
+    return g
+  }
+
+  /** P28 B5 史莱姆gg：生成 g-1 / g-2 两跟班，基础伤 5。 */
+  function addSlimeGG() {
+    slimeCount += 1
+    const g1 = makeCompanion('slime', '史莱姆g-1')
+    g1.slimeVariant = 1
+    const g2 = makeCompanion('slime', '史莱姆g-2')
+    g2.slimeVariant = 2
+    list.push(g1, g2)
+    relayoutAroundPlayer()
+    return [g1, g2]
+  }
+
+  /** P28 B6 伴我同行：仅角色击杀；每跨 100 杀按当时 rate 给跟班伤害加成。 */
+  function addCompanionship() {
+    const first = companionshipCount === 0
+    companionshipCount += 1
+    if (first) {
+      companionshipProgress = Math.floor((Number(getKills()) || 0) / COMPANIONSHIP_KILL_STEP)
+    }
+    processCompanionship()
+    recomputeDemonLink()
+    return companionshipCount
+  }
+
   function chaseStillValid(g, targets) {
     const t = g.chase
     return Boolean(t) && isLive(t) && targets.includes(t)
@@ -453,14 +606,58 @@ export function createCompanions(opts = {}) {
       if (g.chase) continue
       const free = live.filter((e) => !claimed.has(e))
       const pool = free.length ? free : live
-      const pick = nearestTo(g, pool)
+      const pick =
+        g.kind === 'demon' ? nearestTo(player, pool) : nearestTo(g, pool)
       g.chase = pick
       if (pick && free.length) claimed.add(pick)
     }
   }
 
+  /**
+   * P30 恶魔软性跟随：朝角色移动、靠近舒适距离减速/自然环绕，
+   * 不再“超 3 身位硬弹回”，避免贴边界抽搐。
+   */
+  function demonStep(g, chase, player, dt, spd) {
+    const px = player?.x ?? g.x
+    const py = player?.y ?? g.y
+    const dx = px - g.x
+    const dy = py - g.y
+    const pd = Math.hypot(dx, dy) || 0.0001
+    const nx = dx / pd
+    const ny = dy / pd
+    const keep = DEMON_KEEP_RADIUS
+    const comfort = DEMON_COMFORT_RADIUS
+    // 0 = 舒适距离附近，1 = 越过拉绳距离 → 越远越往角色拉，不再突跳。
+    const pull = clamp((pd - comfort) / (keep - comfort), 0, 1)
+    let dirX = 0
+    let dirY = 0
+    if (chase) {
+      const goal = contactGoal(g, chase, 0, 1, player)
+      const gdx = goal.x - g.x
+      const gdy = goal.y - g.y
+      const gl = Math.hypot(gdx, gdy) || 0.0001
+      dirX = (gdx / gl) * (1 - pull) + nx * pull
+      dirY = (gdy / gl) * (1 - pull) + ny * pull
+    } else {
+      // 无敌人：绕舒适环自然环绕 + 轻微径向修正。
+      const radial = clamp((pd - comfort) / keep, -1, 1)
+      dirX = -ny * 0.7 + nx * radial
+      dirY = nx * 0.7 + ny * radial
+    }
+    const dl = Math.hypot(dirX, dirY) || 1
+    let speed = spd
+    if (!chase) {
+      // 接近舒适距离减速停下/慢速环绕。
+      speed = spd * (0.25 + 0.75 * clamp(Math.abs(pd - comfort) / comfort, 0, 1))
+    } else if (pull > 0) {
+      speed = spd * (1 + pull * 0.25)
+    }
+    moveToward(g, g.x + (dirX / dl) * 8, g.y + (dirY / dl) * 8, dt, speed)
+  }
+
   function update(dt) {
     if (!(dt > 0)) return
+    processCompanionship()
     const targets = getTargets() ?? []
     const n = list.length
     const bonusSpd = speedBonus()
@@ -469,7 +666,9 @@ export function createCompanions(opts = {}) {
       const g = list[i]
       const spd = g.speed + bonusSpd
       const chase = g.chase
-      if (chase) {
+      if (g.kind === 'demon' && player) {
+        demonStep(g, chase, player, dt, spd)
+      } else if (chase) {
         const peers = []
         for (let j = 0; j < n; j++) {
           if (list[j].chase === chase) peers.push(j)
@@ -493,13 +692,16 @@ export function createCompanions(opts = {}) {
 
   async function loadAssets() {
     if (typeof Image === 'undefined') return null
-    const [gImg, rImg, bImg, xImg, yImg, zImg] = await Promise.all([
+    const [gImg, rImg, bImg, xImg, yImg, zImg, dImg, s1Img, s2Img] = await Promise.all([
       loadImage(GOBLIN_SRC),
       loadImage(RABBIT_SRC),
       loadImage(BAT_SRC),
       loadImage(EGG_SRC[1]),
       loadImage(EGG_SRC[2]),
       loadImage(EGG_SRC[3]),
+      loadImage(DEMON_SRC),
+      loadImage(SLIME_GG_SRC[1]),
+      loadImage(SLIME_GG_SRC[2]),
     ])
     try {
       goblinSheet = chromaBlack(gImg)
@@ -516,6 +718,11 @@ export function createCompanions(opts = {}) {
     } catch {
       batSheet = bImg
     }
+    try {
+      demonSheet = chromaBlack(dImg)
+    } catch {
+      demonSheet = dImg
+    }
     const eggImgs = [xImg, yImg, zImg]
     for (let i = 0; i < 3; i++) {
       try {
@@ -524,7 +731,14 @@ export function createCompanions(opts = {}) {
         eggSheets[i + 1] = eggImgs[i]
       }
     }
-    return { goblinSheet, rabbitSheet, batSheet, eggSheets }
+    ;[s1Img, s2Img].forEach((img, idx) => {
+      try {
+        slimeGGSheets[idx + 1] = chromaBlack(img)
+      } catch {
+        slimeGGSheets[idx + 1] = img
+      }
+    })
+    return { goblinSheet, rabbitSheet, batSheet, eggSheets, demonSheet, slimeGGSheets }
   }
 
   function draw(ctx) {
@@ -537,6 +751,11 @@ export function createCompanions(opts = {}) {
         drawSprite(ctx, eggSheets[st], g, { a: '#c4b070', b: '#fff4c8' })
       } else if (g.kind === 'bat') {
         drawSprite(ctx, batSheet, g, { a: '#3a2848', b: '#8a6aa0' })
+      } else if (g.kind === 'demon') {
+        drawSprite(ctx, demonSheet, g, { a: '#3a0c3f', b: '#b04fc0' })
+      } else if (g.kind === 'slime') {
+        const v = g.slimeVariant ?? 1
+        drawSprite(ctx, slimeGGSheets[v], g, { a: '#2f8f5a', b: '#8fe3a5' })
       } else {
         drawSprite(ctx, goblinSheet, g, { a: '#2a4a28', b: '#7cbc5a' })
       }
@@ -549,12 +768,28 @@ export function createCompanions(opts = {}) {
     addRabbit,
     addEgg,
     addBat,
+    addTamer,
+    addDemon,
+    addSlimeGG,
+    addCompanionship,
     addDamageBonus,
     setUnityTier,
     getUnityTier: () => unityTier,
+    getDamageBonus: () => companionBonus,
+    getCompanionDamageBonus: () => companionExtras(),
+    /** 跟班总加成（含万物一心档位）；unityTier=0 时仅为纯基础加成。 */
+    getCompanionBonus: () => companionExtras() + unityAdd(),
+    getExtraCompanionBonus: () => extraCompanionBonus(),
+    getTamerCount: () => tamerCount,
+    getTamerDamageBonus: () => tamerDamageBonus,
+    getTamerSpeedAdd: () => tamerSpeedAdd,
+    getDemonCount: () => demonCount,
+    getDemonAttackBonus: () => demonAttackBonus,
+    getSlimeCount: () => slimeCount,
+    getCompanionshipCount: () => companionshipCount,
+    getCompanionshipDamageBonus: () => companionshipDamageBonus,
     update,
     draw,
     loadAssets,
-    getDamageBonus: () => companionBonus,
   }
 }

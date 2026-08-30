@@ -96,6 +96,24 @@ import {
   scorpionHp,
   scorpionSpawnCount,
   scorpionSpeedMul,
+  STINGER_ADVANCED_CHANCE,
+  STINGER_CRYSTALS,
+  STINGER_SRC,
+  STINGER_UNLOCK_SEC,
+  SPAWN_WARN_SEC,
+  ICE_MAN_ADVANCED_CHANCE,
+  SCORPION_SHOT_PERIOD,
+  SCORPION_FIRST_SHOT_RAND_MAX_SEC,
+  stingerHp,
+  stingerSpawnCount,
+  stingerSpeedMul,
+  ELITE_CHANCE_BASE,
+  ELITE_CHANCE_PER_MIN,
+  ELITE_ADVANCED_CHANCE,
+  ELITE_OUTLINE,
+  ICE_BULLET_OUTLINE,
+  ICE_BULLET_DMG,
+  ICE_LEAVE_MARGIN,
 } from './index.js'
 import {
   GRAY_HP0,
@@ -142,15 +160,15 @@ const camera = {
 
 assert('tier 0 at t=0', difficultyTier(0) === 0)
 assert('tier 1 at t=45', difficultyTier(45) === 1)
-assert('mushroom hp 32+10t', mushroomHp(0) === 32 && mushroomHp(45) === 42 && mushroomHp(90) === 52)
+assert('mushroom hp 32+15t', mushroomHp(0) === 32 && mushroomHp(45) === 47 && mushroomHp(90) === 62)
 assert('mushroom wave 5+floor(s/120)', mushroomSpawnCount(0) === 5 && mushroomSpawnCount(119) === 5 && mushroomSpawnCount(120) === 6 && mushroomSpawnCount(240) === 7)
 assert('mushroom interval always 5', mushroomSpawnInterval() === 5 && creepSpawnInterval(99) === 5)
 assert('no mushroom cap at 99min', mushroomSpawnCount(99 * 60) === 5 + 49)
 assert('speed mul t0 = 0.62', creepSpeedMul(0) === 0.62)
-assert('speed mul t1 = 0.66', Math.abs(creepSpeedMul(1) - 0.66) < 1e-12)
+assert('speed mul t1 = 0.65', Math.abs(creepSpeedMul(1) - 0.65) < 1e-12)
 assert('speed mul cap 1.4', creepSpeedMul(99) === 1.4)
 assert('split mul t0 = 0.77', splitSpeedMul(0) === 0.77)
-assert('split mul t1 = 0.81', Math.abs(splitSpeedMul(1) - 0.81) < 1e-12)
+assert('split mul t1 = 0.80', Math.abs(splitSpeedMul(1) - 0.8) < 1e-12)
 assert('split mul cap 1.4', splitSpeedMul(99) === 1.4)
 assert('creep px t0 = 0.62×80', creepSpeedPx(0) === 0.62 * SPEED_PX_PER_UNIT)
 assert('split px t0 = 0.77×80', splitSpeedPx(0) === 0.77 * SPEED_PX_PER_UNIT)
@@ -164,8 +182,8 @@ assert('scaledWave min 1', scaledWaveCount(4, 0) === 1)
 assert('snail unlock 120', SNAIL_UNLOCK_SEC === 120)
 assert('snail count 120s = 4', snailSpawnCount(119) === 0 && snailSpawnCount(120) === 4)
 assert('snail count +1 /45s', snailSpawnCount(165) === 5)
-assert('snail hp 50 +20/40s', snailHp(120) === 50 && snailHp(160) === 70)
-assert('snail speed 0.62 +0.03/45s no cap', snailSpeedMul(120) === 0.62 && Math.abs(snailSpeedMul(165) - 0.65) < 1e-12 && snailSpeedMul(120 + 45 * 30) > 1.4)
+assert('snail hp 50 +25/40s', snailHp(120) === 50 && snailHp(160) === 75)
+assert('snail speed 0.62 +0.02/45s no cap', snailSpeedMul(120) === 0.62 && Math.abs(snailSpeedMul(165) - 0.64) < 1e-12 && snailSpeedMul(120 + 45 * 40) > 1.4)
 assert('snail px t0', snailSpeedPx(120) === 0.62 * SPEED_PX_PER_UNIT)
 assert('gray wave always 2 / interval 5s', grayTreeSpawnCount(0) === 2 && grayTreeSpawnCount(2) === 2 && grayTreeSpawnInterval(0) === 5)
 assert(
@@ -352,9 +370,16 @@ assert(
   foes.update(0.01, focus, camera, GRAY_BURST_DELAY - 0.02)
   assert('no split yet before 1s', foes.creeps().length === 0)
   foes.update(0.01, focus, camera, GRAY_BURST_DELAY)
+  assert(
+    'gray burst splits armed (red circle)',
+    foes.creeps().length === 0 &&
+      foes.pending.length === GRAY_BURST_COUNT &&
+      foes.pending.every((p) => p.speedKind === 'split'),
+  )
+  foes.update(0.8, focus, camera, GRAY_BURST_DELAY + 0.8)
   const splits = foes.creeps()
   assert(
-    `gray burst +1s → ${GRAY_BURST_COUNT} split`,
+    `gray burst +1.8s → ${GRAY_BURST_COUNT} split`,
     splits.length === GRAY_BURST_COUNT &&
       splits.every((c) => c.speedKind === 'split' && c.name === '裂怪') &&
       foes.bursts.length === 0,
@@ -409,16 +434,24 @@ assert(
   wave.update(4.99, focus, camera, 4.99)
   assert('no regular wave before 5s', wave.creeps().length === 0)
   wave.update(0.02, focus, camera, 5.01)
+  assert('regular armed warn (pending 5)', wave.creeps().length === 0 && wave.pending.length === 5)
+  wave.update(0.8, focus, camera, 5.81)
   assert('regular 5s/5', wave.creeps().length === 5)
-  wave.update(24.9, focus, camera, 29.91)
+}
+
+{
+  const wave = createEnemies({ random: () => 0.5 })
+  wave.update(29.9, focus, camera, 29.9)
   assert('no gray before 30s', wave.grayTrees().length === 0)
-  wave.update(0.12, focus, camera, 30.03)
+  wave.update(0.12, focus, camera, 30.02)
   assert('gray first wave at 30s/2', wave.grayTrees().length === 2)
 }
 
 {
   const wave = createEnemies({ random: () => 0.5 })
   wave.update(5.01, focus, camera, 5.01, 2)
+  assert('spawnRate 2 → 10 armed', wave.creeps().length === 0 && wave.pending.length === 10)
+  wave.update(0.8, focus, camera, 5.81)
   assert('spawnRate 2 → 10 mushrooms /5s', wave.creeps().length === 10)
 }
 
@@ -427,12 +460,16 @@ assert(
   wave.update(119.9, focus, camera, 119.9)
   assert('no snail before 120s', wave.snails().length === 0)
   wave.update(0.2, focus, camera, 120.1)
+  assert('snail armed warn', wave.snails().length === 0)
+  wave.update(0.8, focus, camera, 120.9)
   assert('snail first wave at 120s/4', wave.snails().length === 4)
 }
 
 {
   const wave = createEnemies({ random: () => 0.5 })
   wave.update(0.01, focus, camera, 120, 1.5)
+  assert('spawnRate 1.5 → 6 armed', wave.snails().length === 0)
+  wave.update(0.8, focus, camera, 120.8)
   assert('spawnRate 1.5 → 6 snails', wave.snails().length === 6)
 }
 
@@ -443,9 +480,9 @@ assert(
 }
 
 assert('slime unlock 180', SLIME_X1_UNLOCK_SEC === 180)
-assert('slime hp 120+22u', slimeX1Hp(180) === 120 && slimeX1Hp(225) === 142)
+assert('slime hp 120+27u', slimeX1Hp(180) === 120 && slimeX1Hp(225) === 147)
 assert('slime wave 6+floor(u/45)', slimeX1SpawnCount(179) === 0 && slimeX1SpawnCount(180) === 6 && slimeX1SpawnCount(225) === 7)
-assert('slime speed 0.87+0.03u no cap', slimeX1SpeedMul(180) === 0.87 && Math.abs(slimeX1SpeedMul(225) - 0.9) < 1e-12 && slimeX1SpeedMul(180 + 45 * 30) > 1.4)
+assert('slime speed 0.87+0.02u no cap', slimeX1SpeedMul(180) === 0.87 && Math.abs(slimeX1SpeedMul(225) - 0.89) < 1e-12 && slimeX1SpeedMul(180 + 45 * 40) > 1.4)
 assert('x-3 hp ceil(0.25 spawnHp)', slimeX3HpFromParent(120) === 30 && slimeX3HpFromParent(142) === 36)
 assert('x-3 drop 50%', rollSlimeX3Crystals(() => 0) === 0 && rollSlimeX3Crystals(() => 0.49) === 0 && rollSlimeX3Crystals(() => 0.5) === 1)
 assert('burst offset 90deg ×4', (() => {
@@ -531,11 +568,11 @@ assert('x-3 invuln 0.3s', SLIME_X3_INVULN_SEC === 0.3)
   const foes = createEnemies({ random: () => 0.5 })
   foes.update(0.01, focus, camera, 285)
   const x1 = foes.spawnSlimeX1At(focus.x + 400, focus.y + 400)
-  assert('x-1 hp at 285s = 164', x1.hp === 164 && x1.spawnHp === 164)
+  assert('x-1 hp at 285s = 174', x1.hp === 174 && x1.spawnHp === 174)
   x1.takeHit(200)
   foes.update(0.01, focus, camera, 285)
   const kids = foes.slimesX3()
-  assert('x-3 hp from spawnHp 164', kids.length === 3 && kids[0].hp === 41)
+  assert('x-3 hp from spawnHp 174', kids.length === 3 && kids[0].hp === 44)
   assert('x-3 speed = death mul +0.10', Math.abs(kids[0].speedMul - (slimeX1SpeedMul(285) + 0.1)) < 1e-12)
 }
 
@@ -544,24 +581,29 @@ assert('x-3 invuln 0.3s', SLIME_X3_INVULN_SEC === 0.3)
   wave.update(0.01, focus, camera, 179.9)
   assert('no slime before 180s', wave.slimesX1().length === 0)
   wave.update(0.2, focus, camera, 180.1)
+  assert('slime armed warn', wave.slimesX1().length === 0)
+  wave.update(0.8, focus, camera, 180.9)
   assert('slime first wave at 180s/6', wave.slimesX1().length === 6)
 }
 
 {
   const wave = createEnemies({ random: () => 0.5 })
   wave.update(0.01, focus, camera, 180, 2)
+  assert('spawnRate 2 → 12 armed', wave.slimesX1().length === 0)
+  wave.update(0.8, focus, camera, 180.8)
   assert('spawnRate 2 → 12 slimes', wave.slimesX1().length === 12)
 }
 
 assert('ice unlock 420', ICE_MAN_UNLOCK_SEC === 420)
-assert('ice hp 3300', ICE_MAN_HP === 3300)
+assert('ice hp 4000', ICE_MAN_HP === 4000)
 assert('ice draw 48', ICE_MAN_DRAW === 48)
 assert('ice bullet 200', ICE_BULLET_SPEED === 200)
-assert('ice knockback 0.5', ICE_MAN_KNOCKBACK_SCALE === 0.5)
+assert('ice knockback 0.3', ICE_MAN_KNOCKBACK_SCALE === 0.3)
+assert('ice advanced chance 0.1', ICE_MAN_ADVANCED_CHANCE === 0.1)
 assert('ice dash 1–6 / 8 body', ICE_DASH_MIN === 1 && ICE_DASH_MAX === 6 && ICE_DASH_DIST === BODY * 8)
 assert('ice dash roll 1–6', rollIceDashCount(() => 0) === 1 && rollIceDashCount(() => 0.99) === 6)
-assert('ice dash/barrage/orchid periods', ICE_DASH_PERIOD === 12 && ICE_BARRAGE_PERIOD === 22 && ICE_ORCHID_PERIOD === 32)
-assert('ice respawn 180 / 300 crystal / ×1.4', ICE_MAN_RESPAWN_SEC === 180 && ICE_MAN_CRYSTALS === 300 && iceManRespawnHp(1) === 4620)
+assert('ice dash/barrage/orchid periods', ICE_DASH_PERIOD === 12 && ICE_BARRAGE_PERIOD === 17 && ICE_ORCHID_PERIOD === 32)
+assert('ice respawn 180 / 150 crystal / ×1.4', ICE_MAN_RESPAWN_SEC === 180 && ICE_MAN_CRYSTALS === 150 && iceManRespawnHp(1) === 5600)
 assert('ice telegraph 0.25', ICE_DASH_TELEGRAPH === 0.25)
 assert('ice flee 400/10s', ICE_FLEE_HURT === 400 && ICE_FLEE_SEC === 10)
 assert('orchid hp 1 speed 1.17', ORCHID_HP === 1 && ORCHID_SPEED_MUL === 1.17)
@@ -580,7 +622,7 @@ assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes(
   wave.update(0.2, focus, camera, 420.1)
   assert('ice first at 420s/1', wave.iceMen().length === 1)
   const boss = wave.iceMen()[0]
-  assert('ice hp/scale', boss.hp === 3300 && boss.knockbackScale === 0.5 && boss.name === '冰人')
+  assert('ice hp/scale', boss.hp === 4000 && boss.knockbackScale === 0.3 && boss.name === '冰人')
   assert('ice hurtbox follows draw', boss.w === 48 && boss.h === 48 && boss.hurtW === 24 && boss.hurtH === 24)
   wave.update(0.01, focus, camera, 421)
   assert('ice no respawn while alive', wave.iceMen().length === 1)
@@ -594,9 +636,9 @@ assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes(
     Math.abs(boss.wanderSpd - SPEED_PX_PER_UNIT * 1.2 * 0.7) < 1e-6,
   )
   boss.takeHit(400)
-  assert('ice flee after 400', boss.fleeT === ICE_FLEE_SEC && boss.hp === 2900)
+  assert('ice flee after 400', boss.fleeT === ICE_FLEE_SEC && boss.hp === 3600)
   boss.takeHit(50)
-  assert('ice flee no extra acc', (boss.hurtAcc ?? 0) === 0 && boss.hp === 2850)
+  assert('ice flee no extra acc', (boss.hurtAcc ?? 0) === 0 && boss.hp === 3550)
 }
 
 {
@@ -612,26 +654,28 @@ assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes(
     },
   })
   const boss = foes.spawnIceManAt(focus.x + 500, focus.y, { ...focus, speed: 96, speedUnits: 1.2 })
+  // 固定 boss 不动，隔离测脱战回血（P27 冰人可离开视野后移动不定）。
+  boss.wanderSpd = 0
   assert(
     'ice regen consts 3s/44px/20',
     ICE_REGEN_DELAY_SEC === 3 && ICE_REGEN_RANGE === BODY * 2 && ICE_REGEN_PER_SEC === 20,
   )
   boss.takeHit(100)
-  assert('ice hurt to 3200', boss.hp === 3200)
+  assert('ice hurt to 3900', boss.hp === 3900)
   foes.update(3, focus, camera, 0)
-  assert('ice no regen at 3s mark', boss.hp === 3200 && healed === 0)
+  assert('ice no regen at 3s mark', boss.hp === 3900 && healed === 0)
   foes.update(1.01, focus, camera, 0)
-  assert('ice regen +20 after lonely 4s', boss.hp === 3220 && healed === 20)
+  assert('ice regen +20 after lonely 4s', boss.hp === 3920 && healed === 20)
   assert('ice regen onHeal ice_man/20 green', log[0][0] === 'ice_man' && log[0][1] === 20)
   foes.update(1, focus, camera, 0)
-  assert('ice regen every 1s', boss.hp === 3240 && healed === 40)
+  assert('ice regen every 1s', boss.hp === 3940 && healed === 40)
   const near = { ...focus, x: boss.x, y: boss.y }
   foes.update(2, near, camera, 0)
-  assert('ice regen stops when player in range', boss.hp === 3240 && healed === 40)
+  assert('ice regen stops when player in range', boss.hp === 3940 && healed === 40)
   foes.update(2, focus, camera, 0)
-  assert('ice regen delay restarts after reset', boss.hp === 3240 && healed === 40)
+  assert('ice regen delay restarts after reset', boss.hp === 3940 && healed === 40)
   foes.update(2.01, focus, camera, 0)
-  assert('ice regen resumes after new 3s+1s', boss.hp === 3260 && healed === 60)
+  assert('ice regen resumes after new 3s+1s', boss.hp === 3960 && healed === 60)
   boss.hp = boss.maxHp - 5
   foes.update(1.01, focus, camera, 0)
   assert('ice regen caps at maxHp', boss.hp === boss.maxHp && healed === 65)
@@ -647,7 +691,7 @@ assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes(
   const foes = createEnemies({ random: () => 0.5 })
   foes.spawnIceManAt(victim.x, victim.y, victim)
   foes.update(0.016, victim, camera, 0)
-  assert('ice contact −1', victim.hp === 2)
+  assert('ice contact −2', victim.hp === 1)
 }
 
 {
@@ -724,7 +768,7 @@ assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes(
   const foes = createEnemies({ random: () => 0.5 })
   const boss = foes.spawnIceManAt(focus.x + 40, focus.y, focus)
   foes.update(ICE_ORCHID_PERIOD + 0.01, focus, camera, 0)
-  assert('ice orchid 3 at 32s', foes.orchids().length === 3 && boss.hp === 3300)
+  assert('ice orchid 3 at 32s', foes.orchids().length === 3 && boss.hp === 4000)
   boss.takeHit(9999)
   foes.update(0.01, focus, camera, 0)
   assert('ice death keeps orchid', foes.iceMen().length === 0 && foes.orchids().length === 3)
@@ -733,17 +777,20 @@ assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes(
 }
 
 assert('scorpion unlock 300', SCORPION_UNLOCK_SEC === 300)
-assert('scorpion hp 105+15u', scorpionHp(300) === 105 && scorpionHp(345) === 120)
+assert('scorpion hp 105+20u', scorpionHp(300) === 105 && scorpionHp(345) === 125)
 assert('scorpion wave 2+floor(u/30)', scorpionSpawnCount(299) === 0 && scorpionSpawnCount(300) === 2 && scorpionSpawnCount(330) === 3)
-assert('scorpion speed 0.8+0.05u', scorpionSpeedMul(300) === 0.8 && Math.abs(scorpionSpeedMul(345) - 0.85) < 1e-12)
+assert('scorpion speed 0.8+0.04u', scorpionSpeedMul(300) === 0.8 && Math.abs(scorpionSpeedMul(345) - 0.84) < 1e-12)
 assert('scorpion sprite / bullet 180', SCORPION_SRC.includes('蝎子怪.png') && SCORPION_BULLET_SPEED === 180)
 assert('scorpion ranges 8/3/7', SCORPION_CHASE_RANGE === BODY * 8 && SCORPION_HOLD_RANGE === BODY * 3 && SCORPION_FLEE_STOP === BODY * 7)
+assert('scorpion shot 5s / first 0-5s', SCORPION_SHOT_PERIOD === 5 && SCORPION_FIRST_SHOT_RAND_MAX_SEC === 5)
 
 {
   const wave = createEnemies({ random: () => 0.5 })
   wave.update(0.01, focus, camera, 299.9)
   assert('no scorpion before 300s', wave.scorpions().length === 0)
   wave.update(0.2, focus, camera, 300.1)
+  assert('scorpion armed warn', wave.scorpions().length === 0)
+  wave.update(0.8, focus, camera, 300.9)
   assert('scorpion first wave at 300s/2', wave.scorpions().length === 2)
 }
 
@@ -759,6 +806,8 @@ assert('scorpion ranges 8/3/7', SCORPION_CHASE_RANGE === BODY * 8 && SCORPION_HO
   })
   const bug = foes.spawnScorpionAt(focus.x + BODY * 5, focus.y)
   assert('scorpion hp 105 / no armor', bug.hp === 105 && (bug.armor ?? 0) === 0 && bug.name === '蝎子怪')
+  assert('scorpion first shot staggered 0-5s', bug.shotCd >= 0 && bug.shotCd <= SCORPION_FIRST_SHOT_RAND_MAX_SEC)
+  bug.shotCd = 0
   foes.update(0.016, focus, camera, 0)
   assert('scorpion hold 3–8 shoots', foes.iceBullets.length >= 1)
   const near = foes.spawnScorpionAt(focus.x + 10, focus.y)
@@ -776,6 +825,26 @@ assert('scorpion ranges 8/3/7', SCORPION_CHASE_RANGE === BODY * 8 && SCORPION_HO
 }
 
 {
+  // P25 六娃失锁消费：蝎子失锁时即使处于 3~8 身位也不开火。
+  const foes = createEnemies({ random: () => 0.5 })
+  const bug = foes.spawnScorpionAt(focus.x + BODY * 5, focus.y)
+  bug.shotCd = 0
+  bug.unlockT = 1
+  foes.update(0.016, focus, camera, 0)
+  assert('scorpion blind no fire', foes.iceBullets.length === 0)
+}
+
+{
+  // P25 六娃失锁消费：近战敌人失锁时不靠近玩家。
+  const foes = createEnemies({ random: () => 0.5 })
+  const creep = foes.spawnCreepAt(focus.x + 200, focus.y, 'regular')
+  creep.unlockT = 1
+  const x0 = creep.x
+  foes.update(1, focus, camera, 0)
+  assert('creep blind no chase', Math.abs(creep.x - x0) < 1e-6)
+}
+
+{
   let crystals = 0
   const foes = createEnemies({
     random: () => 0.5,
@@ -787,25 +856,25 @@ assert('scorpion ranges 8/3/7', SCORPION_CHASE_RANGE === BODY * 8 && SCORPION_HO
   })
   foes.update(0.2, focus, camera, 420.1)
   const boss = foes.iceMen()[0]
-  assert('ice first 3300', boss && boss.hp === 3300)
+  assert('ice first 4000', boss && boss.hp === 4000)
   boss.takeHit(9999)
   foes.update(0.01, focus, camera, 421)
-  assert('ice death 300 crystals', crystals === 300 && foes.iceMen().length === 0)
+  assert('ice death 150 crystals', crystals === 150 && foes.iceMen().length === 0)
   foes.update(0.2, focus, camera, 421 + 179.9)
   assert('ice no respawn before 180s', foes.iceMen().length === 0)
   foes.update(0.2, focus, camera, 421 + 180)
   const again = foes.iceMen()[0]
-  assert('ice respawn hp 4620', again && again.hp === 4620 && foes.iceMen().length === 1)
+  assert('ice respawn hp ×1.4', again && again.hp === 5600 && foes.iceMen().length === 1)
 }
 
 {
   const foes = createEnemies({ random: () => 0.5, getHpGrowthAdd: () => 5 })
   foes.update(0.01, focus, camera, 45)
   const creep = foes.spawnCreepAt(focus.x + 40, focus.y)
-  assert('diff2 mushroom t1 = 32+15', creep.hp === 47 && mushroomHp(45, 5) === 47)
+  assert('diff2 mushroom t1 = 32+20', creep.hp === 52 && mushroomHp(45, 5) === 52)
   foes.update(0.01, focus, camera, 160)
   const snail = foes.spawnSnailAt(focus.x + 80, focus.y)
-  assert('diff2 snail extra on tier', snail.hp === 75 && snailHp(160, 5) === 75)
+  assert('diff2 snail extra on tier', snail.hp === 80 && snailHp(160, 5) === 80)
 }
 
 assert('dummy consts', DUMMY_HP === 999 && DUMMY_REGEN_PER_SEC === 500 && DUMMY_OFFSET === BODY * 3)
@@ -834,6 +903,280 @@ assert('dummy consts', DUMMY_HP === 999 && DUMMY_REGEN_PER_SEC === 500 && DUMMY_
   assert('dummy max 1', foes.dummies().length === 1)
   foes.setDummyEnabled(false, victim)
   assert('dummy removed', foes.dummies().length === 0)
+}
+
+// —— P25 毒刺怪 / 高级结晶 / 预警 / 环绕 / 失锁消费 ——
+assert('stinger unlock 300', STINGER_UNLOCK_SEC === 300)
+assert('stinger hp 260+25u', stingerHp(300) === 260 && stingerHp(345) === 285)
+assert('stinger wave 6+floor(s/180)', stingerSpawnCount(299) === 0 && stingerSpawnCount(300) === 7 && stingerSpawnCount(540) === 9)
+assert('stinger speed 0.70+0.04u no cap', Math.abs(stingerSpeedMul(300) - 0.7) < 1e-12 && Math.abs(stingerSpeedMul(345) - 0.74) < 1e-12 && stingerSpeedMul(300 + 45 * 40) > 1.4)
+assert('stinger sprite 毒刺怪.png', STINGER_SRC.includes('毒刺怪.png'))
+assert('stinger crystals 4 / advanced 0.2', STINGER_CRYSTALS === 4 && STINGER_ADVANCED_CHANCE === 0.2)
+assert('spawn warn 0.8s', SPAWN_WARN_SEC === 0.8)
+
+{
+  const wave = createEnemies({ random: () => 0.5 })
+  wave.update(0.01, focus, camera, 299.9)
+  assert('no stinger before 300s', wave.stingers().length === 0)
+  wave.update(0.2, focus, camera, 300.1)
+  assert('mushroom stops at 300s', wave.creeps().length === 0)
+  assert('stinger armed warn', wave.stingers().length === 0)
+  wave.update(0.8, focus, camera, 300.9)
+  assert('stinger first wave at 300s/7', wave.stingers().length === 7)
+}
+
+{
+  const wave = createEnemies({ random: () => 0.5 })
+  wave.update(0.01, focus, camera, 300, 1)
+  wave.update(5, focus, camera, 305)
+  assert('mushroom stopped at ≥300s', wave.creeps().length === 0)
+}
+
+{
+  let total = 0
+  let advanced = 0
+  const foes = createEnemies({
+    random: () => 0.5,
+    hooks: {
+      spawnCrystal() {
+        total += 1
+      },
+      spawnCrystalAt(_x, _y, opts) {
+        total += 1
+        if (opts?.advanced) advanced += 1
+      },
+    },
+  })
+  const st = foes.spawnStingerAt(focus.x + 200, focus.y)
+  assert('stinger spawn hp/knockback BODY', st.hp === 260 && st.knockbackResist === BODY && st.name === '毒刺怪')
+  st.takeHit(9999)
+  foes.update(0.01, focus, camera, 0)
+  assert('stinger death 4 normal (rng0.5)', total === 4 && advanced === 0)
+}
+
+{
+  let total = 0
+  let advanced = 0
+  const foes = createEnemies({
+    random: () => 0,
+    hooks: {
+      spawnCrystal() {
+        total += 1
+      },
+      spawnCrystalAt(_x, _y, opts) {
+        total += 1
+        if (opts?.advanced) advanced += 1
+      },
+    },
+  })
+  const st = foes.spawnStingerAt(focus.x + 200, focus.y)
+  st.takeHit(9999)
+  foes.update(0.01, focus, camera, 0)
+  assert('stinger death 4 advanced (rng0)', total === 4 && advanced === 4)
+}
+
+{
+  let total = 0
+  let advanced = 0
+  const foes = createEnemies({
+    random: () => 0,
+    hooks: {
+      spawnCrystal() {
+        total += 1
+      },
+      spawnCrystalAt(_x, _y, opts) {
+        total += 1
+        if (opts?.advanced) advanced += 1
+      },
+    },
+  })
+  const boss = foes.spawnIceManAt(focus.x + 200, focus.y, focus)
+  boss.takeHit(9999)
+  foes.update(0.01, focus, camera, 0)
+  assert('ice death 150 advanced (rng0)', total === ICE_MAN_CRYSTALS && advanced === 150)
+}
+
+{
+  let seed = 0
+  const rng = () => ((seed += 0.13) % 1)
+  const pts = []
+  for (let i = 0; i < 24; i++) pts.push(pickNearOutOfView(focus, camera, rng, BODY))
+  const out = (p) =>
+    p.x < camera.x || p.x >= camera.x + VIEW_WIDTH || p.y < camera.y || p.y >= camera.y + VIEW_HEIGHT
+  const left = pts.some((p) => p.x < camera.x)
+  const right = pts.some((p) => p.x >= camera.x + VIEW_WIDTH)
+  const top = pts.some((p) => p.y < camera.y)
+  const bottom = pts.some((p) => p.y >= camera.y + VIEW_HEIGHT)
+  assert('surround covers 4 sides', pts.every(out) && left && right && top && bottom)
+  assert('surround near ≤1000', pts.every((p) => Math.hypot(p.x - focus.x, p.y - focus.y) <= 1000 + 1e-6))
+}
+
+{
+  // 毒刺怪接触 −1 心。
+  const victim = makeFocus()
+  const foes = createEnemies({ random: () => 0.5 })
+  foes.spawnStingerAt(victim.x, victim.y)
+  foes.update(0.016, victim, camera, 0)
+  assert('stinger contact −1', victim.hp === 2)
+}
+
+{
+  // 未接线 spawnCrystalAt：高级结晶兜底仍落下（数量不少）。
+  let total = 0
+  const foes = createEnemies({
+    random: () => 0,
+    hooks: {
+      spawnCrystal() {
+        total += 1
+      },
+    },
+  })
+  const st = foes.spawnStingerAt(focus.x + 200, focus.y)
+  st.takeHit(9999)
+  foes.update(0.01, focus, camera, 0)
+  assert('stinger fallback still 4 crystals', total === 4)
+}
+
+{
+  // 冰人失锁不新开弹幕；解除后正常开火。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 40, focus.y, focus)
+  boss.barrageCd = 0
+  boss.unlockT = 2
+  foes.update(0.016, focus, camera, 0)
+  assert('ice blind no barrage', foes.iceBullets.length === 0 && boss.barrageShots == null)
+  boss.unlockT = 0
+  foes.update(0.016, focus, camera, 0)
+  assert('ice not blind barrage fires', foes.iceBullets.length >= 1)
+}
+
+{
+  // 蝎子一次开火后回到 5s 节奏。
+  const foes = createEnemies({ random: () => 0.5 })
+  const bug = foes.spawnScorpionAt(focus.x + BODY * 5, focus.y)
+  bug.shotCd = 0
+  foes.update(0.016, focus, camera, 0)
+  assert('scorpion 5s cadence after fire', bug.shotCd === SCORPION_SHOT_PERIOD && foes.iceBullets.length >= 1)
+}
+
+// —— P26 毒刺怪 6 / 五娃减速消费 / 四娃五娃粒子 ——
+{
+  // slowLeft>0 → 移动乘 slowFactor。
+  const foes = createEnemies({ random: () => 0.5 })
+  const creep = foes.spawnCreepAt(focus.x + 80, focus.y, 'regular')
+  creep.slowFactor = 0.5
+  creep.slowLeft = 2
+  foes.update(1, focus, camera, 0)
+  const expected = focus.x + 80 - creepSpeedPx(0) * 0.5
+  assert('slow consumes factor', Math.abs(creep.x - expected) < 1e-6)
+}
+
+{
+  // slowLeft<=0 → 不减速（slowFactor 存在也无效）。
+  const foes = createEnemies({ random: () => 0.5 })
+  const creep = foes.spawnCreepAt(focus.x + 80, focus.y, 'regular')
+  creep.slowFactor = 0.5
+  creep.slowLeft = 0
+  foes.update(1, focus, camera, 0)
+  const expected = focus.x + 80 - creepSpeedPx(0)
+  assert('slow off when slowLeft<=0', Math.abs(creep.x - expected) < 1e-6)
+}
+
+{
+  // 四娃燃烧：burnLeft>0 生成红色粒子；结束即清空。
+  const foes = createEnemies({ random: () => 0.5 })
+  const creep = foes.spawnCreepAt(focus.x + 200, focus.y, 'regular')
+  creep.burnLeft = 2
+  foes.update(0.3, focus, camera, 0)
+  assert('burn particles spawn', foes.particles.length > 0 && foes.particles.every((p) => p.kind === 'burn'))
+  creep.burnLeft = 0
+  foes.update(0.01, focus, camera, 0)
+  assert('burn particles clear on end', foes.particles.length === 0)
+}
+
+{
+  // 五娃减速：slowLeft>0 生成蓝色粒子；怪物死亡即清空。
+  const foes = createEnemies({ random: () => 0.5 })
+  const creep = foes.spawnCreepAt(focus.x + 200, focus.y, 'regular')
+  creep.slowFactor = 0.5
+  creep.slowLeft = 2
+  foes.update(0.24, focus, camera, 0)
+  assert('slow particles spawn', foes.particles.length > 0 && foes.particles.every((p) => p.kind === 'slow'))
+  creep.takeHit(9999)
+  foes.update(0.01, focus, camera, 0)
+  assert('slow particles clear on death', foes.particles.length === 0)
+}
+
+// —— P27 红圈全怪 / 冰人可离开视野 / 伤害2 / 子弹蓝 / 强化怪 ——
+assert('elite outline purple', ELITE_OUTLINE === '#7a2fd6')
+assert('ice bullet outline blue', ICE_BULLET_OUTLINE === '#3f9fff')
+assert('ice bullet dmg 2', ICE_BULLET_DMG === 2)
+assert('ice leave margin 1 body', ICE_LEAVE_MARGIN === BODY)
+assert('elite chance consts', ELITE_CHANCE_BASE === 0.02 && ELITE_CHANCE_PER_MIN === 0.02 && ELITE_ADVANCED_CHANCE === 0.5)
+
+{
+  // 冰人完全离开视野且未逃跑 → 回视野；逃跑时可离开视野不回。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 500, focus.y, { ...focus, speed: 96, speedUnits: 1.2 })
+  boss.x = focus.x + VIEW_WIDTH + 100
+  boss.y = focus.y
+  const x0 = boss.x
+  foes.update(1, focus, camera, 0)
+  assert('ice returns when fully out & not flee', boss.x < x0)
+  const foes2 = createEnemies({ random: () => 0.5 })
+  const b2 = foes2.spawnIceManAt(focus.x + 500, focus.y, { ...focus, speed: 96, speedUnits: 1.2 })
+  b2.x = focus.x + VIEW_WIDTH + 100
+  b2.y = focus.y
+  b2.fleeT = ICE_FLEE_SEC
+  const f0 = b2.x
+  foes2.update(1, focus, camera, 0)
+  assert('ice flee can leave view', b2.x > f0)
+}
+
+{
+  // 冰人弹幕子弹 dmg=2。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 40, focus.y, focus)
+  boss.barrageCd = 0
+  foes.update(0.016, focus, camera, 0)
+  assert('ice barrage bullet dmg 2', foes.iceBullets.some((b) => b.dmg === ICE_BULLET_DMG))
+}
+
+{
+  // 强化怪（难度二）：掷中 → hp×2、击退抗性+1 身位、每颗结晶 50% 高级。
+  let norm = 0
+  let adv = 0
+  const foes = createEnemies({
+    random: () => 0,
+    getHpGrowthAdd: () => 10,
+    hooks: {
+      spawnCrystal() {
+        norm += 1
+      },
+      spawnCrystalAt(_x, _y, opts) {
+        if (opts?.advanced) adv += 1
+        else norm += 1
+      },
+    },
+  })
+  foes.update(0.2, focus, camera, 300.1)
+  foes.update(0.8, focus, camera, 300.9)
+  const st = foes.stingers()[0]
+  assert('elite spawn exists', st && st.elite === true)
+  assert('elite stinger hp ×2', st.hp === 520 && st.maxHp === 520)
+  assert('elite knockback +1 body', st.knockbackResist === BODY * 2)
+  st.takeHit(9999)
+  foes.update(0.01, focus, camera, 300.9)
+  assert('elite drops 4 crystals all advanced', norm === 0 && adv === 4)
+}
+
+{
+  // 难度一：不掷强化。
+  const foes = createEnemies({ random: () => 0, getHpGrowthAdd: () => 0 })
+  foes.update(0.2, focus, camera, 300.1)
+  foes.update(0.8, focus, camera, 300.9)
+  const st = foes.stingers()[0]
+  assert('no elite in difficulty1', st && st.elite != true && st.hp === 260 && st.knockbackResist === BODY)
 }
 
 if (failed) {

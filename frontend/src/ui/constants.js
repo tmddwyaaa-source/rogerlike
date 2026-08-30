@@ -56,7 +56,7 @@ export const BOND_QIAN_THRESHOLDS = [2, 4, 6, 8]
 
 export const BOND_UNITY_THRESHOLDS = [2, 4, 6, 8]
 
-export const BOND_VAJRA_THRESHOLDS = [2]
+export const BOND_VAJRA_THRESHOLDS = [7]
 
 export const BOND_THRESHOLDS = {
   [BOND_QIAN]: BOND_QIAN_THRESHOLDS,
@@ -125,6 +125,18 @@ export const UPGRADE_GIANT = 'giant'
 
 export const UPGRADE_BLACKHOLE = 'blackhole'
 
+export const UPGRADE_ERSE = 'erse'
+
+export const UPGRADE_SANWA = 'sanwa'
+
+export const UPGRADE_SIWA = 'siwa'
+
+export const UPGRADE_WUWA = 'wuwa'
+
+export const UPGRADE_LIUWA = 'liuwa'
+
+export const UPGRADE_KNOCKBACK = 'knockback'
+
 export const UPGRADE_MAGNET = 'magnet'
 
 export const UPGRADE_GOBLIN = 'goblin'
@@ -142,6 +154,14 @@ export const UPGRADE_ONLY_FAST = 'only_fast'
 export const UPGRADE_REFINE = 'refine'
 
 export const UPGRADE_EGG = 'strange_egg'
+
+export const UPGRADE_TAMER = 'tamer'
+
+export const UPGRADE_DEMON = 'demon'
+
+export const UPGRADE_SLIME_GG = 'slime_gg'
+
+export const UPGRADE_COMPANIONSHIP = 'companionship'
 
 /** 每次选择地精：所有跟班伤害 +10 */
 export const COMPANION_DAMAGE_BONUS = 10
@@ -181,7 +201,17 @@ export const UPGRADES = [
 
   { id: UPGRADE_GIANT, title: '大娃', desc: '每次弹体大小 +40%', bond: BOND_VAJRA },
 
-  { id: UPGRADE_BLACKHOLE, title: '黑洞', desc: '吸收全地图经验结晶', bond: BOND_VAJRA },
+  { id: UPGRADE_ERSE, title: '二娃·千里眼', desc: '三选一 20%/层 概率变四选一', tier: 'advanced', bond: BOND_VAJRA },
+
+  { id: UPGRADE_SANWA, title: '三娃·铜头铁臂', desc: '获得 1 层护甲；之后每升 N 级再获得 1 层（N=11−已选次数，可叠）', bond: BOND_VAJRA },
+
+  { id: UPGRADE_SIWA, title: '四娃·喷火', desc: '命中点燃 3 秒，每秒 30% 攻击（+10%/层）', tier: 'advanced', bond: BOND_VAJRA },
+
+  { id: UPGRADE_WUWA, title: '五娃·吐水', desc: '命中减速 20%、0.3 秒（+0.2 秒/层）', tier: 'advanced', bond: BOND_VAJRA },
+
+  { id: UPGRADE_LIUWA, title: '六娃·隐身', desc: '每 10 秒失锁脉冲：1.5 身位内敌人 1.0 秒不锁定（+0.5 秒/层）', bond: BOND_VAJRA },
+
+  { id: UPGRADE_BLACKHOLE, title: '七娃', desc: '吸收全地图经验结晶', bond: BOND_VAJRA },
 
   { id: UPGRADE_MAGNET, title: '磁铁', desc: '结晶吸取范围 +1 身位' },
 
@@ -198,6 +228,16 @@ export const UPGRADES = [
   { id: UPGRADE_ONLY_FAST, title: '唯快不破', desc: '攻击速度 +20%（不改变蓄力时间）；可叠', tier: 'advanced', bond: BOND_QIAN },
 
   { id: UPGRADE_REFINE, title: '精益求精', desc: '暴击率每 30% 使暴击伤害 +0.2；可叠', tier: 'advanced', bond: BOND_QIAN },
+
+  { id: UPGRADE_KNOCKBACK, title: '击退', desc: '命中击退 +1 身位', tier: 'advanced' },
+
+  { id: UPGRADE_TAMER, title: '驯兽师', desc: '跟班伤害 +5、跟班移速 +0.05', bond: BOND_UNITY },
+
+  { id: UPGRADE_DEMON, title: '恶魔', desc: '生成 1 个恶魔跟班（基础伤害 10+角色伤害×20%）', tier: 'advanced', bond: BOND_UNITY },
+
+  { id: UPGRADE_SLIME_GG, title: '史莱姆gg', desc: '生成 2 个史莱姆跟班（g-1、g-2），基础伤害 5', bond: BOND_UNITY },
+
+  { id: UPGRADE_COMPANIONSHIP, title: '伴我同行', desc: '角色每击杀 100 怪物，跟班伤害 +1（+0.5/层）', bond: BOND_UNITY },
 
   { id: UPGRADE_EGG, title: '奇怪的蛋', desc: '生成 1 个可成长的蛋跟班；可叠', tier: 'advanced', bond: BOND_UNITY },
 
@@ -319,7 +359,7 @@ export function descFor(idOrUpgrade, charId) {
 export const BOND_DESC = {
   [BOND_QIAN]: '不同种类升级集齐解锁档位，按角色等级补发',
   [BOND_UNITY]: '不同跟班集齐解锁档位',
-  [BOND_VAJRA]: '大娃与黑洞两种都选择后解锁',
+  [BOND_VAJRA]: '集齐七兄弟解锁',
 }
 
 export const BOND_TIERS = {
@@ -335,7 +375,10 @@ export const BOND_TIERS = {
     { rank: 6, text: '跟班攻击单位 +1' },
     { rank: 8, text: '跟班移速 +0.2；伤害 +10；优先攻击角色的目标' },
   ],
-  [BOND_VAJRA]: [{ rank: 2, text: '敬请期待' }],
+  [BOND_VAJRA]: [
+    { rank: 7, text: '每 3.0s 释放七色脉冲（范围 1.5 身位，伤害攻击×1.3，独立暴击；减速 30% 持续 0.4s）' },
+    { rank: 7, text: '所有葫芦娃效果值 +10%（加法）' },
+  ],
 }
 
 export function bondTiers(bondId) {

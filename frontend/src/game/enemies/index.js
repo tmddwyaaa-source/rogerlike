@@ -97,6 +97,21 @@ import {
   snailSpeedPx,
   splitSpeedMul,
   splitSpeedPx,
+  SPAWN_WARN_SEC,
+  STINGER_ADVANCED_CHANCE,
+  STINGER_CRYSTALS,
+  STINGER_INTERVAL,
+  STINGER_UNLOCK_SEC,
+  stingerHp,
+  stingerSpawnCount,
+  stingerSpeedPx,
+  ICE_MAN_ADVANCED_CHANCE,
+  SCORPION_FIRST_SHOT_RAND_MAX_SEC,
+  ELITE_ADVANCED_CHANCE,
+  ELITE_CHANCE_BASE,
+  ELITE_CHANCE_PER_MIN,
+  ICE_BULLET_DMG,
+  ICE_LEAVE_MARGIN,
 } from '../spawner/index.js'
 import { applyOrchidHeal, stepIceManMove, stepIceManRegen, stepOrchidMove } from './ice.js'
 import { stepScorpionMove } from './scorpion.js'
@@ -104,6 +119,7 @@ import { outlineSheet } from './outline.js'
 import { drawStickman, STICKMAN_H, STICKMAN_W } from '../render/stickman.js'
 import {
   BLACK_KEY,
+  ARMOR_OUTLINE,
   CREEP_DRAW,
   CREEP_SRC,
   GRAY_DRAW,
@@ -119,6 +135,9 @@ import {
   SLIME_X3_SRC,
   SNAIL_SRC,
   SPLIT_SRC,
+  STINGER_SRC,
+  ELITE_OUTLINE,
+  ICE_BULLET_OUTLINE,
 } from './constants.js'
 
 export { outlinePixels, outlineSheet } from './outline.js'
@@ -139,6 +158,9 @@ export {
   SLIME_X3_SRC,
   SNAIL_SRC,
   SPLIT_SRC,
+  STINGER_SRC,
+  ELITE_OUTLINE,
+  ICE_BULLET_OUTLINE,
 } from './constants.js'
 
 export {
@@ -215,6 +237,23 @@ export {
   snailSpeedPx,
   splitSpeedMul,
   splitSpeedPx,
+  SPAWN_WARN_SEC,
+  STINGER_ADVANCED_CHANCE,
+  STINGER_CRYSTALS,
+  STINGER_INTERVAL,
+  STINGER_UNLOCK_SEC,
+  stingerHp,
+  stingerSpawnCount,
+  stingerSpeedMul,
+  stingerSpeedPx,
+  ICE_MAN_ADVANCED_CHANCE,
+  SCORPION_SHOT_PERIOD,
+  SCORPION_FIRST_SHOT_RAND_MAX_SEC,
+  ELITE_CHANCE_BASE,
+  ELITE_CHANCE_PER_MIN,
+  ELITE_ADVANCED_CHANCE,
+  ICE_BULLET_DMG,
+  ICE_LEAVE_MARGIN,
 } from '../spawner/index.js'
 
 function clamp(n, lo, hi) {
@@ -256,7 +295,14 @@ function loadImage(src) {
 function drawSprite(ctx, sheet, ent, fallback) {
   const dx = Math.round(ent.x - ent.w / 2)
   const dy = Math.round(ent.y - ent.h / 2)
-  const spr = (ent.armor ?? 0) > 0 && sheet?.armored ? sheet.armored : sheet
+  const spr =
+    ent.elite && ent.armor > 0 && sheet?.eliteArmored
+      ? sheet.eliteArmored
+      : ent.elite && sheet?.elite
+        ? sheet.elite
+        : (ent.armor ?? 0) > 0 && sheet?.armored
+          ? sheet.armored
+          : sheet
   if (spr && (spr.naturalWidth || spr.width)) {
     const sw = spr.naturalWidth || spr.width
     const sh = spr.naturalHeight || spr.height
@@ -289,13 +335,23 @@ export function createEnemies(opts = {}) {
   let snailAcc = 0
   let slimeAcc = 0
   let scorpionAcc = 0
+  let stingerAcc = 0
   let grayStarted = false
   let snailStarted = false
   let slimeStarted = false
   let scorpionStarted = false
+  let stingerStarted = false
   let iceManDeaths = 0
   let iceRespawnAt = null
   let elapsed = 0
+  /** P25 生成预警：待生成队列 { kind, x, y, hp, ready }。 */
+  const pending = []
+  /** P26 四娃/五娃效果粒子：{ x, y, vy, life, maxLife, kind: 'burn' | 'slow', src }。 */
+  const particles = []
+  const BURN_PARTICLE_INTERVAL = 0.15
+  const SLOW_PARTICLE_INTERVAL = 0.2
+  const PARTICLE_LIFE = 0.7
+  const PARTICLE_RISE = 26
   let mushroomSheet = null
   let snailSheet = null
   let splitSheet = null
@@ -304,6 +360,7 @@ export function createEnemies(opts = {}) {
   let iceManSheet = null
   let orchidSheet = null
   let scorpionSheet = null
+  let stingerSheet = null
   let iceBulletSheet = null
   let graySprite = null
 
@@ -314,6 +371,63 @@ export function createEnemies(opts = {}) {
 
   function liveOf(kind) {
     return targets.filter((e) => e.kind === kind && e.hp > 0)
+  }
+
+  /** P26 五娃减速消费：slowLeft>0 时移动乘 slowFactor（否则正常）。 */
+  function effSpd(ent, base) {
+    return (ent.slowLeft ?? 0) > 0 ? base * (ent.slowFactor ?? 1) : base
+  }
+
+  /** P26 四娃/五娃粒子：效果激活时生成上升粒子，效果结束或怪物死亡即移除。 */
+  function tickParticles(dt) {
+    for (const ent of targets) {
+      if (ent.hp <= 0) continue
+      if ((ent.burnLeft ?? 0) > 0) {
+        ent.burnAcc = (ent.burnAcc ?? 0) + dt
+        while (ent.burnAcc >= BURN_PARTICLE_INTERVAL) {
+          ent.burnAcc -= BURN_PARTICLE_INTERVAL
+          particles.push({
+            x: ent.x + (random() - 0.5) * ent.w,
+            y: ent.y - ent.h * 0.4,
+            vy: -PARTICLE_RISE,
+            life: PARTICLE_LIFE,
+            maxLife: PARTICLE_LIFE,
+            kind: 'burn',
+            src: ent,
+          })
+        }
+      }
+      if ((ent.slowLeft ?? 0) > 0) {
+        ent.slowAcc = (ent.slowAcc ?? 0) + dt
+        while (ent.slowAcc >= SLOW_PARTICLE_INTERVAL) {
+          ent.slowAcc -= SLOW_PARTICLE_INTERVAL
+          particles.push({
+            x: ent.x + (random() - 0.5) * ent.w,
+            y: ent.y - ent.h * 0.4,
+            vy: -PARTICLE_RISE,
+            life: PARTICLE_LIFE,
+            maxLife: PARTICLE_LIFE,
+            kind: 'slow',
+            src: ent,
+          })
+        }
+      }
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i]
+      const src = p.src
+      const ended =
+        !src ||
+        src.hp <= 0 ||
+        (p.kind === 'burn' ? (src.burnLeft ?? 0) <= 0 : (src.slowLeft ?? 0) <= 0)
+      if (ended) {
+        particles.splice(i, 1)
+        continue
+      }
+      p.y += p.vy * dt
+      p.life -= dt
+      if (p.life <= 0) particles.splice(i, 1)
+    }
   }
 
   function bindTakeHit(ent, onDead) {
@@ -387,9 +501,29 @@ export function createEnemies(opts = {}) {
       hp: h,
       maxHp: h,
       knockbackResist: 0,
-      shotCd: 0,
+      // P25 蝎子独立 CD：首射随机 0~5s 错峰，之后各自 5s 节奏。
+      shotCd: random() * SCORPION_FIRST_SHOT_RAND_MAX_SEC,
       contactDamage: 1,
     })
+  }
+
+  function spawnStingerAt(x, y, hp) {
+    const h = hp ?? stingerHp(elapsed, extraHp())
+    return spawnMob('stinger', x, y, {
+      name: '毒刺怪',
+      speedKind: 'stinger',
+      hp: h,
+      maxHp: h,
+      knockbackResist: BODY,
+      contactDamage: 1,
+    })
+  }
+
+  /** P25 六娃失锁消费：读 M4 导出的失锁状态（只读本模块），真则近战不靠近、远程不开火。 */
+  function isBlind(ent) {
+    if (hooks.isTargetBlind?.(ent)) return true
+    if (typeof opts.player?.isTargetBlind === 'function' && opts.player.isTargetBlind(ent)) return true
+    return (ent.unlockT ?? 0) > 0
   }
 
   function spawnSlimeX1At(x, y, hp) {
@@ -463,7 +597,7 @@ export function createEnemies(opts = {}) {
       barrageShots: null,
       barrageT: 0,
       orchidCd: ICE_ORCHID_PERIOD,
-      contactDamage: 1,
+      contactDamage: ICE_BULLET_DMG,
     })
     bindIceManHit(ent)
     return ent
@@ -539,7 +673,7 @@ export function createEnemies(opts = {}) {
     return spawnDummyAt(px + DUMMY_OFFSET, py)
   }
 
-  function spawnIceBullet(x, y, tx, ty, speed = ICE_BULLET_SPEED) {
+  function spawnIceBullet(x, y, tx, ty, speed = ICE_BULLET_SPEED, dmg = 1) {
     const dx = (tx ?? x) - x
     const dy = (ty ?? y) - y
     const len = Math.hypot(dx, dy) || 1
@@ -552,6 +686,7 @@ export function createEnemies(opts = {}) {
       w: ICE_BULLET_DRAW,
       h: ICE_BULLET_DRAW,
       life: 5,
+      dmg,
     })
   }
 
@@ -581,26 +716,97 @@ export function createEnemies(opts = {}) {
     return tree
   }
 
+  const ELITE_KINDS = new Set(['creep', 'snail', 'slime_x1', 'scorpion', 'stinger'])
+
+  function isEliteKind(kind) {
+    return ELITE_KINDS.has(kind)
+  }
+
+  /** P27 强化怪（难度二）：概率 min(1, 0.02 + 0.02×floor(分钟))；难度一恒 false。 */
+  function rollElite() {
+    if (extraHp() <= 0) return false
+    const p = Math.min(1, ELITE_CHANCE_BASE + ELITE_CHANCE_PER_MIN * Math.floor(elapsed / 60))
+    return random() < p
+  }
+
+  function applyElite(ent) {
+    ent.hp *= 2
+    ent.maxHp *= 2
+    ent.knockbackResist = (ent.knockbackResist ?? 0) + BODY
+    ent.elite = true
+    return ent
+  }
+
+  function spawnKind(kind, x, y, hp, opts = {}) {
+    let ent
+    if (kind === 'creep') ent = spawnCreepAt(x, y, opts.speedKind ?? 'regular', hp)
+    else if (kind === 'snail') ent = spawnSnailAt(x, y, hp)
+    else if (kind === 'slime_x1') ent = spawnSlimeX1At(x, y, hp)
+    else if (kind === 'scorpion') ent = spawnScorpionAt(x, y, hp)
+    else if (kind === 'stinger') ent = spawnStingerAt(x, y, hp)
+    else ent = spawnGrayAt(x, y, hp)
+    if (opts.elite) applyElite(ent)
+    return ent
+  }
+
+  /** P27 红圈全怪：只对「可生成敌人」显示出生前红圈；灰树/boss/兰花/树/木桩不加。 */
+  const SPAWN_WARN_KINDS = new Set(['creep', 'snail', 'slime_x1', 'scorpion', 'stinger'])
+
+  /** P25 生成预警：先入 pending，SPAWN_WARN_SEC 后才真正出生（这期间画红圈）。 */
   function trySpawn(kind, hp, tFocus, camera) {
     const pos = pickNearOutOfView(tFocus, camera, random, BODY)
-    if (kind === 'creep') return spawnCreepAt(pos.x, pos.y, 'regular', hp)
-    if (kind === 'snail') return spawnSnailAt(pos.x, pos.y, hp)
-    if (kind === 'slime_x1') return spawnSlimeX1At(pos.x, pos.y, hp)
-    if (kind === 'scorpion') return spawnScorpionAt(pos.x, pos.y, hp)
-    return spawnGrayAt(pos.x, pos.y, hp)
+    if (!SPAWN_WARN_KINDS.has(kind)) return spawnKind(kind, pos.x, pos.y, hp)
+    const elite = isEliteKind(kind) && rollElite()
+    pending.push({
+      kind,
+      x: pos.x,
+      y: pos.y,
+      hp,
+      ready: elapsed + SPAWN_WARN_SEC,
+      speedKind: kind === 'creep' ? 'regular' : undefined,
+      elite,
+    })
+  }
+
+  function tickPendings(player) {
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const p = pending[i]
+      if (elapsed < p.ready - 1e-9) continue
+      spawnKind(p.kind, p.x, p.y, p.hp, { speedKind: p.speedKind, elite: p.elite })
+      pending.splice(i, 1)
+    }
+  }
+
+  /** 高级结晶掉落：每个独立掷 advancedChance；优先走 M7 的 spawnCrystalAt。 */
+  function spawnDrop(x, y, advanced) {
+    if (advanced && typeof hooks.spawnCrystalAt === 'function') {
+      hooks.spawnCrystalAt(x, y, { advanced: true })
+      return
+    }
+    hooks.spawnCrystal?.(x, y)
+  }
+
+  function dropCrystals(x, y, n, advancedChance = 0) {
+    for (let i = 0; i < n; i++) {
+      const jx = (random() - 0.5) * BODY
+      const jy = (random() - 0.5) * BODY
+      const advanced = advancedChance > 0 && random() < advancedChance
+      spawnDrop(x + jx, y + jy, advanced)
+    }
   }
 
   function dropIceCrystals(ent) {
-    const n = ICE_MAN_CRYSTALS
-    if (typeof hooks.spawnCrystalBurst === 'function') {
-      hooks.spawnCrystalBurst(ent.x, ent.y, n)
-    } else {
-      for (let i = 0; i < n; i++) {
-        const jx = (random() - 0.5) * BODY
-        const jy = (random() - 0.5) * BODY
-        hooks.spawnCrystal?.(ent.x + jx, ent.y + jy)
-      }
-    }
+    dropCrystals(ent.x, ent.y, ICE_MAN_CRYSTALS, ICE_MAN_ADVANCED_CHANCE)
+  }
+
+  /** 普通怪结晶数量（强化怪沿用同数量，仅概率不同）。 */
+  function normalCrystalCount(ent) {
+    if (ent.kind === 'scorpion') return SCORPION_CRYSTALS
+    if (ent.kind === 'slime_x1') return SLIME_X1_CRYSTALS
+    if (ent.kind === 'stinger') return STINGER_CRYSTALS
+    if (ent.kind === 'slime_x3') return rollSlimeX3Crystals(random)
+    if (ent.kind === 'orchid' || ent.kind === 'dummy') return 0
+    return 1
   }
 
   function killCreep(ent) {
@@ -611,10 +817,20 @@ export function createEnemies(opts = {}) {
       hooks.onKill?.(ent)
       return
     }
-    let n = 1
-    if (ent.kind === 'slime_x1' || ent.kind === 'scorpion') n = ent.kind === 'scorpion' ? SCORPION_CRYSTALS : SLIME_X1_CRYSTALS
-    else if (ent.kind === 'slime_x3') n = rollSlimeX3Crystals(random)
-    else if (ent.kind === 'orchid' || ent.kind === 'dummy') n = 0
+    if (ent.elite) {
+      const n = normalCrystalCount(ent)
+      dropCrystals(ent.x, ent.y, n, ELITE_ADVANCED_CHANCE)
+      if (n > 0) hooks.onExp?.(n)
+      hooks.onKill?.(ent)
+      return
+    }
+    if (ent.kind === 'stinger') {
+      dropCrystals(ent.x, ent.y, STINGER_CRYSTALS, STINGER_ADVANCED_CHANCE)
+      hooks.onExp?.(STINGER_CRYSTALS)
+      hooks.onKill?.(ent)
+      return
+    }
+    const n = normalCrystalCount(ent)
     for (let i = 0; i < n; i++) hooks.spawnCrystal?.(ent.x, ent.y)
     if (n > 0) hooks.onExp?.(n)
     hooks.onKill?.(ent)
@@ -640,6 +856,8 @@ export function createEnemies(opts = {}) {
 
   function chase(ent, focus, dt, tier) {
     if (ent.kind === 'ice_man' || ent.kind === 'orchid' || ent.kind === 'dummy' || ent.kind === 'scorpion') return
+    // P25 六娃失锁：近战不靠近。
+    if (isBlind(ent)) return
     let spd
     if (ent.kind === 'slime_x1') {
       ent.speedMul = slimeX1SpeedMul(elapsed)
@@ -647,8 +865,10 @@ export function createEnemies(opts = {}) {
     } else if (ent.kind === 'slime_x3') {
       spd = SPEED_PX_PER_UNIT * (ent.speedMul ?? slimeX1SpeedMul(elapsed) + SLIME_X3_SPEED_BONUS)
     } else if (ent.kind === 'snail') spd = snailSpeedPx(elapsed)
+    else if (ent.kind === 'stinger') spd = stingerSpeedPx(elapsed)
     else if (ent.speedKind === 'split') spd = splitSpeedPx(tier)
     else spd = creepSpeedPx(tier)
+    spd = effSpd(ent, spd)
     const dx = (focus?.x ?? ent.x) - ent.x
     const dy = (focus?.y ?? ent.y) - ent.y
     const len = Math.hypot(dx, dy)
@@ -674,7 +894,7 @@ export function createEnemies(opts = {}) {
       const ex = ent.x - hw / 2
       const ey = ent.y - hh / 2
       if (!overlaps(px, py, pw, ph, ex, ey, hw, hh)) continue
-      focus.takeDamage?.(1)
+      focus.takeDamage?.(ent.contactDamage ?? 1)
       if (ent.kind === 'gray') {
         ent.hp = 0
         ent.dead = true
@@ -690,7 +910,16 @@ export function createEnemies(opts = {}) {
       const radius = Math.max(CREEP_DRAW, GRAY_BURST_RADIUS)
       for (let k = 0; k < GRAY_BURST_COUNT; k++) {
         const pos = grayBurstOffset(k, x, y, radius)
-        spawnCreepAt(pos.x, pos.y, 'split', hp)
+        // P27 红圈全怪：裂怪也走待生成红圈；强化怪同样掷概率。
+        pending.push({
+          kind: 'creep',
+          x: pos.x,
+          y: pos.y,
+          hp,
+          ready: elapsed + SPAWN_WARN_SEC,
+          speedKind: 'split',
+          elite: isEliteKind('creep') && rollElite(),
+        })
       }
       bursts.splice(i, 1)
     }
@@ -707,9 +936,14 @@ export function createEnemies(opts = {}) {
 
     creepAcc += dt
     const cInt = mushroomSpawnInterval()
-    while (creepAcc >= cInt) {
-      creepAcc -= cInt
-      spawnWave('creep', mushroomSpawnCount(elapsed), rate, mushroomHp(elapsed, extraHp()), focus, camera)
+    if (elapsed < STINGER_UNLOCK_SEC) {
+      while (creepAcc >= cInt) {
+        creepAcc -= cInt
+        spawnWave('creep', mushroomSpawnCount(elapsed), rate, mushroomHp(elapsed, extraHp()), focus, camera)
+      }
+    } else {
+      // P25：300s 起蘑菇怪停刷，刷怪位由毒刺怪接管（场上存量保留至死亡）。
+      creepAcc = 0
     }
 
     if (elapsed < GRAY_UNLOCK_SEC) {
@@ -787,6 +1021,21 @@ export function createEnemies(opts = {}) {
       }
     }
 
+    if (elapsed < STINGER_UNLOCK_SEC) {
+      stingerAcc = 0
+      stingerStarted = false
+    } else if (!stingerStarted) {
+      stingerStarted = true
+      spawnWave('stinger', stingerSpawnCount(elapsed), rate, stingerHp(elapsed, extraHp()), focus, camera)
+      stingerAcc = 0
+    } else {
+      stingerAcc += dt
+      while (stingerAcc >= STINGER_INTERVAL) {
+        stingerAcc -= STINGER_INTERVAL
+        spawnWave('stinger', stingerSpawnCount(elapsed), rate, stingerHp(elapsed, extraHp()), focus, camera)
+      }
+    }
+
     if (
       elapsed >= ICE_MAN_UNLOCK_SEC &&
       liveOf('ice_man').length === 0 &&
@@ -794,8 +1043,9 @@ export function createEnemies(opts = {}) {
       focus &&
       camera
     ) {
+      // P27：boss 不加红圈预警，直接出生。
       const pos = pickNearOutOfView(focus, camera, random, BODY)
-      spawnIceManAt(pos.x, pos.y, focus)
+      spawnIceManAt(pos.x, pos.y, focus, iceManRespawnHp(iceManDeaths))
     }
   }
 
@@ -803,15 +1053,17 @@ export function createEnemies(opts = {}) {
     const pts = barragePoints(shot.group, camera)
     const pt = pts[shot.i]
     if (!pt || !player) return
-    spawnIceBullet(pt.x, pt.y, player.x, player.y)
+    spawnIceBullet(pt.x, pt.y, player.x, player.y, ICE_BULLET_SPEED, ICE_BULLET_DMG)
   }
 
   function tickIceAbilities(ent, player, camera, dt) {
     if (ent.kind !== 'ice_man' || ent.hp <= 0) return
+    // P25 六娃失锁：不锁定角色，不新开冲刺/弹幕（已在飞/已在冲的跑完）。
+    const blind = isBlind(ent)
 
     if (ent.dashPhase === 'telegraph') {
       ent.dashT -= dt
-      if (ent.dashT <= 0 && player) {
+      if (ent.dashT <= 0 && player && !blind) {
         const dx = player.x - ent.x
         const dy = player.y - ent.y
         const len = Math.hypot(dx, dy) || 1
@@ -822,6 +1074,9 @@ export function createEnemies(opts = {}) {
         ent.dashTy = player.y
         ent.dashTraveled = 0
         ent.dashSpd = playerSpeedPx(player) * ICE_DASH_SPEED_MUL
+      } else if (ent.dashT <= 0 && blind) {
+        ent.dashPhase = 'idle'
+        ent.dashCd = ICE_DASH_PERIOD
       }
     } else if (ent.dashPhase === 'dash') {
       if ((ent.dashTraveled ?? 0) >= ICE_DASH_DIST - 1e-6) {
@@ -836,7 +1091,7 @@ export function createEnemies(opts = {}) {
       }
     } else {
       ent.dashCd -= dt
-      if (ent.dashCd <= 0) {
+      if (ent.dashCd <= 0 && !blind) {
         ent.dashLeft = rollIceDashCount(random)
         ent.dashPhase = 'telegraph'
         ent.dashT = ICE_DASH_TELEGRAPH
@@ -854,7 +1109,7 @@ export function createEnemies(opts = {}) {
       }
     } else {
       ent.barrageCd -= dt
-      if (ent.barrageCd <= 0 && camera) {
+      if (ent.barrageCd <= 0 && camera && !blind) {
         const patterns = shuffleCopy(ICE_BARRAGE_PATTERNS, random)
         ent.barrageShots = planBarrageSet(patterns)
         ent.barrageT = 0
@@ -888,7 +1143,7 @@ export function createEnemies(opts = {}) {
         const pw = player.hurtW ?? Math.max(4, Math.round((player.w ?? BODY_W) * 0.55))
         const ph = player.hurtH ?? Math.max(6, Math.round((player.h ?? BODY) * 0.45))
         if (overlaps(player.x - pw / 2, player.y - ph / 2, pw, ph, b.x - b.w / 2, b.y - b.h / 2, b.w, b.h)) {
-          player.takeDamage?.(1)
+          player.takeDamage?.(b.dmg ?? 1)
           hit = true
         }
       }
@@ -922,8 +1177,8 @@ export function createEnemies(opts = {}) {
       } else if (ent.kind === 'orchid') {
         stepOrchidMove(ent, targets, dt)
       } else if (ent.kind === 'scorpion') {
-        const mode = stepScorpionMove(ent, player, dt, scorpionSpeedPx(elapsed))
-        if (mode === 'hold' && player) {
+        const mode = stepScorpionMove(ent, player, dt, effSpd(ent, scorpionSpeedPx(elapsed)))
+        if (mode === 'hold' && player && !isBlind(ent)) {
           ent.shotCd = (ent.shotCd ?? 0) - dt
           if (ent.shotCd <= 0) {
             spawnIceBullet(ent.x, ent.y, player.x, player.y, SCORPION_BULLET_SPEED)
@@ -948,6 +1203,9 @@ export function createEnemies(opts = {}) {
       if ((ent.spawnInvuln ?? 0) > 0) {
         ent.spawnInvuln = Math.max(0, ent.spawnInvuln - dt)
       }
+      if ((ent.unlockT ?? 0) > 0) {
+        ent.unlockT = Math.max(0, ent.unlockT - dt)
+      }
     }
     for (const ent of targets) {
       if (ent.kind === 'gray' && ent.hp > 0) {
@@ -961,12 +1219,14 @@ export function createEnemies(opts = {}) {
     tickOrchidHeals(dt)
     reap()
     tickBursts()
+    tickPendings(player)
+    tickParticles(dt)
     tickSpawns(dt, player, camera, tier, spawnRate)
   }
 
   async function loadAssets() {
     if (typeof Image === 'undefined') return null
-    const [mushImg, snailImg, splitImg, slime1Img, slime3Img, iceImg, orchidImg, scorpImg, bulletImg, grayImg] =
+    const [mushImg, snailImg, splitImg, slime1Img, slime3Img, iceImg, orchidImg, scorpImg, stingerImg, bulletImg, grayImg] =
       await Promise.all([
         loadImage(CREEP_SRC),
         loadImage(SNAIL_SRC),
@@ -976,13 +1236,16 @@ export function createEnemies(opts = {}) {
         loadImage(ICE_MAN_SRC),
         loadImage(ORCHID_SRC),
         loadImage(SCORPION_SRC),
+        loadImage(STINGER_SRC),
         loadImage(ICE_BULLET_SRC),
         loadImage(GRAY_SRC),
       ])
     const sheet = (img) => {
       try {
         const base = chromaBlack(img)
-        base.armored = outlineSheet(base)
+        base.armored = outlineSheet(base, ARMOR_OUTLINE)
+        base.elite = outlineSheet(base, ELITE_OUTLINE)
+        base.eliteArmored = outlineSheet(base.armored, ELITE_OUTLINE)
         return base
       } catch {
         return img
@@ -996,7 +1259,9 @@ export function createEnemies(opts = {}) {
     iceManSheet = sheet(iceImg)
     orchidSheet = sheet(orchidImg)
     scorpionSheet = sheet(scorpImg)
-    iceBulletSheet = sheet(bulletImg)
+    stingerSheet = sheet(stingerImg)
+    // P27 冰人子弹：素材最外圈蓝色。
+    iceBulletSheet = outlineSheet(chromaBlack(bulletImg), ICE_BULLET_OUTLINE)
     graySprite = grayImg
     return {
       mushroomSheet,
@@ -1007,6 +1272,7 @@ export function createEnemies(opts = {}) {
       iceManSheet,
       orchidSheet,
       scorpionSheet,
+      stingerSheet,
       iceBulletSheet,
       graySprite,
     }
@@ -1014,6 +1280,16 @@ export function createEnemies(opts = {}) {
 
   function draw(ctx) {
     if (!ctx) return
+    // P25 生成预警：出生前落点画红色空心圈占位。
+    ctx.strokeStyle = '#ff4040'
+    ctx.lineWidth = 1
+    for (const p of pending) {
+      if (elapsed >= p.ready - 1e-9) continue
+      const radius = p.kind === 'ice_man' ? ICE_MAN_DRAW / 2 : CREEP_DRAW / 2
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2)
+      ctx.stroke()
+    }
     for (const ent of targets) {
       if (ent.kind === 'gray') drawGray(ctx, ent)
     }
@@ -1040,9 +1316,25 @@ export function createEnemies(opts = {}) {
         drawSprite(ctx, orchidSheet, ent, { a: '#3a2050', b: '#c878d0' })
       } else if (ent.kind === 'scorpion') {
         drawSprite(ctx, scorpionSheet, ent, { a: '#3a2010', b: '#c87828' })
+      } else if (ent.kind === 'stinger') {
+        drawSprite(ctx, stingerSheet, ent, { a: '#4a2a1a', b: '#d87838' })
       } else if (ent.kind === 'dummy') {
         drawStickman(ctx, ent)
       }
+    }
+    // P26 四娃/五娃粒子：越升颜色越浅（越靠近生命末端越浅）。
+    for (const p of particles) {
+      const t = 1 - Math.max(0, p.life) / p.maxLife
+      const a = 0.2 + 0.8 * (p.life / p.maxLife)
+      const px = Math.round(p.x)
+      const py = Math.round(p.y)
+      if (p.kind === 'burn') {
+        ctx.fillStyle = `rgba(255, ${Math.round(60 + 120 * t)}, ${Math.round(50 + 150 * t)}, ${a})`
+      } else {
+        ctx.fillStyle = `rgba(${Math.round(70 + 120 * t)}, ${Math.round(140 + 110 * t)}, 255, ${a})`
+      }
+      ctx.fillRect(px - 1, py - 1, 2, 2)
+      ctx.fillRect(px - 3, py + 1, 2, 2)
     }
     for (const b of iceBullets) {
       drawSprite(ctx, iceBulletSheet, b, { a: '#1a3048', b: '#80d0ff' })
@@ -1082,6 +1374,7 @@ export function createEnemies(opts = {}) {
     spawnCreepAt,
     spawnSnailAt,
     spawnScorpionAt,
+    spawnStingerAt,
     spawnSlimeX1At,
     spawnSlimeX3At,
     spawnGrayAt,
@@ -1093,6 +1386,9 @@ export function createEnemies(opts = {}) {
     creeps: () => liveOf('creep'),
     snails: () => liveOf('snail'),
     scorpions: () => liveOf('scorpion'),
+    stingers: () => liveOf('stinger'),
+    pending,
+    particles,
     slimesX1: () => liveOf('slime_x1'),
     slimesX3: () => liveOf('slime_x3'),
     iceMen: () => liveOf('ice_man'),

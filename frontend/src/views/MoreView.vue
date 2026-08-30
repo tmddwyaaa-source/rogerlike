@@ -1,8 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { descFor } from '../ui/constants.js'
+import { descFor, charById, BOND_DESC, bondTiers, formatCharStats } from '../ui/constants.js'
+import { listActiveBonds } from '../ui/session.js'
 import { loadMemories, summarizePicked } from '../ui/memories.js'
 import PixelIcon from './PixelIcon.vue'
+import RangerPortrait from './RangerPortrait.vue'
 
 defineProps({
   charId: { type: String, default: 'ranger' },
@@ -16,6 +18,11 @@ const current = ref(null)
 
 const list = computed(() => memories.value)
 const pickedIcons = computed(() => summarizePicked(current.value?.upgrades))
+/** 回忆对局角色：优先本局记录 charId，缺失兜底默认游侠。 */
+const memCharId = computed(() => current.value?.charId || 'ranger')
+const memIdleSrc = computed(() => charById(memCharId.value)?.idleSrc || '')
+const hoverPortrait = ref(false)
+const bondsListen = computed(() => listActiveBonds(current.value?.upgrades || []))
 
 function hearts(hp, hpMax) {
   const n = Math.max(0, hpMax | 0)
@@ -84,38 +91,66 @@ defineExpose({
       <h2 class="rl-h2">对局</h2>
       <div class="rl-mem-detail">
         <div class="rl-mem-hero rl-frame--dark">
-          <div class="rl-mem-hero-top">
-            <strong>{{ current.win ? '幸存' : '结束' }}</strong>
-            <span class="rl-mem-lv">Lv.{{ current.level ?? 1 }}</span>
+          <div
+            class="rl-mem-portrait"
+            @mouseenter="hoverPortrait = true"
+            @mouseleave="hoverPortrait = false"
+          >
+            <RangerPortrait v-if="memIdleSrc" :src="memIdleSrc" :animate="hoverPortrait" />
+            <img v-if="memIdleSrc" class="rl-mem-shadow" src="/assets/characters/Other/Shadow.png" alt="" />
+            <span class="rl-mem-char-tip">{{ formatCharStats(charById(memCharId)) }}</span>
           </div>
-          <div class="rl-mem-attrs">
-            <span class="rl-hearts">
-              <span
-                v-for="(on, i) in hearts(current.hp, current.hpMax)"
-                :key="i"
-                class="rl-heart"
-                :class="{ on }"
-              />
-            </span>
-            <span>经验 {{ current.exp ?? 0 }}/{{ current.expNeed ?? 0 }}</span>
-            <span>存活 {{ current.timeText }}</span>
-            <span>击杀 {{ current.kills ?? 0 }}</span>
+          <div class="rl-mem-hero-body">
+            <div class="rl-mem-hero-top">
+              <strong>{{ current.win ? '幸存' : '结束' }}</strong>
+              <span class="rl-mem-lv">Lv.{{ current.level ?? 1 }}</span>
+            </div>
           </div>
         </div>
-        <div class="rl-panel rl-frame">
-          <h3>升级选项</h3>
-          <p v-if="!pickedIcons.length" class="rl-sub">本局未选择升级</p>
-          <div v-else class="rl-mem-icons">
-            <div
-              v-for="u in pickedIcons"
-              :key="u.id"
-              class="rl-mem-icon"
-              :title="descFor(u.id, charId)"
-            >
-              <PixelIcon :id="u.id" :scale="3" />
-              <span class="rl-mem-mult">×{{ u.count }}</span>
-              <span class="rl-mem-tip">{{ descFor(u.id, charId) }}</span>
+        <div class="rl-mem-attrs">
+          <span class="rl-hearts">
+            <span
+              v-for="(on, i) in hearts(current.hp, current.hpMax)"
+              :key="i"
+              class="rl-heart"
+              :class="{ on }"
+            />
+          </span>
+          <span>经验 {{ current.exp ?? 0 }}/{{ current.expNeed ?? 0 }}</span>
+          <span>存活 {{ current.timeText }}</span>
+          <span>击杀 {{ current.kills ?? 0 }}</span>
+        </div>
+        <div class="rl-mem-cols">
+          <div class="rl-panel rl-frame">
+            <h3>升级选项</h3>
+            <p v-if="!pickedIcons.length" class="rl-sub">本局未选择升级</p>
+            <div v-else class="rl-mem-icons">
+              <div
+                v-for="u in pickedIcons"
+                :key="u.id"
+                class="rl-mem-icon"
+                :title="descFor(u.id, memCharId)"
+              >
+                <PixelIcon :id="u.id" :scale="3" />
+                <span class="rl-mem-mult">×{{ u.count }}</span>
+                <span class="rl-mem-tip">{{ descFor(u.id, memCharId) }}</span>
+              </div>
             </div>
+          </div>
+          <div class="rl-mem-bond-rail">
+            <p v-if="!bondsListen.length" class="rl-sub">暂未激活羁绊</p>
+            <span v-for="b in bondsListen" :key="b.id" class="rl-bond">
+              {{ b.title }} {{ b.rank }}
+              <span class="rl-bond-tip">
+                <strong>{{ BOND_DESC[b.id] }}</strong>
+                <span
+                  v-for="t in bondTiers(b.id)"
+                  :key="t.rank"
+                  class="rl-bond-tier"
+                  :class="{ reached: t.rank <= b.rank }"
+                >档 {{ t.rank }} · {{ t.text }}</span>
+              </span>
+            </span>
           </div>
         </div>
       </div>

@@ -3,6 +3,7 @@
  */
 import { BODY, WORLD_WIDTH, WORLD_HEIGHT } from '../constants.js'
 import {
+  ARMOR_OUTLINE,
   CHAR_NAME,
   HP_MAX,
   LEVELUP_LIFE,
@@ -10,6 +11,16 @@ import {
   LEVELUP_STAGGER,
   PLAYER_SPEED,
   PLAYER_SPEED_UNITS,
+  UNLOCK_BASE_SEC,
+  UNLOCK_PER_LAYER_SEC,
+  UNLOCK_PULSE_INTERVAL_SEC,
+  UNLOCK_RADIUS,
+  UNLOCK_RADIUS_UNITS,
+  UNLOCK_RING_COLOR,
+  UNLOCK_RING_LIFE_SEC,
+  unlockDurationFor,
+  unlockRingAlpha,
+  unlockRingProgress,
   attachPlayer,
   applyMovementCode,
   clearMovementKeys,
@@ -31,12 +42,19 @@ import { STICKMAN_H, STICKMAN_W, drawStickman, WALK_FRAME_COUNT } from '../rende
 import { FRAME_H, FRAME_W, SHEET_FRAMES, SPRITE_FOOT_Y, drawRanger } from '../render/ranger.js'
 import {
   DMG_ADVANCE,
+  DMG_CRIT_BASE_HOLD,
+  DMG_CRIT_COLOR,
+  DMG_CRIT_ROLL,
+  DMG_LIFE,
   DMG_TILE,
+  dmgDisplayValue,
   dmgOutlineKind,
+  drawDamageNums,
   getDamageNums,
   resetDamageNums,
   spawnDamageNum,
   spawnHealNum as spawnHealFromRender,
+  updateDamageNums,
 } from '../render/dmgnum.js'
 
 let failed = 0
@@ -166,6 +184,107 @@ assert(
 godListener.hp = 1
 assert('onHurt god floor no call', godListener.takeDamage(1) === false && godCalls === 1)
 
+// —— P25 三娃护甲 ——
+assert('armor default 0', player.armor === 0 && player.getArmor() === 0)
+const armorPlayer = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+assert('getArmor fn exported', typeof armorPlayer.getArmor === 'function' && typeof armorPlayer.addArmor === 'function')
+assert('armor 0 to start', armorPlayer.armor === 0)
+assert('addArmor +1', armorPlayer.addArmor() === 1 && armorPlayer.armor === 1)
+const armorHp0 = armorPlayer.hp
+armorPlayer.invuln = 0
+assert('armor blocks damage no hp loss', armorPlayer.takeDamage(1) === false && armorPlayer.hp === armorHp0 && armorPlayer.armor === 0)
+armorPlayer.addArmor(3)
+assert('addArmor stacks 3', armorPlayer.armor === 3)
+armorPlayer.invuln = 0
+armorPlayer.takeDamage(1)
+assert('armor consumes 1 layer', armorPlayer.armor === 2 && armorPlayer.hp === armorHp0)
+armorPlayer.invuln = 0
+armorPlayer.takeDamage(1)
+assert('armor consumes 2nd layer', armorPlayer.armor === 1 && armorPlayer.hp === armorHp0)
+armorPlayer.invuln = 0
+armorPlayer.takeDamage(1)
+assert('armor infinite stack consumes all', armorPlayer.armor === 0 && armorPlayer.hp === armorHp0)
+let armorHurt = 0
+const armorListener = createPlayer({
+  keys: { w: false, a: false, s: false, d: false },
+  onHurt: () => { armorHurt += 1 },
+})
+armorListener.armor = 1
+armorListener.invuln = 0
+assert('armor block no onHurt', armorListener.takeDamage(1) === false && armorHurt === 0 && armorListener.armor === 0 && armorListener.hp === 3)
+assert('ARMOR_OUTLINE 黄边', ARMOR_OUTLINE === '#e0b84a')
+// P27：护盾视觉改为阴影素材描黄（去矩形），draw 不再用 fillRect 画边框矩形；带甲 draw 不抛错。
+const armored = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+armored.armor = 1
+armored.invuln = 0
+let armorDrawOk = true
+try {
+  armored.draw({
+    fillRect() {},
+    fillStyle: '',
+    globalAlpha: 1,
+    beginPath() {},
+    arc() {},
+    stroke() {},
+  })
+} catch {
+  armorDrawOk = false
+}
+assert('armor draw no throw / armor intact', armorDrawOk && armored.armor === 1 && armored.getArmor() === 1)
+
+// —— P25 六娃失锁脉冲（角色侧） ——
+assert('unlock base 1.0', UNLOCK_BASE_SEC === 1.0)
+assert('unlock per layer 0.5', UNLOCK_PER_LAYER_SEC === 0.5)
+assert('unlock interval 10', UNLOCK_PULSE_INTERVAL_SEC === 10)
+assert('unlock radius 3 body', UNLOCK_RADIUS_UNITS === 3 && UNLOCK_RADIUS === 3 * BODY)
+assert('unlockDurationFor 0', unlockDurationFor(0) === 1.0)
+assert('unlockDurationFor 1', unlockDurationFor(1) === 1.5)
+assert('unlockDurationFor 2', unlockDurationFor(2) === 2.0)
+assert('unlockDurationFor floor neg', unlockDurationFor(-3) === 1.0)
+const unlockPlayer = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+assert('unlockLevel default 0', unlockPlayer.unlockLevel === 0)
+assert('addUnlockLevel +1', unlockPlayer.addUnlockLevel() === 1 && unlockPlayer.unlockLevel === 1)
+assert('currentUnlockDuration 1 layer', unlockPlayer.currentUnlockDuration() === 1.5)
+assert('setUnlockLevel 2', unlockPlayer.setUnlockLevel(2) === 2 && unlockPlayer.unlockLevel === 2)
+assert('currentUnlockDuration 2 layers', unlockPlayer.currentUnlockDuration() === 2.0)
+const pulsePlayer = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+pulsePlayer.setUnlockLevel(1)
+const near = { x: pulsePlayer.x + UNLOCK_RADIUS - 2, y: pulsePlayer.y, hp: 10 }
+const far = { x: pulsePlayer.x + UNLOCK_RADIUS + 5, y: pulsePlayer.y, hp: 10 }
+const applied = pulsePlayer.applyUnlockPulse([near, far])
+assert('pulse marks near only', applied === 1 && (near.unlockT ?? 0) > 0 && far.unlockT == null)
+assert('isTargetBlind / isEnemyUnlocked true/false', pulsePlayer.isTargetBlind(near) === true && pulsePlayer.isEnemyUnlocked(near) === true && pulsePlayer.isTargetBlind(far) === false && pulsePlayer.isEnemyUnlocked(far) === false)
+assert('unlockRemaining', pulsePlayer.unlockRemaining(near) > 0 && pulsePlayer.unlockRemaining(far) === 0)
+// 周期脉冲：满 10 秒自动触发
+let pulseHook = 0
+const list = [near, far]
+const periodic = createPlayer({
+  keys: { w: false, a: false, s: false, d: false },
+  random: () => 0.5,
+  getTargets: () => list,
+  onUnlockPulse: () => { pulseHook += 1 },
+})
+periodic.setUnlockLevel(1)
+periodic.update(UNLOCK_PULSE_INTERVAL_SEC - 0.1)
+assert('no pulse before interval', pulseHook === 0)
+periodic.update(0.2)
+assert('pulse fires at interval', pulseHook >= 1 && (near.unlockT ?? 0) > 0 && periodic.isTargetBlind(near) === true && periodic.isEnemyUnlocked(near) === true)
+// M6/enemies 负责衰减 unlockT；M4 只写不衰减（模拟敌人侧消费）
+near.unlockT = 0
+assert('unlock expires via unlockT=0', periodic.isTargetBlind(near) === false && periodic.isEnemyUnlocked(near) === false && periodic.unlockRemaining(near) === 0)
+near.unlockT = 0.3
+assert('unlockRemaining reads countdown', Math.abs(periodic.unlockRemaining(near) - 0.3) < 1e-9)
+// P27 六娃扩散圈：#3F48CC，每次脉冲生成，越近边缘越淡、不超范围。
+assert('unlock ring color #3F48CC', UNLOCK_RING_COLOR === '#3F48CC')
+assert('unlock ring life >0', UNLOCK_RING_LIFE_SEC > 0)
+assert('pulse spawns ring', periodic.unlockRings.length >= 1 && periodic.unlockRings[0].r === UNLOCK_RADIUS && periodic.unlockRings[0].dur === UNLOCK_RING_LIFE_SEC)
+const sampleRing = periodic.unlockRings[0]
+assert('ring progress bounds', unlockRingProgress({ t: 0, dur: 1 }) === 0 && unlockRingProgress({ t: 0.5, dur: 1 }) === 0.5 && unlockRingProgress({ t: 2, dur: 1 }) === 1)
+assert('ring alpha fades to edge', unlockRingAlpha({ t: 0, dur: 1 }) === 1 && unlockRingAlpha({ t: 1, dur: 1 }) === 0)
+sampleRing.t = UNLOCK_RING_LIFE_SEC
+periodic.update(0.01)
+assert('ring expires', periodic.unlockRings.length === 0)
+
 assert('ranger skip without sheets', drawRanger({ fillRect() {}, fillStyle: '' }, player) === false)
 
 const calls = []
@@ -269,6 +388,37 @@ assert('heal 200 still green', spawnHealNum(0, 0, 200).kind === 'green')
 resetDamageNums()
 assert('damage 20 still none', spawnDamageNum(0, 0, 20).kind === 'none')
 assert('damage 100 still yellow', spawnDamageNum(0, 0, 100).kind === 'yellow')
+
+// —— P28 B3 伤害数字：实际值 + 暴击动画（非暴击 → ×倍率红字 → 滚动成实际） ——
+resetDamageNums()
+const critIt = spawnDamageNum(0, 0, 30, 'crit', { base: 20, crit: true, critMul: 1.5, damage: 30 })
+assert('crit flagged', critIt.crit === true && critIt.base === 20 && critIt.critMul === 1.5)
+assert('crit life = base+roll+life', critIt.life === DMG_CRIT_BASE_HOLD + DMG_CRIT_ROLL + DMG_LIFE)
+assert('crit shows base first', dmgDisplayValue(critIt) === 20)
+assert('crit kind by base', critIt.kind === 'none')
+updateDamageNums(DMG_CRIT_BASE_HOLD + 0.01)
+assert('crit rolls after hold', critIt.phase === 'roll' && dmgDisplayValue(critIt) < 30)
+updateDamageNums(DMG_CRIT_ROLL + 0.01)
+assert('crit reaches actual', dmgDisplayValue(critIt) === 30)
+assert('crit still alive + red', critIt.life > 0 && DMG_CRIT_COLOR === '#c42b2b')
+resetDamageNums()
+const norm = spawnDamageNum(0, 0, 20)
+assert('non-crit shows actual', norm.crit === false && dmgDisplayValue(norm) === 20)
+resetDamageNums()
+const tagTexts = []
+spawnDamageNum(0, 0, 30, 'c1', { base: 20, crit: true, critMul: 1.5, damage: 30 })
+const drawnCrit = drawDamageNums({
+  drawImage() {},
+  fillRect() {},
+  fillStyle: '',
+  globalAlpha: 1,
+  fillText(t) { tagTexts.push(t) },
+  font: '',
+  textAlign: '',
+  textBaseline: '',
+})
+assert('crit tag ×倍率 rendered', drawnCrit > 0 && tagTexts.some((t) => t.includes('1.5')))
+resetDamageNums()
 
 assert('OBJECTIVE_TEXT kept', OBJECTIVE_LIFE === 5 && OBJECTIVE_TEXT === '目标：活够10分钟')
 assert('queueObjectiveFx exported', typeof queueObjectiveFx === 'function')

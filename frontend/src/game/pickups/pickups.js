@@ -1,5 +1,11 @@
 import { BODY } from '../constants.js'
 import {
+  ADVANCED_CRYSTAL_COLOR,
+  ADVANCED_CRYSTAL_EXP,
+  ADVANCED_CRYSTAL_RIM,
+  CRYSTAL_COLOR,
+  CRYSTAL_EXP,
+  CRYSTAL_HI_COLOR,
   CRYSTAL_SIZE,
   FRUIT_CHANCE,
   FRUIT_H,
@@ -25,7 +31,13 @@ export function createPickupField(opts = {}) {
   const hooks = opts.hooks ?? {}
   const items = []
 
-  function spawnCrystal(x, y) {
+  /** 默认普通结晶（1 经验）。advanced 标记高级结晶（紫边、6 经验）。 */
+  function spawnCrystal(x, y, advanced = false) {
+    return spawnCrystalAt(x, y, { advanced })
+  }
+
+  /** M6 掉落接口：可显式指定是否高级结晶。 */
+  function spawnCrystalAt(x, y, { advanced = false } = {}) {
     items.push({
       type: 'crystal',
       x,
@@ -34,6 +46,7 @@ export function createPickupField(opts = {}) {
       vy: 0,
       w: CRYSTAL_SIZE,
       h: CRYSTAL_SIZE,
+      advanced: !!advanced,
     })
   }
 
@@ -103,7 +116,7 @@ export function createPickupField(opts = {}) {
       const d2 = dx * dx + dy * dy
       if (collect && d2 <= collect2) {
         if (it.type === 'fruit') hooks.onFruit?.(FRUIT_HEAL)
-        else hooks.onCrystal?.(1)
+        else hooks.onCrystal?.(it.advanced ? ADVANCED_CRYSTAL_EXP : CRYSTAL_EXP)
         items.splice(i, 1)
         continue
       }
@@ -128,6 +141,7 @@ export function createPickupField(opts = {}) {
   return {
     items,
     spawnCrystal,
+    spawnCrystalAt,
     spawnCrystalBurst,
     spawnFruit,
     spawnTreeDrops,
@@ -142,10 +156,19 @@ function drawCrystal(ctx, it) {
   const s = it.w
   const x = Math.round(it.x)
   const y = Math.round(it.y)
-  ctx.fillStyle = '#7ec8e8'
+  if (it.advanced) {
+    // 明显外覆层：紫十字加宽并包住蓝十字，四周与尖端都露紫边（不再是只剩 2px 小尖）。
+    const r = ADVANCED_CRYSTAL_RIM
+    const t = 2 + r * 2
+    const e = s + r * 2
+    ctx.fillStyle = ADVANCED_CRYSTAL_COLOR
+    ctx.fillRect(x - t / 2, y - e / 2, t, e) // 垂直外覆（宽臂 + 尖端）
+    ctx.fillRect(x - e / 2, y - t / 2, e, t) // 水平外覆（宽臂 + 尖端）
+  }
+  ctx.fillStyle = CRYSTAL_COLOR
   ctx.fillRect(x - 1, y - s / 2, 2, s)
   ctx.fillRect(x - s / 2, y - 1, s, 2)
-  ctx.fillStyle = '#e8f7ff'
+  ctx.fillStyle = CRYSTAL_HI_COLOR
   ctx.fillRect(x - 1, y - 1, 2, 2)
 }
 

@@ -35,8 +35,29 @@ export const PICKUP_COLLECT_RANGE = BODY * 0.55
 export const PICKUP_SPEED = 135
 
 export const CRYSTAL_SIZE = 5
+export const CRYSTAL_EXP = 1
+export const ADVANCED_CRYSTAL_EXP = 6
+export const CRYSTAL_COLOR = '#7ec8e8'
+export const CRYSTAL_HI_COLOR = '#e8f7ff'
+/** 高级结晶紫色外覆层颜色（零素材，程序绘制）。 */
+export const ADVANCED_CRYSTAL_COLOR = '#8a3fd6'
+/** 高级结晶紫色外覆层厚度：加宽紫十字并包住蓝十字，形成清晰紫边（四周+尖端各 r 像素）。 */
+export const ADVANCED_CRYSTAL_RIM = 2
 export const FRUIT_W = 11
 export const FRUIT_H = 12
+
+/** 背景装饰物：火柴堆 / 石头（=火柴堆×3），静态背景。 */
+/** 绘制缩放：按源图原始像素 × DECOR_DRAW_SCALE，小到"地面点缀"。 */
+export const DECOR_DRAW_SCALE = 1 / 3
+/** 保底下限：最长边至少这么多像素，避免小到看不清。 */
+export const DECOR_STICK_MIN_SIZE = 7
+export const DECOR_STONE_MIN_SIZE = 6
+export const DECOR_STICK_COUNT = 800
+export const DECOR_STONE_COUNT = 2400
+export const DECOR_STICK_SOURCES = ['火柴堆-1.png', '火柴堆-2.png', '火柴堆-3.png', '火柴堆-4.png']
+export const DECOR_STONE_SOURCES = ['石头-5.png', '石头-6.png', '石头-7.png', '石头-8.png']
+/** 装饰物之间 / 与树的额外间距，保证不重叠。 */
+export const DECOR_PADDING = 8
 
 export function difficultyTier(elapsedSec) {
   return Math.floor(Math.max(0, elapsedSec) / DIFFICULTY_STEP_SEC)

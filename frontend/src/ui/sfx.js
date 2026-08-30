@@ -25,7 +25,7 @@ export const SFX_URLS = Object.fromEntries(
 
 /** 每音效线性增益（缺省 1）：素材电平过低的补偿；最终音量钳制 ≤1。心跳不增益。 */
 export const SFX_GAIN = {
-  pickup: 5.0,
+  pickup: 2.5,
   levelup: 2.8,
 }
 

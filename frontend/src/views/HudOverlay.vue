@@ -12,6 +12,7 @@ defineProps({
   expNeed: { type: Number, default: 15 },
   timeText: { type: String, default: '00:00' },
   charName: { type: String, default: '游侠' },
+  armor: { type: Number, default: 0 },
 })
 
 function hearts(hp, hpMax) {
@@ -37,6 +38,7 @@ function chargePct(charge, chargeMax) {
           :class="{ on }"
         />
       </div>
+      <span v-if="armor > 0" class="rl-armor">🛡×{{ armor }}</span>
     </div>
     <span class="rl-topbar-time">{{ timeText }}</span>
     <div class="rl-topbar-side" aria-hidden="true"></div>

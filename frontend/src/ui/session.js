@@ -40,9 +40,19 @@ import {
   UPGRADE_EGG,
   UPGRADE_EYES,
   UPGRADE_GIANT,
+  UPGRADE_ERSE,
+  UPGRADE_SANWA,
+  UPGRADE_SIWA,
+  UPGRADE_WUWA,
+  UPGRADE_LIUWA,
+  UPGRADE_KNOCKBACK,
   UPGRADE_GOBLIN,
   UPGRADE_RABBIT,
   UPGRADE_BAT,
+  UPGRADE_TAMER,
+  UPGRADE_DEMON,
+  UPGRADE_SLIME_GG,
+  UPGRADE_COMPANIONSHIP,
   COMPANION_DAMAGE_BONUS,
   UPGRADE_MAGNET,
   UPGRADE_MOVE,
@@ -56,6 +66,7 @@ import {
   expNeedForLevel,
   upgradeById,
 } from './constants.js'
+import { erseChance } from '../game/weapons/index.js'
 import { saveMemory } from './memories.js'
 import { clampTestElapsedSec } from './settings.js'
 
@@ -66,6 +77,10 @@ const WEAPON_IDS = new Set([
   UPGRADE_PIERCE,
   UPGRADE_EYES,
   UPGRADE_GIANT,
+  UPGRADE_ERSE,
+  UPGRADE_SIWA,
+  UPGRADE_WUWA,
+  UPGRADE_KNOCKBACK,
   UPGRADE_EMPOWER,
   UPGRADE_CRIT,
   UPGRADE_ONLY_FAST,
@@ -210,9 +225,10 @@ export function listActiveBonds(picked) {
   return out
 }
 
-export function isAdvancedOffer(n) {
-  const i = n | 0
-  return i > 0 && i % ADVANCED_OFFER_EVERY === 0
+/** P32：判定的依据从 offerIndex 改为“升级到达等级 %ADVANCED_OFFER_EVERY==0 必出高级”。 */
+export function isAdvancedOffer(level) {
+  const lv = level | 0
+  return lv > 0 && lv % ADVANCED_OFFER_EVERY === 0
 }
 
 export function availableUpgrades(combat, opts = {}) {
@@ -233,21 +249,60 @@ export function availableUpgrades(combat, opts = {}) {
   })
 }
 
+/** 二娃·千里眼：从 combat/pistol 读已选层数。 */
+export function ersePicksFrom(combat) {
+  const p = combat?.pistol ?? combat?.weapon
+  const picks = p?.ersePicks ?? combat?.ersePicks ?? 0
+  return Math.max(0, picks | 0)
+}
+
+/** 小金刚集齐时 combat 上的 vajraComplete 标记。 */
+export function vajraCompleteFrom(combat) {
+  return Boolean(
+    combat?.getVajraComplete?.() ??
+    combat?.vajraComplete ??
+    combat?.weapon?.vajraComplete ??
+    combat?.pistol?.vajraComplete ??
+    false,
+  )
+}
+
+/** 二娃四选一概率（0～1）：每次三选一有 20%/层（集齐后 30%/层）变四选一。 */
+export function erseChanceFor(combat) {
+  const picks = ersePicksFrom(combat)
+  if (picks <= 0) return 0
+  const vc = vajraCompleteFrom(combat)
+  if (typeof erseChance === 'function') {
+    return Math.min(1, erseChance(picks, vc) / 100)
+  }
+  return Math.min(1, picks * (vc ? 0.3 : 0.2))
+}
+
 export function pickUpgradeChoices(combat, count = UPGRADE_CHOICE_COUNT, random = Math.random, opts = {}) {
   const rng = typeof random === 'function' ? random : Math.random
   const charId = resolveCharId(combat, opts)
   const normal = availableUpgrades(combat, { tier: 'normal', charId }).slice()
   const advanced = availableUpgrades(combat, { tier: 'advanced', charId }).slice()
+  let slots = Math.max(0, count | 0)
+  const chance = erseChanceFor(combat)
+  if (chance > 0 && rng() < chance) slots += 1
+  // P32：该次升级到达等级 %5==0 时第 0 槽必出高级；其余每槽独立 30% 概率出高级。
+  const lvl = opts.level | 0
+  const mandatory = isAdvancedOffer(lvl)
   const out = []
-  while (out.length < count && normal.length) {
-    const i = Math.floor(rng() * normal.length)
-    out.push(normal.splice(i, 1)[0])
-  }
-  const offerIndex = opts.offerIndex | 0
-  if (isAdvancedOffer(offerIndex) && advanced.length && out.length && rng() < ADVANCED_OFFER_CHANCE) {
-    const slot = Math.floor(rng() * out.length)
-    const ai = Math.floor(rng() * advanced.length)
-    out[slot] = advanced[ai]
+  for (let i = 0; i < slots; i++) {
+    // P32 修正：高级只在「必出当次」（level%5==0）出现；其非必出槽位各自独立 30%。非必出等级不出高级。
+    const wantAdvanced = mandatory && (i === 0 || rng() < ADVANCED_OFFER_CHANCE)
+    if (wantAdvanced && advanced.length) {
+      const ai = Math.floor(rng() * advanced.length)
+      out.push(advanced.splice(ai, 1)[0])
+    } else if (normal.length) {
+      const ni = Math.floor(rng() * normal.length)
+      out.push(normal.splice(ni, 1)[0])
+    } else if (advanced.length) {
+      const ai = Math.floor(rng() * advanced.length)
+      out.push(advanced.splice(ai, 1)[0])
+    }
   }
   return out
 }
@@ -273,6 +328,22 @@ export function applyUpgrade(id, ctx = {}) {
   if (id === UPGRADE_RECOVER) {
     if (!player) return false
     player.heal?.(2)
+    return true
+  }
+  if (id === UPGRADE_SANWA) {
+    // P27：三娃为唯一效果；护甲在 recordPicked 里按“每集满 3 个不同葫芦娃”发放，这里不再立即加甲。
+    return true
+  }
+  if (id === UPGRADE_LIUWA) {
+    if (player) {
+      if (typeof player.addUnlockLevel === 'function') { player.addUnlockLevel(1); return true }
+      player.unlockLevel = (player.unlockLevel ?? 0) + 1
+      return true
+    }
+    const add = ctx.hooks?.onUnlock
+    if (typeof add === 'function') { add(player, 1); return true }
+    const host = env || ctx
+    if (host && typeof host === 'object') host.pendingUnlockLevel = (host.pendingUnlockLevel ?? 0) + 1
     return true
   }
   if (id === UPGRADE_EARTH) {
@@ -378,6 +449,34 @@ export function applyUpgrade(id, ctx = {}) {
     }
     return true
   }
+  if (id === UPGRADE_TAMER) {
+    const add = ctx.companions?.addTamer ?? player?.addTamer ?? env?.addTamer ?? ctx.hooks?.onTamer
+    const host = ctx.companions || player || env || ctx
+    if (typeof add === 'function') add.call(ctx.companions ?? player ?? env ?? ctx.hooks)
+    else if (host && typeof host === 'object') host.pendingTamer = (host.pendingTamer ?? 0) + 1
+    return true
+  }
+  if (id === UPGRADE_DEMON) {
+    const add = ctx.companions?.addDemon ?? player?.addDemon ?? env?.addDemon ?? ctx.hooks?.onDemon
+    const host = ctx.companions || player || env || ctx
+    if (typeof add === 'function') add.call(ctx.companions ?? player ?? env ?? ctx.hooks)
+    else if (host && typeof host === 'object') host.pendingDemon = (host.pendingDemon ?? 0) + 1
+    return true
+  }
+  if (id === UPGRADE_SLIME_GG) {
+    const add = ctx.companions?.addSlimeGG ?? player?.addSlimeGG ?? env?.addSlimeGG ?? ctx.hooks?.onSlimeGG
+    const host = ctx.companions || player || env || ctx
+    if (typeof add === 'function') add.call(ctx.companions ?? player ?? env ?? ctx.hooks)
+    else if (host && typeof host === 'object') host.pendingSlimeGG = (host.pendingSlimeGG ?? 0) + 1
+    return true
+  }
+  if (id === UPGRADE_COMPANIONSHIP) {
+    const add = ctx.companions?.addCompanionship ?? player?.addCompanionship ?? env?.addCompanionship ?? ctx.hooks?.onCompanionship
+    const host = ctx.companions || player || env || ctx
+    if (typeof add === 'function') add.call(ctx.companions ?? player ?? env ?? ctx.hooks)
+    else if (host && typeof host === 'object') host.pendingCompanionship = (host.pendingCompanionship ?? 0) + 1
+    return true
+  }
   if (WEAPON_IDS.has(id)) {
     if (typeof combat?.applyUpgrade === 'function') {
       const ok = combat.applyUpgrade(id)
@@ -451,12 +550,28 @@ export function createSession() {
     expNeed: () => expNeedForLevel(session.level),
   }
   let qianApplied = emptyQianApplied()
+  // P28 三娃（A3）：可叠。每次选立即 +1 甲；并开启“每升 N 级再 +1 甲”，N = max(1, 11 − 已选次数)。
+  let sanwaPicks = 0
+  let sanwaLevelAcc = 0
+  let sanwaN = 0
+
+  function bumpSanwaLevel(ctx, n = 1) {
+    if (sanwaN <= 0 || n <= 0) return
+    sanwaLevelAcc += n
+    while (sanwaN > 0 && sanwaLevelAcc >= sanwaN) {
+      if (typeof ctx?.player?.addArmor === 'function') ctx.player.addArmor(1)
+      sanwaLevelAcc -= sanwaN
+    }
+  }
 
   function resetPicked() {
     session.picked = []
     session.offer = []
     session.bonds = []
     qianApplied = emptyQianApplied()
+    sanwaPicks = 0
+    sanwaLevelAcc = 0
+    sanwaN = 0
   }
 
   function reset() {
@@ -554,6 +669,7 @@ export function createSession() {
     const charId = ctx?.player?.charId ?? ctx?.charId ?? src?.player?.charId ?? session.charId
     session.offer = pickUpgradeChoices(src, UPGRADE_CHOICE_COUNT, random, {
       offerIndex: session.picked.length + 1,
+      level: session.level - session.pending + 1,
       charId,
     })
   }
@@ -584,6 +700,7 @@ export function createSession() {
     }
     if (gained > 0) {
       syncBonds(ctx)
+      bumpSanwaLevel(ctx, gained)
     }
     if (gained > 0 && session.phase === 'playing') {
       session.phase = 'levelup'
@@ -609,6 +726,7 @@ export function createSession() {
     session.offer = []
     session.phase = 'levelup'
     syncBonds(ctx)
+    bumpSanwaLevel(ctx, k)
     return k
   }
 
@@ -657,10 +775,20 @@ export function createSession() {
     return session.bossKills
   }
 
-  function recordPicked(id) {
+  function recordPicked(id, ctx = {}) {
     const def = upgradeById(id)
     if (def) session.picked.push({ id: def.id, title: def.title, desc: descFor(def, session.charId) })
     session.bonds = listActiveBonds(session.picked)
+    // P28 三娃（A3）：每次选立即 +1 甲；并开启每 N 级再 +1 甲（N = max(1, 11 − 已选次数)）。
+    if (id === UPGRADE_SANWA) {
+      if (typeof ctx.player?.addArmor === 'function') ctx.player.addArmor(1)
+      sanwaPicks += 1
+      sanwaN = Math.max(1, 11 - sanwaPicks)
+    }
+    if (sanwaN > 0 && sanwaLevelAcc >= sanwaN) {
+      if (typeof ctx.player?.addArmor === 'function') ctx.player.addArmor(1)
+      sanwaLevelAcc -= sanwaN
+    }
   }
 
   function syncQian(ctx = {}) {
@@ -704,7 +832,7 @@ export function createSession() {
     if (session.phase !== 'upgrade' || session.pending <= 0) return false
     const ok = applyUpgrade(id, ctx)
     if (!ok) return false
-    recordPicked(id)
+    recordPicked(id, ctx)
     syncBonds(ctx)
     session.pending -= 1
     if (session.pending > 0) {
@@ -720,7 +848,7 @@ export function createSession() {
   function grantUpgrade(id, ctx = {}) {
     const ok = applyUpgrade(id, ctx)
     if (!ok) return false
-    recordPicked(id)
+    recordPicked(id, ctx)
     syncBonds(ctx)
     return true
   }
@@ -744,6 +872,7 @@ export function createSession() {
       timeText: formatTime(session.elapsedSec),
       kills: session.kills,
       bossKills: session.bossKills,
+      armor: typeof player?.getArmor === 'function' ? player.getArmor() : (player?.armor ?? 0),
       bonds: session.bonds,
       charName: player?.name ?? charById(session.charId).name ?? CHAR_NAME,
       charId: session.charId,
@@ -801,7 +930,7 @@ export function createSession() {
           ? []
           : session.offer.length
             ? session.offer
-            : pickUpgradeChoices(combat, UPGRADE_CHOICE_COUNT, Math.random, { charId: session.charId }),
+            : pickUpgradeChoices(combat, UPGRADE_CHOICE_COUNT, Math.random, { charId: session.charId, level: session.level }),
       picked: session.picked.slice(),
       result: session.result,
       win: session.win,

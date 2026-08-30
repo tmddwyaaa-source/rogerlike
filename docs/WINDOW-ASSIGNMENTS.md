@@ -15,7 +15,7 @@
 | **M5** | 战斗 / 蓄力箭 | P20 开火音效钩子 | `frontend/src/game/combat/**`、`frontend/src/game/weapons/**` | M4 | ✅ **P20 done** |
 | **M6** | 蘑菇怪 / 蜗牛怪 / 刷怪 | P21 成长+5、冰人3300与回血 | `frontend/src/game/enemies/**`、`frontend/src/game/spawner/**` | — | ✅ **P21 done** |
 | **M7** | 普通树 / 掉落 / 草地 | P18 树血成长/结晶爆发 | `frontend/src/game/world/**`、`frontend/src/game/pickups/**`、`frontend/src/game/render/grass.*` | M3 | ✅ **P18 done** |
-| **M8** | UI / 升级 / Spring Boot | P24 羁绊文案/阈值/小金刚 | `frontend/src/ui/**`、`frontend/src/views/**` | — | ✅ **P24 done** |
+| **M8** | UI / 升级 / Spring Boot | P33 选角阴影/回忆布局重排 | `frontend/src/ui/**`、`frontend/src/views/**` | — | ✅ **P33 done** |
 | **M9** | 集成磨合 | P18 难度/Boss击杀/羁绊接线 | `App.vue` / `engine.js` / `match.js` | 各模块 review | ✅ **P18 done** |
 | **M10** | 升级选项出图 | — | 待审 `assets/icon-review/**` | M1 规格 | ✅ **done**（20 图标全采用；+1 永久程序绘制） |
 | **M11** | 跟班 | P24 万物一心新档位 | `frontend/src/game/companions/**` | M8 文案 | ✅ **P24 done** |
@@ -40,6 +40,9 @@
 **P23 开窗顺序**：**只开 M8**（拾取增益 / 菜单钳制 / 齿轮复位 / 羁绊悬停修复+单列 / 回忆排版 / 测试右面板 / 总音量·背景音乐·音效音量三滑条）→ 请查收 → M1 联调开游戏实测并删临时测试页。  
 **P24 开窗顺序**：并行 **M8 + M11** → 全部请查收 → 回 M1 接线（`getPriorityTarget`：onDamage 记录玩家最近击中的活敌 → companions）+ 联调开游戏。  
 **P24 状态**：2026-08-24 M1 查收 **pass**（M8 / M11）。接线已进 `match.js`（`onPlayerDamage` → `getPriorityTarget`）。三羁绊 chip 与悬停文案已实机验证；档 8 优先目标待未来第 5+ 种跟班出现后实机可验（逻辑已自测）。
+
+**P25 开窗顺序**（七兄弟 / 小金刚 / 毒刺怪 / 高级结晶 / 怪物体验）：并行 **M7 + M4** → **M6**（依赖 M7 高级结晶接口 + 毒刺怪素材）→ **M5** → **M8**（依赖 M4 护甲/失锁、M5 七兄弟效果、§5 待定已定案）→ 全部请查收 → 回 M1 接线（合体触发、七色脉冲、失锁/护甲钩子）+ 联调开游戏。本环不开 M10 / M11；M10 仍等七兄弟/击退/红圈图标手绘（未到先空白方块）。
+**P25 状态**：2026-08-24 M1 查收 **pass**（M4 / M5 / M6 / M7 / M8）。M1 接线已进 `match.js`（`syncVajra` 合体触发）。全量 selftest PASS + build 522ms；实机已开 `http://localhost:5173/`。M10 仍等七兄弟/击退/红圈图标（未到先空白方块）。
 
 **P23 状态**：2026-08-23 M1 查收 **pass**（M8）。悬停 tooltip / 三滑条 / 右侧测试面板已 M1 实机验证；临时测试页已删。
 
@@ -78,6 +81,532 @@
 
 ---
 
+---
+
+## Phase 33 开工粘贴块
+
+以 `docs/HANDOFF-P33.md` 为交接正文。
+
+### M8 — 选角阴影 / 回忆布局重排
+
+```text
+@multi-window_M @game-developer
+我是 M8 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P33.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/ui/** 、frontend/src/views/**
+不要改 game/** / match.js / App.vue / backend。不要标 Registry done。
+不要打开游戏。不要生图（阴影用现有 Other/Shadow.png）。零玩法逻辑改动。
+
+本环（P33）：
+1) 选角屏：立绘卡内下移 + 脚下加 Shadow.png 阴影（缩放对齐立绘，三卡一致；悬停动画时阴影不跟跳）。
+2) 回忆详情：升级选项面板保留、宽度 ≥60%；羁绊删除独立大框，改为局内 rl-bonds 同款裸 chip 竖排放右侧；两栏合计宽 = 等级黑框宽。
+3) 回忆详情黑框内立绘阴影贴身：脚下间距 = 对局角色阴影间距。
+4) 羁绊 chip 悬停提示完整保留（说明+全部档位+深浅色）。
+5) 同步 ui/selftest.mjs，交付说明列出断言变更。
+
+完成后说：M8 已完成，请主导窗口查收。
+```
+
+---
+
+## Phase 32 开工粘贴块
+
+以 `docs/HANDOFF-P32.md` 为交接正文。
+
+### M8 — UI + 升级机制
+
+```text
+@multi-window_M @springboot-vue
+我是 M8 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P32.md（P32 需求）。当前角色：先斥候，通过后再主力。
+只改：frontend/src/ui/** 、frontend/src/views/**（其余目录禁止动）
+交付（P32）：
+1. 回忆界面角色立绘下移 + 底部阴影 + 悬停（角色信息 + 待机动画，与选角一致）
+2. 回忆界面新增羁绊显示模块 + 属性条宽度对齐两栏 + 羁绊悬停效果提示
+3. 高级升级机制：该次等级 %5 必出高级，其余槽位独立 30% 概率
+4. 击退文案 +0.5 → +1
+跑 node src/ui/selftest.mjs。不要标 Registry done；完成后说：M8 已完成，请主导窗口查收。
+```
+
+### M5 — 武器 / 击退
+
+```text
+@multi-window_M @springboot-vue
+我是 M5 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P32.md（P32 需求）。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/combat/** 、frontend/src/game/weapons/**（其余目录禁止动）
+交付（P32）：
+1. 所有角色基础击退 0.5 身位（BASE_KNOCKBACK_BODIES）
+2. 高级「击退」效果 0.5 → 1 身位（KNOCKBACK_BONUS_BODIES）
+3. 同步 combat 自测（受影响断言按新值重算）
+跑 node src/game/combat/selftest.mjs。不要标 Registry done；完成后说：M5 已完成，请主导窗口查收。
+```
+
+---
+
+## Phase 30 开工粘贴块
+
+以 `docs/HANDOFF-P30.md` 为交接正文。
+
+### M11 — 恶魔软性跟随
+
+```text
+@multi-window_M @game-developer
+我是 M11 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P30.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/companions/**
+不要改 ui / enemies / match.js / player / combat。不要标 Registry done。
+不要打开游戏。
+
+本环（P30）：
+恶魔改为独立 AI 单元：在角色 3 身位内**软性自然跟随**（朝角色移动、靠近舒适距离即减速停下/自然环绕），去掉“贴边界反复扑腾的空气墙抽搐”。仍攻击离角色最近的怪、常驻角色附近、基础伤 10+角色伤×20%。
+更新 companions/selftest.mjs。
+
+完成后说：M11 已完成，请主导窗口查收。
+```
+
+### M4 — 六娃范围 3 身位
+
+```text
+@multi-window_M @game-developer
+我是 M4 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P30.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/player/** 、frontend/src/game/render/**
+不要改 combat / enemies / match.js / ui。不要标 Registry done。
+不要打开游戏。
+
+本环（P30）：
+`player/index.js` `UNLOCK_RADIUS_UNITS = 3`（`UNLOCK_RADIUS=3*BODY`）；六娃失锁扩散圈视作范围同步。
+更新 player selftest。
+
+完成后说：M4 已完成，请主导窗口查收。
+```
+
+### M7 — 地图背景装饰物
+
+```text
+@multi-window_M @game-developer
+我是 M7 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P30.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/world/** 、frontend/src/game/render/**（背景）
+不要改 combat / enemies / match.js / ui / 刷怪。不要标 Registry done。
+不要打开游戏。
+
+本环（P30）：
+新增背景装饰物：火柴堆（素材 `装饰物/火柴堆-1..4.png`）25 个、石头（`装饰物/石头-5..8.png`）75 个（=×3）；`ensureSeed` 随机播种，位置不与其他树/装饰物重叠（多次采样空位）。
+`loadAssets` 载入它们，`env.draw` 在草地之后、实体之前绘制；**静态、不碰撞、不可交互**。
+更新 world selftest（数量、不重叠、静态）。
+
+完成后说：M7 已完成，请主导窗口查收。
+```
+
+---
+
+## Phase 29 开工粘贴块
+
+以 `docs/HANDOFF-P29.md` 为交接正文。
+
+### M7 — 强化结晶显著紫外覆层
+
+```text
+@multi-window_M @game-developer
+我是 M7 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P29.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/world/** 、frontend/src/game/pickups/**
+不要改 combat / enemies / match.js / ui。不要标 Registry done。
+不要打开游戏。
+
+本环（P29）：
+`drawCrystal` 高级结晶外观：把“加大紫十字垫底（只剩 2px 小尖）”改为**明显紫色外覆层**——建议给结晶外轮廓描一圈紫，或紫十字加宽包住蓝十字成清晰紫边；普通结晶无紫。
+更新 world/pickups selftest（紫边像素断言，确保不是只剩小尖）。
+
+完成后说：M7 已完成，请主导窗口查收。
+```
+
+### M8 — 回忆角色立绘 / 选角 hover 待机动画 / 万物一心复核
+
+```text
+@multi-window_M @game-developer
+我是 M8 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P29.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/ui/** 、frontend/src/views/**
+不要改 combat / player / world / enemies / companions / match.js / App.vue / backend。不要标 Registry done。
+不要打开游戏。
+
+本环（P29）：
+1) 回忆（MoreView）血条左侧加 `RangerPortrait`（尺寸同选角）；单局记录 `charId`，回忆读取显示，无则兜底游侠。
+2) 选角（StartView）hover 时在角色位置播放 `S_Idle` 待机多帧动画，与文本提示同显。
+3) 复核万物一心：`uniqueBondCount` 仅按“不同跟班升级种类”，`uniqueBondCount < 2` 时不显示 chip、不产生 tier>0 效果；异常则修。
+更新 ui/selftest.mjs。
+
+完成后说：M8 已完成，请主导窗口查收。
+```
+
+### M11 — 万物一心 tier 消费复核
+
+```text
+@multi-window_M @game-developer
+我是 M11 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P29.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/companions/**
+不要改 ui / enemies / match.js / player / combat。不要标 Registry done。
+不要打开游戏。
+
+本环（P29）：
+确认 `setUnityTier`/`unityAdd`/`getCompanionBonus`：`unityTier` 初值正确、只在达到阈值（≥2）才给增益、`unityTier=0` 不给任何跟班增益；`unityTier` 每次选择后正确同步。异常则修。
+更新 companions/selftest.mjs。
+
+完成后说：M11 已完成，请主导窗口查收。
+```
+
+---
+
+## Phase 28 开工粘贴块
+
+以 `docs/HANDOFF-P28.md` 为交接正文。
+
+### M7 — 高级结晶紫边（A2）
+
+```text
+@multi-window_M @game-developer
+我是 M7 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P28.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/world/** 、frontend/src/game/pickups/**
+不要改 combat / enemies / match.js / ui / 刷树环境。不要标 Registry done。
+不要打开游戏。
+
+本环（P28）：
+给高级结晶素材程序绘制**紫色外覆层**，普通/高级视觉明显不同（advanced 标记已存在，本次只补渲染层）。
+更新 world/pickups selftest。
+
+完成后说：M7 已完成，请主导窗口查收。
+```
+
+### M5 — 七色脉冲动画 / 伤害数字&暴击数据
+
+```text
+@multi-window_M @game-developer
+我是 M5 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P28.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/combat/** 、frontend/src/game/weapons/**
+不要改 ui / player / enemies / match.js。不要标 Registry done。
+不要打开游戏。
+
+本环（P28）：
+1) 七色脉冲加**七彩动画**（7 色相、向外扩散至 1.5 身位并循环，沿用脉冲伤害/减速逻辑，只改视觉）。
+2) 伤害数字传**实际伤害值**（不按怪物剩余血量截断）；暴击时输出“非暴击伤害+暴击倍率”供 M4 渲染。
+同步 combat selftest。
+
+完成后说：M5 已完成，请主导窗口查收。
+```
+
+### M4 — 伤害数字动画 / 三娃护盾配合
+
+```text
+@multi-window_M @game-developer
+我是 M4 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P28.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/player/** 、frontend/src/game/render/**
+不要改 combat / enemies / match.js / ui。不要标 Registry done。
+不要打开游戏。
+
+本环（P28）：
+1) dmgnum：普通伤害显示**实际伤害值**（不截断）；暴击时“先显示非暴击伤害 → 旁边红色「×暴击倍率」→ 短暂后快速滚动成实际暴击伤害”。
+2) 三娃护盾视觉保持（阴影外圈描黄），层数与 A3 新机制一致。
+更新 player/dmgnum selftest。
+
+完成后说：M4 已完成，请主导窗口查收。
+```
+
+### M8 — 三娃新机制 / 跟班升级文案与入池
+
+```text
+@multi-window_M @game-developer
+我是 M8 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P28.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/ui/** 、frontend/src/views/**
+不要改 combat / player / world / enemies / companions / match.js / App.vue / backend。不要标 Registry done。
+不要打开游戏。
+
+本环（P28）：
+1) 三娃：记录已选次数，每次选 `player.addArmor(1)`；每达 `N=max(1,11−次数)` 级再发 1 甲并重置计数；仍计入七兄弟。
+2) 新增跟班升级入池/文案/图标：`tamer`（普通）「驯兽师：跟班伤害+5、跟班移速+0.05」（图标空白）、`demon`（高级）「恶魔」（`upgrades/demon.png`）、`slime_gg`「史莱姆gg」（`upgrades/slime_gg.png`）、`companionship`「伴我同行」（图标空白）。
+3) 伤害数字显示规则按 B2/B3 口径同步到文案/结构。
+更新 ui/selftest.mjs。
+
+完成后说：M8 已完成，请主导窗口查收。
+```
+
+### M11 — 跟班新效果
+
+```text
+@multi-window_M @game-developer
+我是 M11 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P28.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/companions/**
+不要改 ui / enemies / match.js / player / combat。不要标 Registry done。
+不要打开游戏。
+
+本环（P28）：
+1) 驯兽师：所有跟班伤害+5、移速+0.05（可叠）。
+2) 恶魔：`addDemon()`——常驻角色 3 身位内、打1单位、优先离角色最近、基础伤 `10+角色伤害×20%`；角色伤害联动：额外跟班伤害（仅升级/羁绊额外加的）每 5 点 →+3 角色伤害（首次），多选恶魔跟班+1 且每5点加成+1/层。
+3) 史莱姆gg：`addSlimeGG()`——生成 g-1/g-2 两跟班，基础伤 5。
+4) 伴我同行：仅角色击杀；`rate=1+0.5×(已选−1)`，每跨 100 杀按当时 rate 给跟班伤害加成（新选倍率只影响之后）。
+更新 companions/selftest.mjs。
+
+完成后说：M11 已完成，请主导窗口查收。
+```
+
+---
+
+## Phase 27 开工粘贴块
+
+以 `docs/HANDOFF-P27.md` 为交接正文。
+
+### M4 — 六娃扩散圈 / 三娃护盾视觉描黄
+
+```text
+@multi-window_M @game-developer
+我是 M4 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P27.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/player/** 、frontend/src/game/render/**
+不要改 combat / enemies / match.js / ui。不要标 Registry done。
+不要打开游戏。
+
+本环（P27）：
+1) 六娃#3F48CC 扩散圈：每次失锁脉冲触发时，以角色为中心画 `#3F48CC` 圈，半径用 `UNLOCK_RADIUS`（1.5 身位），越接近边缘颜色越淡，不超过范围。
+2) 三娃护盾视觉：**去掉 `drawArmorOutline` 用 `fillRect` 画的边框矩形**（player/index.js 191-194），改为**沿角色脚下阴影素材最外圈不透明像素描 1px 黄**（同敌人 `outlineSheet` 思路）。层数仍由 `player.armor` 驱动。
+更新 player selftest（扩散圈、护盾描黄）。
+
+完成后说：M4 已完成，请主导窗口查收。
+```
+
+### M5 — 四娃燃烧 30%/s
+
+```text
+@multi-window_M @game-developer
+我是 M5 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P27.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/combat/** 、frontend/src/game/weapons/**
+不要改 ui / player / enemies / match.js。不要标 Registry done。
+不要打开游戏。
+
+本环（P27）：
+四娃基础每秒燃烧伤害 = **30% 攻击**（+10%/层不变）；同步 `fireDpsPerPick` 与 combat selftest。
+
+完成后说：M5 已完成，请主导窗口查收。
+```
+
+### M6 — 红圈全怪 / 怪物成长 / 冰人 / 强化怪
+
+```text
+@multi-window_M @game-developer
+我是 M6 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P27.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/enemies/** 、frontend/src/game/spawner/**（怪物渲染）
+不要改 combat / ui / match.js / player / world。不要标 Registry done。
+不要打开游戏。
+
+本环（P27）：
+1) 红圈全怪：保留程序红色空心圈，`spawnWave`/`trySpawn` 对所有可生成敌人（蘑菇/蜗牛/史莱姆x-1/蝎子/毒刺怪/**灰树爆出的裂怪**）出生前 0.8s 显示红圈。boss/兰花/树/木桩不加。
+2) 怪物成长：生命/阶 +5（蘑菇15、蜗牛25、史莱姆27、蝎子20、毒刺怪25）；移速/阶 −0.01（蘑菇/裂怪0.03、蜗牛0.02、史莱姆0.02、蝎子0.04），**毒刺怪移速成长=0.04**。难度二额外血由 `getHpGrowthAdd`（match.js，M1 已改 10）叠加。
+3) 冰人：血 `ICE_MAN_HP=4000`（重生 `round(4000×1.4^n)`）；可离开视野，仅当完全离开视野且未逃跑才回视图（越出视野矩形一定 margin，如 1 身位）；Boss 所有伤害（接触/冲刺/弹幕）→ −2 血；子弹素材最外圈覆盖**蓝色**。
+4) 强化怪（难度二）：生成普通怪（蘑菇/蜗牛/史莱姆x-1/蝎子/毒刺怪/裂怪）时掷 `min(1, 0.02+0.02×floor(分钟))`；血量×2、击退抗性+1 身位；掉结晶数量同普通，每颗**高级结晶 50%**（走 M7 `spawnCrystalAt`）；素材最外围**紫色**（有甲则紫色包最外）。
+更新 enemies/spawner selftest。
+
+完成后说：M6 已完成，请主导窗口查收。
+```
+
+### M8 — 小金刚文本 / 三娃唯一效果 / 四娃文案
+
+```text
+@multi-window_M @game-developer
+我是 M8 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P27.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/ui/** 、frontend/src/views/**
+不要改 combat / player / world / enemies / companions / match.js / App.vue / backend。不要标 Registry done。
+不要打开游戏。
+
+本环（P27）：
+1) 小金刚悬停文本精简：`BOND_DESC[BOND_VAJRA]`=「集齐七兄弟解锁」；tier 两条：“档 7 · 每 3.0s 释放七色脉冲（范围 1.5 身位，伤害攻击×1.3，独立暴击；减速 30% 持续 0.4s）”“档 7 · 所有葫芦娃效果值 +10%（加法）”。chip 仍「小金刚 7」。
+2) 三娃：改为唯一效果；选三娃置 `sanwaActive`；`recordPicked` 中若 `sanwaActive` 且**不同七兄弟计数**为 3 的倍数（3、6）且该里程碑未发过 → `player.addArmor(1)`。含第一次拿三娃。
+3) 四娃文案：命中点燃 3 秒，每秒 **30%** 攻击（+10%/层）。
+更新 ui/selftest.mjs。
+
+完成后说：M8 已完成，请主导窗口查收。
+```
+
+---
+
+## Phase 26 开工粘贴块
+
+以 `docs/HANDOFF-P26.md` 为交接正文。
+
+### M4 — 三娃护盾视觉
+
+```text
+@multi-window_M @game-developer
+我是 M4 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P26.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/player/** 、frontend/src/game/render/**
+不要改 combat / enemies / match.js / ui。不要标 Registry done。
+不要打开游戏。
+
+本环（P26）：
+1) 去掉在角色碰撞体积处画的竖长方形护盾。
+2) 改为角色脚下阴影素材（或最外圈不透明像素）外围描一层黄，同怪物甲的素材描边。
+3) 护盾层数仍由 player.armor 驱动；HUD 层数显示不动。
+更新 player selftest（护盾视觉相关断言同步）。
+
+完成后说：M4 已完成，请主导窗口查收。
+```
+
+### M6 — 毒刺怪数量 / 五娃减速 / 四娃五娃粒子 / 红圈占位
+
+```text
+@multi-window_M @game-developer
+我是 M6 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P26.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/enemies/** 、frontend/src/game/spawner/**（怪物渲染）
+不要改 combat / ui / match.js / player / world。不要标 Registry done。
+不要打开游戏。
+
+本环（P26）：
+1) 毒刺怪每波数量 1+floor(秒/180) → 6+floor(秒/180)（每 5 秒一波，成长保留）。
+2) 五娃减速：敌人移动乘 ent.slowFactor ?? 1（slowLeft>0 才生效）。不要改 combat 写入逻辑。
+3) 四娃燃烧（burnLeft>0）：怪物身上持续飘红色上升粒子；五娃减速（slowLeft>0）：飘蓝色上升粒子；越升颜色越浅；效果结束或怪物死亡粒子消失。属怪物侧渲染。
+4) 红圈预警：保留程序红色空心圈占位，不要删，等 M10 图标替换。
+更新 enemies/selftest（毒刺怪 6、减速消费、粒子生灭）。
+
+完成后说：M6 已完成，请主导窗口查收。
+```
+
+### M8 — 拾取音效 −50% + 小金刚羁绊展示对齐
+
+```text
+@multi-window_M @game-developer
+我是 M8 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P26.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/ui/** 、frontend/src/views/**
+不要改 combat / player / world / enemies / companions / match.js / App.vue / backend。不要标 Registry done。
+不要打开游戏。
+
+本环（P26）：
+1) 拾取音效（pickup）音量减半：ui/sfx.js 增益 ×5 → ×2.5（或对 pickup 单独乘 0.5）。其他音效不动。
+2) 小金刚羁绊：ui/session.js listActiveBonds 只在 count≥7（bondRank 非 0）才 push；GameShell 去掉小金刚专用分支（n/7、·变身），走通用 标题+档位（「小金刚 7」）；pixel.css 删除 .rl-bond--vajra 的 --rl-btn 配色覆盖，用默认纸/墨配色。悬停沿用 BOND_DESC / bondTiers。
+更新 ui/selftest.mjs（pickup 增益、小金刚显示时机与配色、chip 文本）。
+
+完成后说：M8 已完成，请主导窗口查收。
+```
+
+---
+
+## Phase 25 开工粘贴块
+
+以 `docs/HANDOFF-P25.md` 为交接正文。
+
+### M7 — 高级结晶
+
+```text
+@multi-window_M @game-developer
+我是 M7 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P25.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/world/** 、frontend/src/game/pickups/**
+不要改 combat / enemies / match.js / ui / 刷树环境。不要标 Registry done。
+不要打开游戏。不要生图。
+
+本环（P25 高级结晶）：
+1) spawnCrystal 支持 advanced 标记；默认普通（1 经验）。
+2) 高级结晶：现有结晶贴图程序绘制紫色外覆层（零素材成本）；价值 +5 经验（普通 1 → 高级 6）。
+3) 概率逐个独立掷；提供接口供 M6 掷高级：spawnCrystalAt(x,y,{advanced?:boolean})；磁铁/黑洞照常吸取高级结晶。
+4) 掉落来源（由 M6 调你的接口）：毒刺怪 4 结晶每个 20% 高级；冰人 150 结晶每个 10% 高级。本环只做接口与紫边表现。
+更新 pickups selftest（高级结晶紫边/经验 5/吸附）。
+
+完成后说：M7 已完成，请主导窗口查收。
+```
+
+### M6 — 毒刺怪 / 冰人 / 怪物体验
+
+```text
+@multi-window_M @game-developer
+我是 M6 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P25.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/enemies/** 、frontend/src/game/spawner/**
+不要改 combat / ui / match.js / player / world。不要标 Registry done。
+不要打开游戏。不要生图。
+
+本环（P25）：
+1) 毒刺怪 stinger：≥300s 起接管蘑菇怪刷怪位（蘑菇怪停刷，场上存量保留至死亡）。每 5 秒一波 1+floor(秒/180)。
+   血 260+20*floor((秒-300)/45)，难度二 getHpGrowthAdd 每阶再 +5；移速 0.70+0.02*floor((秒-300)/45)，无 1.4 帽；击退抗性 1 身位（knockbackResist=BODY）；接触 -1 心；掉 4 结晶、每个 20% 独立概率高级（走 M7 spawnCrystalAt）。贴图 小怪/毒刺怪.png（已两边拷贝）。
+2) 冰人：击退抗性 50%→70%（knockbackScale 0.5→0.3）；血 3300→3800（重生 round(3800*1.4^n)）；掉 300→150 结晶、每个 10% 独立概率高级；弹幕 CD 22→17s。
+3) 生成预警：怪物出生前落点显示红圈约 0.8 秒再出现；红圈素材未到位先用程序绘制红色空心圈占位。
+4) 环绕生成：刷怪位置尽量环绕角色（视野边缘外 1～3 身位环带，可调）。
+5) 蝎子独立 CD：每只蝎子首次开火随机 0～5 秒错峰，之后各自 5 秒节奏（射击间隔 10s→5s），消灭齐射。
+6) 六娃失锁的敌人侧消费：只读 M4 导出的失锁状态（本环不代改 player），近战不靠近、远程不开火（含蝎子/冰人）。
+更新 enemies/spawner selftest（毒刺怪数值、冰人 3800/0.3/150/17s、预警、环绕、蝎子 5s、失锁消费）。
+
+完成后说：M6 已完成，请主导窗口查收。
+```
+
+### M4 — 三娃护甲 / 六娃失锁（角色侧）
+
+```text
+@multi-window_M @game-developer
+我是 M4 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P25.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/player/** 、frontend/src/game/render/**
+不要改 combat / enemies / match.js / ui。不要标 Registry done。
+不要打开游戏。不要生图。
+
+本环（P25）：
+1) 三娃护甲：player 提供 armor（整数层，可无限叠）。takeDamage 时先扣 1 层甲并抵挡该次完整伤害（该次不掉血）；导出 getArmor() 与 armor 字段，供 M8 HUD 显示与 M1 接线。
+2) 六娃失锁脉冲（角色侧）：player 提供失锁状态（例如 setUnlockPulse / 记录在失锁窗口内的目标），每 10 秒对 1.5 身位内敌人施加 N 秒不锁定；基础 1.0s，每层 +0.5s；导出失锁时长计算。敌人侧消费由 M6/enemies 读状态，本环只做角色侧状态与导出，可留钩子由 M1 接线。
+更新 player selftest（护甲扣层/抵挡/无限叠；失锁时长 1.0s 起、每层 +0.5）。
+
+完成后说：M4 已完成，请主导窗口查收。
+```
+
+### M5 — 四娃 / 五娃 / 七色脉冲 / 击退 / 小金刚效果值 +10%
+
+```text
+@multi-window_M @game-developer
+我是 M5 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P25.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/game/combat/** 、frontend/src/game/weapons/**
+不要改 ui / player / enemies / match.js。不要标 Registry done。
+不要打开游戏。不要生图。
+
+本环（P25）：
+1) 四娃点燃：命中目标点燃 3 秒，每秒 10% 攻击，每层 +10%/s。
+2) 五娃减速：命中减速 20%、0.3 秒，每层 +0.2 秒（时长）。
+3) 高级「击退」：每层 +0.5 身位击退，可叠。
+4) 小金刚集齐七兄弟→七色脉冲：每 3.0s 自动以角色为中心 1.5 身位圈；伤害 攻击×1.3（每次单独掷暴击）；减速 30%、0.4s；不施加击退、不触发点燃、不打破六娃失锁。
+5) 小金刚集齐时一次性给大娃/二娃/四娃/五娃效果值 +10%（加法）：大娃 40→50%/层、二娃 20→30%、四娃每秒 10→20%、五娃 20→30%。
+导出/实现本环 upgrade 效果，供 M8 文案与 M1 接线。
+更新 combat/weapons selftest（点燃/减速/击退/七色脉冲/集齐 +10%）。
+
+完成后说：M5 已完成，请主导窗口查收。
+```
+
+### M8 — 七兄弟文案 / 四选一 / 小金刚 chip / 护甲 HUD / 击退入池
+
+```text
+@multi-window_M @game-developer
+我是 M8 窗口。项目路径：D:\Cursor_projectt\rogerlike
+请读 docs/HANDOFF-P25.md。当前角色：先斥候，通过后再主力。
+只改：frontend/src/ui/** 、frontend/src/views/**
+不要改 combat / player / world / enemies / companions / match.js / App.vue / backend。不要标 Registry done。
+不要打开游戏。不要生图。
+
+本环（P25）：
+1) 七兄弟入池文案：新增二娃（高级「三选一 20%/层 概率变四选一」）、三娃（普通「获得 1 层护甲，抵挡一次完整伤害；无限叠；HUD 显示层数」）、四娃（高级「命中点燃 3s，每秒 10% 攻击（+10%/层）」）、五娃（高级「命中减速 20%、0.3s（+0.2s/层）」）、六娃（普通「每 10s 失锁脉冲：1.5 身位内敌人 1.0s 不锁定（+0.5s/层）」）；大娃保留；黑洞改名「七娃」（id blackhole 与效果不动）。另新增高级「击退」：每层 +0.5 身位。
+2) 四选一：读二娃层数，每次三选一有 20%/层 概率变四选一（4 格）。
+3) 小金刚 chip：计入七兄弟全部；档位只有 7；平时显示「小金刚 n/7」，集齐后变身形态。悬停文案：七色脉冲 + 各兄弟效果 +10%。
+4) HUD 护甲显示：显示三娃护甲层数。
+更新 ui/selftest.mjs（文案、四选一、chip n/7、护甲 HUD）。「敬请期待」禁串只限 StartView；本环小金刚不再是占位。
+
+完成后说：M8 已完成，请主导窗口查收。
+```
 ---
 
 ## Phase 24 开工粘贴块

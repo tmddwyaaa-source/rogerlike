@@ -16,6 +16,11 @@ export const DMG_YELLOW = '#e0b84a'
 export const DMG_RED = '#c42b2b'
 export const DMG_GREEN = '#3dbf5a'
 
+/** P28 B3 暴击：先显示非暴击伤害 → 红色「×倍率」→ 短暂后快速滚动到实际暴击伤害。 */
+export const DMG_CRIT_BASE_HOLD = 0.3
+export const DMG_CRIT_ROLL = 0.35
+export const DMG_CRIT_COLOR = '#c42b2b'
+
 const digits = {
   none: new Array(10).fill(null),
   yellow: new Array(10).fill(null),
@@ -151,30 +156,42 @@ function countActiveFor(unit) {
   return n
 }
 
-function spawnNum(x, y, amount, unitId, kind) {
+function spawnNum(x, y, amount, unitId, kind, meta) {
   const n = Math.max(0, Math.floor(Number(amount) || 0))
   const unit = unitId ?? null
   const stack = countActiveFor(unit)
+  const crit = Boolean(meta?.crit) && (meta?.critMul ?? 1) > 1
+  const base = crit ? Math.max(0, Math.floor(Number(meta?.base) || 0)) : n
   items.push({
     x,
     y: y - 10 - stack * DMG_STAGGER_Y,
     amount: n,
     kind: kind ?? dmgOutlineKind(n),
     unit,
-    life: DMG_LIFE,
+    life: crit ? DMG_CRIT_BASE_HOLD + DMG_CRIT_ROLL + DMG_LIFE : DMG_LIFE,
+    crit,
+    base,
+    critMul: meta?.critMul ?? 1,
+    phase: 'base',
+    phaseT: 0,
+    baseHold: DMG_CRIT_BASE_HOLD,
+    roll: DMG_CRIT_ROLL,
   })
   return items[items.length - 1]
 }
 
 /**
  * 每个受伤单位自己一组数字；同一单位连续受伤则错开上浮。
+ * 普通：显示实际伤害值（不因怪物血量截断，由调用方传入）。
+ * 暴击：先显示非暴击伤害 → 旁边红色「×倍率」→ 短暂后快速滚动成实际暴击伤害。
  * @param {number} x
  * @param {number} y
  * @param {number} amount
  * @param {object|string|number} [unitId] 目标实体或稳定 id
+ * @param {{ base?: number, crit?: boolean, critMul?: number, damage?: number }} [meta]
  */
-export function spawnDamageNum(x, y, amount, unitId) {
-  return spawnNum(x, y, amount, unitId)
+export function spawnDamageNum(x, y, amount, unitId, meta) {
+  return spawnNum(x, y, amount, unitId, undefined, meta)
 }
 
 /** 回血数字强制绿边，不走 ≥100 黄 / ≥200 红。 */
@@ -188,8 +205,28 @@ export function updateDamageNums(dt) {
     const it = items[i]
     it.y -= DMG_RISE * dt
     it.life -= dt
+    if (it.crit) {
+      it.phaseT += dt
+      if (it.phase === 'base' && it.phaseT >= it.baseHold) {
+        it.phase = 'roll'
+        it.phaseT = 0
+      }
+    }
     if (it.life <= 0) items.splice(i, 1)
   }
+}
+
+/** P28 B3：当前应显示的数值。base 阶段显示非暴击，roll 阶段从 base 快速滚动到实际。 */
+export function dmgDisplayValue(it) {
+  if (!it?.crit) return it?.amount ?? 0
+  if (it.phase === 'base') return Math.round(it.base ?? it.amount)
+  const u = Math.max(0, Math.min(1, it.phaseT / (it.roll || 1)))
+  return Math.round((it.base ?? 0) + ((it.amount ?? 0) - (it.base ?? 0)) * u)
+}
+
+function formatMul(m) {
+  const v = Number(m) || 1
+  return Math.round(v * 100) / 100
 }
 
 function paintFallbackDigit(ctx, d, x, y, kind) {
@@ -202,20 +239,35 @@ function paintFallbackDigit(ctx, d, x, y, kind) {
   ctx.fillRect(Math.round(x) + 1, Math.round(y) + 1, 2, 3 + (d % 5))
 }
 
+function drawCritMulTag(ctx, it, startX, oy, fade) {
+  if (typeof ctx.fillText !== 'function') return
+  const label = String.fromCharCode(0xd7) + formatMul(it.critMul)
+  ctx.fillStyle = DMG_CRIT_COLOR
+  ctx.font = '8px monospace'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  if (typeof ctx.globalAlpha === 'number') {
+    ctx.globalAlpha = Math.max(0, Math.min(1, fade))
+  }
+  ctx.fillText(label, startX, oy + DMG_TILE / 2)
+}
+
 export function drawDamageNums(ctx, palettes = digits) {
   if (!ctx || !items.length) return 0
   let drawn = 0
   for (const it of items) {
-    const kind = it.kind || dmgOutlineKind(it.amount)
+    const shown = dmgDisplayValue(it)
+    const kind = it.crit ? dmgOutlineKind(shown) : (it.kind || dmgOutlineKind(it.amount))
     const tiles = palettes[kind] || palettes.none || palettes
     const ready = tiles[0] && ctx.drawImage
-    const text = String(it.amount)
+    const text = String(shown)
     const w = (text.length - 1) * DMG_ADVANCE + DMG_TILE
-    let ox = Math.round(it.x - w / 2)
+    const ox0 = Math.round(it.x - w / 2)
     const oy = Math.round(it.y - DMG_TILE / 2)
     const fade = Math.max(0, Math.min(1, it.life / 0.2))
     const prev = ctx.globalAlpha
     if (typeof prev === 'number') ctx.globalAlpha = fade
+    let ox = ox0
     for (const ch of text) {
       const d = ch.charCodeAt(0) - 48
       if (d < 0 || d > 9) continue
@@ -227,6 +279,7 @@ export function drawDamageNums(ctx, palettes = digits) {
       ox += DMG_ADVANCE
       drawn += 1
     }
+    if (it.crit) drawCritMulTag(ctx, it, ox0 + w + 3, oy, fade)
     if (typeof prev === 'number') ctx.globalAlpha = prev
   }
   return drawn

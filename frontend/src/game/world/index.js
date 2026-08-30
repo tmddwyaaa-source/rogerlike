@@ -9,7 +9,8 @@
  *   env.hitAt(bx, by, 15)          // M5 子弹；返回 { hit, dealt, tree }
  *   env.hitSlashAt({ x, y, ang, length, thick, damage })  // 战士挥砍 OBB
  *   env.collideSolid(player)       // M4 移动后
- *   env.spawnCrystal(x, y)         // M6 小怪掉落
+ *   env.spawnCrystal(x, y)         // M6 小怪掉落（普通）
+ *   env.spawnCrystalAt(x, y, { advanced })  // M6 高级结晶掉落接口 ({advanced?:boolean})
  *   env.spawnCrystalBurst(x, y, n) // 冰人等大量结晶，BODY 内抖动
  *   env.pullAllCrystals()          // 黑洞：结晶飞向角色
  *   env.addMagnet()                // 磁铁：吸取范围 +1 身位
@@ -21,6 +22,7 @@ import { drawGrass } from '../render/grass.js'
 import { FRUIT_CHANCE, MAGNET_BONUS_STEP, TREE_SEED_COUNT, TREE_SPAWN_COUNT, TREE_SRC } from './constants.js'
 import { createPickupField } from '../pickups/pickups.js'
 import { createTreeField } from './trees.js'
+import { createDecorationField } from './decorations.js'
 
 export { drawGrass } from '../render/grass.js'
 export {
@@ -33,6 +35,17 @@ export {
   TREE_HP_PER_TIER,
   TREE_SEED_COUNT,
   TREE_SRC,
+  CRYSTAL_EXP,
+  ADVANCED_CRYSTAL_EXP,
+  CRYSTAL_COLOR,
+  CRYSTAL_HI_COLOR,
+  ADVANCED_CRYSTAL_COLOR,
+  ADVANCED_CRYSTAL_RIM,
+  DECOR_STICK_COUNT,
+  DECOR_STONE_COUNT,
+  DECOR_STICK_SOURCES,
+  DECOR_STONE_SOURCES,
+  DECOR_PADDING,
   treeCrystalMax,
   treeHpForTier,
   treeSpawnInterval,
@@ -59,6 +72,7 @@ export function createEnvironment(opts = {}) {
     getWaveCount: () => TREE_SPAWN_COUNT + mods.extraTrees,
     getHpGrowthAdd: opts.getHpGrowthAdd,
   })
+  const decorations = createDecorationField({ random: opts.random })
 
   function ensureSeed(focus, camera) {
     if (seeded) return
@@ -66,6 +80,8 @@ export function createEnvironment(opts = {}) {
     const cx = focus?.x ?? WORLD_WIDTH / 2
     const cy = focus?.y ?? WORLD_HEIGHT / 2
     trees.seedAround(cx, cy, TREE_SEED_COUNT, camera)
+    // 背景装饰物：火柴堆 25 / 石头 75，避开已有树与彼此，静态不碰撞。
+    decorations.seed(trees.trees, WORLD_WIDTH, WORLD_HEIGHT)
   }
 
   async function loadAssets() {
@@ -78,6 +94,7 @@ export function createEnvironment(opts = {}) {
     } catch {
       sprite = img
     }
+    await decorations.loadAssets()
     return sprite
   }
 
@@ -91,6 +108,7 @@ export function createEnvironment(opts = {}) {
   function draw(ctx, camera) {
     ensureSeed(null, camera)
     drawGrass(ctx, camera)
+    decorations.draw(ctx, camera)
     trees.draw(ctx, sprite)
     pickups.draw(ctx)
   }
@@ -98,6 +116,8 @@ export function createEnvironment(opts = {}) {
   return {
     trees: trees.trees,
     pickups: pickups.items,
+    decorations: decorations.items,
+    decorationsField: decorations,
     loadAssets,
     update,
     draw,
@@ -105,6 +125,7 @@ export function createEnvironment(opts = {}) {
     hitSlashAt: trees.hitSlashAt,
     collideSolid: trees.collideSolid,
     spawnCrystal: pickups.spawnCrystal,
+    spawnCrystalAt: pickups.spawnCrystalAt,
     spawnCrystalBurst: pickups.spawnCrystalBurst,
     spawnTreeDrops(x, y, elapsedSec) {
       return pickups.spawnTreeDrops(x, y, elapsedSec ?? elapsed)

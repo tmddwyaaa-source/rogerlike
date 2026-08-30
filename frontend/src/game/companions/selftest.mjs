@@ -8,6 +8,15 @@ import {
   BAT_KILL_HEAL_EVERY,
   BAT_MAX_TARGETS,
   BAT_SRC,
+  COMPANIONSHIP_KILL_STEP,
+  COMPANIONSHIP_RATE_BASE,
+  COMPANIONSHIP_RATE_STEP,
+  DEMON_ATK_RATIO,
+  DEMON_COMFORT_RADIUS,
+  DEMON_DMG_BASE,
+  DEMON_KEEP_RADIUS,
+  DEMON_MAX_TARGETS,
+  DEMON_SRC,
   EGG_SRC,
   GOBLIN_DRAW,
   GOBLIN_FOLLOW_DIST,
@@ -16,8 +25,15 @@ import {
   GOBLIN_SRC,
   RABBIT_DMG,
   RABBIT_SRC,
+  SLIME_GG_DMG,
+  SLIME_GG_MAX_TARGETS,
+  SLIME_GG_SRC,
+  TAMER_DMG,
+  TAMER_SPEED_ADD,
   batDamage,
   createCompanions,
+  demonAttackPerBonus,
+  demonDamage,
   eggDamage,
   eggStage,
   goblinDamage,
@@ -809,6 +825,266 @@ const origin = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
   pri = null
   pack.update(0.05)
   assert('null priority falls back', r.chase === nearSelf)
+}
+
+assert('demon src', DEMON_SRC === '/assets/跟班/恶魔.png')
+assert(
+  'slime src',
+  String(SLIME_GG_SRC[1]).includes('史莱姆g-1.png') && String(SLIME_GG_SRC[2]).includes('史莱姆g-2.png'),
+)
+assert('demon base/ratio', DEMON_DMG_BASE === 10 && DEMON_ATK_RATIO === 0.2)
+assert('demon keep 3 body', DEMON_KEEP_RADIUS === 3 * BODY)
+assert('demon max 1', DEMON_MAX_TARGETS === 1)
+assert('demon dmg 14', demonDamage(20) === 14)
+assert('demon dmg +bonus10 = 24', demonDamage(20, 10) === 24)
+assert('demon link per 1/2 = 3/4', demonAttackPerBonus(1) === 3 && demonAttackPerBonus(2) === 4)
+assert('tamer const', TAMER_DMG === 5 && TAMER_SPEED_ADD === 0.05 * 80)
+assert('slime const', SLIME_GG_DMG === 5 && SLIME_GG_MAX_TARGETS === 1)
+assert(
+  'companionship const',
+  COMPANIONSHIP_KILL_STEP === 100 && COMPANIONSHIP_RATE_BASE === 1 && COMPANIONSHIP_RATE_STEP === 0.5,
+)
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  pack.addTamer()
+  const g = pack.addGoblin()
+  g.x = player.x
+  g.y = player.y
+  const a = dummy(g.x, g.y)
+  foes.push(a)
+  pack.update(0.4)
+  assert('tamer goblin 27+5=32', a.hp === 68)
+  pack.addTamer()
+  assert('tamer count 2', pack.getTamerCount() === 2 && pack.getTamerDamageBonus() === 10)
+  a.hp = 100
+  g.atkAcc = 0
+  pack.update(0.4)
+  assert('tamer stack 27+10=37', a.hp === 63)
+  const h = pack.addRabbit()
+  assert(
+    'new rabbit speed +0.05x2',
+    Math.abs(h.speed - (0 + TAMER_SPEED_ADD * 2)) < 1e-6,
+  )
+  assert('tamer speed add 8', pack.getTamerSpeedAdd() === TAMER_SPEED_ADD * 2)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  assert('demon kind/name', d.kind === 'demon' && d.name === '恶魔')
+  assert('demon no hp', d.hp === undefined)
+  assert('demon no takeHit', typeof d.takeHit !== 'function')
+  assert('demon knockbackable false', d.knockbackable === false)
+  assert('demon count 1', pack.getDemonCount() === 1)
+  assert('demon link 0', pack.getDemonAttackBonus() === 0)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 80 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x - 80
+  d.y = player.y
+  const nearPlayer = dummy(player.x + 20, player.y)
+  const nearSelf = dummy(d.x - 10, d.y)
+  foes.push(nearPlayer, nearSelf)
+  pack.update(0.05)
+  assert('demon chases nearest-to-player', d.chase === nearPlayer)
+  const x0 = d.x
+  pack.update(0.05)
+  assert('demon moves toward player target', d.x > x0)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x
+  d.y = player.y
+  const a = dummy(d.x, d.y)
+  foes.push(a)
+  pack.update(0.4)
+  assert('demon base 14 at attack 20', a.hp === 86)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x
+  d.y = player.y
+  pack.addDamageBonus(10)
+  assert('demon link +6 for 10 bonus', pack.getDemonAttackBonus() === 6)
+  const a = dummy(d.x, d.y)
+  foes.push(a)
+  d.atkAcc = 0
+  pack.update(0.4)
+  assert('demon damage 25 with link/bonus', a.hp === 75)
+  const d2 = pack.addDemon()
+  assert(
+    'two demons +8 link',
+    pack.getDemonCount() === 2 && d2.kind === 'demon' && pack.getDemonAttackBonus() === 8,
+  )
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const [s1, s2] = pack.addSlimeGG()
+  assert(
+    'slime two companions',
+    pack.list.length === 2 && s1.kind === 'slime' && s2.kind === 'slime' && pack.getSlimeCount() === 1,
+  )
+  assert('slime names', s1.name === '史莱姆g-1' && s2.name === '史莱姆g-2')
+  assert('slime no hp', s1.hp === undefined)
+  s1.x = player.x
+  s1.y = player.y
+  s2.x = player.x + 400
+  s2.y = player.y
+  const a = dummy(s1.x, s1.y)
+  foes.push(a)
+  pack.update(0.4)
+  assert('slime base 5', a.hp === 95)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 100 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x + 300
+  d.y = player.y
+  const far = dummy(player.x + 400, player.y)
+  foes.push(far)
+  const x0 = d.x
+  pack.update(0.25)
+  assert('demon stays within 3 body radius', Math.abs(d.x - player.x) < Math.abs(x0 - player.x))
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  let kills = 0
+  const pack = makePack(player, foes, () => 20, { getKills: () => kills })
+  pack.addCompanionship()
+  assert('companion count 1', pack.getCompanionshipCount() === 1)
+  assert('companion bonus 0 at 0 kills', pack.getCompanionshipDamageBonus() === 0)
+  kills = 100
+  pack.update(0.05)
+  assert('100 kills +1.0', pack.getCompanionshipDamageBonus() === 1)
+  kills = 200
+  pack.update(0.05)
+  assert('200 kills +2.0', pack.getCompanionshipDamageBonus() === 2)
+  pack.addCompanionship()
+  kills = 300
+  pack.update(0.05)
+  assert('300 kills uses new rate 1.5', pack.getCompanionshipDamageBonus() === 3.5)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  let kills = 250
+  const pack = makePack(player, foes, () => 20, { getKills: () => kills })
+  pack.addCompanionship()
+  assert('first select at 250 no retroactive', pack.getCompanionshipDamageBonus() === 0)
+  kills = 300
+  pack.update(0.05)
+  assert('cross 300 +1.0', pack.getCompanionshipDamageBonus() === 1)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  assert('unity tier initial 0', pack.getUnityTier() === 0)
+  assert(
+    'companion base bonus initial 0',
+    pack.getDamageBonus() === 0 && pack.getCompanionDamageBonus() === 0 && pack.getCompanionBonus() === 0,
+  )
+  const g = pack.addGoblin()
+  g.x = player.x
+  g.y = player.y
+  const a = dummy(g.x, g.y)
+  foes.push(a)
+  pack.update(0.4)
+  assert('unity tier 0 no gain', a.hp === 73)
+  pack.setUnityTier(1)
+  assert('tier 1 recorded but no gain', pack.getUnityTier() === 1 && pack.getCompanionBonus() === 0)
+  a.hp = 100
+  g.atkAcc = 0
+  pack.update(0.4)
+  assert('tier 1 below threshold no bonus', a.hp === 73)
+  pack.setUnityTier(2)
+  assert(
+    'tier 2 gives flat +5',
+    pack.getUnityTier() === 2 && pack.getCompanionBonus() === 5,
+  )
+  a.hp = 100
+  g.atkAcc = 0
+  pack.update(0.4)
+  assert('tier 2 goblin 27+5=32', a.hp === 68)
+  assert('damage getters exclude unity', pack.getDamageBonus() === 0 && pack.getCompanionDamageBonus() === 0)
+  pack.setUnityTier(4)
+  assert('tier 4 companion bonus 9', pack.getCompanionBonus() === 9)
+  pack.setUnityTier(8)
+  assert('tier 8 companion bonus 19', pack.getCompanionBonus() === 19)
+  pack.setUnityTier(0)
+  assert('reset tier 0', pack.getUnityTier() === 0 && pack.getCompanionBonus() === 0)
+  a.hp = 100
+  g.atkAcc = 0
+  pack.update(0.4)
+  assert('tier 0 clears unity gain', a.hp === 73)
+}
+
+assert('demon comfort radius 2 body', DEMON_COMFORT_RADIUS === 2 * BODY)
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 100 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x + 120
+  d.y = player.y
+  for (let k = 0; k < 40; k++) pack.update(0.1)
+  const pd = Math.hypot(d.x - player.x, d.y - player.y)
+  assert('demon soft follow settles near comfort ring', pd <= DEMON_KEEP_RADIUS + 1 && pd > 10)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 100 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x + DEMON_KEEP_RADIUS + 2
+  d.y = player.y
+  const x0 = d.x
+  pack.update(0.1)
+  assert('demon at leash edge moves closer (no air wall)', d.x < x0)
+}
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 80 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x - 80
+  d.y = player.y
+  const nearPlayer = dummy(player.x + 20, player.y)
+  const nearSelf = dummy(d.x - 10, d.y)
+  foes.push(nearPlayer, nearSelf)
+  const x0 = d.x
+  for (let k = 0; k < 12; k++) pack.update(0.05)
+  assert('demon soft follow keeps nearest-to-player priority', d.chase === nearPlayer && d.x > x0)
 }
 
 console.log(failed ? `\nRESULT FAIL (${failed})` : '\nRESULT PASS')
