@@ -1,9 +1,21 @@
+/* ---- 本地中文像素字体（Zpix v3.2.0，随项目打包，禁在线字体） ---- */
+
+@font-face {
+  font-family: "Zpix";
+  src: url("/assets/fonts/zpix.woff2") format("woff2");
+  font-display: swap;
+}
+
 :root {
+  /* 字体栈：Zpix 中文像素字体（本地 woff2；系统等宽仅兜底，不引用在线字体）。
+     仅由局外作用域（.rl-screen 及其弹层）使用，HUD 不继承。 */
+  --rl-font: "Zpix", ui-monospace, "Cascadia Mono", "Sarasa Mono SC", monospace;
   /* 色板（取自现值，不改色相） */
   --rl-ink: #2c2c28;        /* 墨色：边框/文字 */
   --rl-bg: #1a2214;         /* 深墨绿：全局底/遮罩基色 */
   --rl-screen: #c5e0a3;     /* 浅绿：全屏屏面 */
   --rl-panel: #b8d06a;      /* 面板绿 */
+  --rl-panel-deep: #3b4932; /* 深苔绿：局外关键状态框/羁绊 chip */
   --rl-paper: #f4e8c0;      /* 纸面：hover/高亮/HUD 文字 */
   --rl-btn: #cec95f;        /* 按钮黄 */
   --rl-lock: #9aaa58;       /* 标题阴影/锁定 */
@@ -28,6 +40,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* HUD 字体（v0.10 原值）：局内保持原等宽栈，像素字体只作用于局外屏 */
   font-family: ui-monospace, "Cascadia Mono", "Sarasa Mono SC", monospace;
   color: var(--rl-bg);
   image-rendering: pixelated;
@@ -55,25 +68,6 @@
   box-shadow: inset 0 0 0 2px var(--rl-paper-dim);
 }
 
-.rl-ribbon {
-  width: min(320px, 72vw);
-  border: 3px solid var(--rl-ink);
-  display: flex;
-  flex-direction: column;
-}
-
-.rl-ribbon i {
-  height: 6px;
-}
-
-.rl-ribbon i:first-child {
-  background: var(--rl-screen);
-}
-
-.rl-ribbon i:last-child {
-  background: var(--rl-ink);
-}
-
 .rl-menu-actions {
   display: flex;
   flex-direction: column;
@@ -96,6 +90,102 @@
   justify-content: center;
   background: var(--rl-screen);
   gap: var(--rl-s4);
+}
+
+/* ============================================================
+   局外 UI 设计系统（P35 / TASK-007 M6）
+   方向：与局内阳光草地像素世界同属一个游戏——浅草地底 + 墨色 1px 描边 +
+   透明/浅底容器；交互只用「左侧像素箭头 / 1px 描边加强 / 下压 1px」，
+   hover 不变亮填充、不反色文字。
+   - 字体：Zpix 只作用局外（.rl-screen 及其弹层），HUD 不继承。
+   - P34 的夜蓝/苔藓绿/石碑/横条装饰全部废弃（见 R4 清理）。
+   - 边界：局内 HUD 规则一行未删未改。
+   - 级联：本节位于旧 .rl-screen 之后，局外屏最终背景 = 浅草地 --rl-screen。
+   ============================================================ */
+
+/* 局外屏与弹层：浅草地底 + 本地像素字体（HUD 不在 .rl-screen 内，不受影响） */
+.rl-screen {
+  background: var(--rl-screen);
+  color: var(--rl-ink);
+  font-family: var(--rl-font);
+}
+
+.rl-screen .rl-modal,
+.rl-screen .rl-picker {
+  font-family: var(--rl-font);
+}
+
+/* 浅色像素框：1px 墨边、浅底、无内亮线、无投影 */
+.rl-panel {
+  border: 1px solid var(--rl-ink);
+  background: var(--rl-paper);
+}
+
+/* 可选行 / 卡：默认透明 + 1px 墨边；选中/悬停只出左侧像素箭头 + 描边加强 + 下压 1px */
+.rl-opt {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 1px solid var(--rl-ink);
+  background: transparent;
+  color: var(--rl-ink);
+  font: inherit;
+  text-align: left;
+  padding: var(--rl-s2) var(--rl-s3);
+  cursor: pointer;
+  transition: transform 60ms steps(2, end);
+}
+
+.rl-opt:hover,
+.rl-opt.on {
+  background: transparent;
+  color: var(--rl-ink);
+  border-color: var(--rl-ink);
+  box-shadow: inset 0 0 0 1px var(--rl-ink);
+  transform: translateY(1px);
+}
+
+.rl-opt:hover::before,
+.rl-opt.on::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  background: var(--rl-ink);
+}
+
+.rl-opt:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* 局外按钮：低调浅底 + 墨色 1px 描边；hover 只下压 1px，不变亮/不反色 */
+.rl-glyph-btn {
+  border: 1px solid var(--rl-ink);
+  background: var(--rl-paper);
+  color: var(--rl-ink);
+  box-shadow: none;
+  transition: transform 60ms steps(2, end);
+}
+
+.rl-glyph-btn:hover:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.rl-glyph-btn:hover:not(:disabled),
+.rl-glyph-btn:active:not(:disabled) {
+  border-color: var(--rl-ink);
+}
+
+.rl-glyph-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.rl-glyph-btn.ghost {
+  background: transparent;
 }
 
 .rl-title {
@@ -131,8 +221,8 @@
     transform 60ms steps(2, end);
 }
 
+/* 悬停不变填充（P35）：只下压 1px + 阴影收紧 */
 .rl-btn:hover:not(:disabled) {
-  background: var(--rl-paper);
   transform: translate(1px, 1px);
   box-shadow: 2px 2px 0 var(--rl-shadow);
 }
@@ -160,7 +250,7 @@
 }
 
 .rl-btn.ghost {
-  background: var(--rl-screen);
+  background: transparent;
 }
 
 .rl-btn.tiny {
@@ -407,8 +497,20 @@
   font: inherit;
 }
 
+/* 选角卡悬停/选中：不变填充，只出左侧像素箭头 + 下压 1px */
 .rl-pick.on:hover {
-  background: var(--rl-paper);
+  transform: translateY(1px);
+}
+
+.rl-pick.on:hover::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  background: var(--rl-ink);
 }
 
 .rl-pick-name {
@@ -829,10 +931,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--rl-s1);
+  transition: transform 60ms steps(2, end);
 }
 
+/* 回忆列表项悬停：不变填充，只 1px 描边加强 + 下压 1px */
 .rl-mem-item:hover {
-  background: var(--rl-paper);
+  box-shadow: inset 0 0 0 1px var(--rl-ink);
+  transform: translateY(1px);
 }
 
 .rl-mem-detail {
@@ -1057,6 +1162,7 @@
   font: inherit;
   font-weight: bold;
   cursor: pointer;
+  box-shadow: 3px 3px 0 var(--rl-shadow);
 }
 
 .rl-picker-grid {
@@ -1080,4 +1186,86 @@
   display: block;
   white-space: normal;
   max-width: 180px;
+}
+
+/* ============================================================
+   P36 / TASK-011（M6）：局外交互控件统一
+   裁定（S21）：所有「会触发动作」的控件复用同一套按钮语言
+   —— 3px 深色像素边 + 硬像素阴影（hover 缩 1px、下压 1px，active 再下压）
+   —— 悬停不变填充、不反色、不变亮
+   信息容器默认保持轻量；角色结算等最高层信息可在对应视图升为双层像素框。
+   禁止 !important 堆叠；视图 scoped 规则需改用这些类名（属对应窗口）。
+   ============================================================ */
+
+/* 局外动作按钮：与 .rl-btn 同一套语言（3px 边 + 3px 硬阴影） */
+.rl-action-btn {
+  border: 3px solid var(--rl-ink);
+  box-shadow: 3px 3px 0 var(--rl-shadow);
+  transition:
+    box-shadow 60ms steps(2, end),
+    transform 60ms steps(2, end);
+}
+
+.rl-action-btn:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--rl-shadow);
+}
+
+.rl-action-btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--rl-shadow);
+}
+
+.rl-action-btn:focus-visible {
+  outline: 3px solid var(--rl-ink);
+  outline-offset: 2px;
+}
+
+/* 小尺寸动作按钮：边框仍 3px，硬阴影成比例缩到 2px */
+.rl-btn.tiny,
+.rl-action-btn.tiny {
+  box-shadow: 2px 2px 0 var(--rl-shadow);
+}
+
+.rl-btn.tiny:hover:not(:disabled),
+.rl-action-btn.tiny:hover:not(:disabled) {
+  box-shadow: 1px 1px 0 var(--rl-shadow);
+}
+
+/* 回忆列表项：可点击行——比信息容器更有分量，但不是首页黄底大块 */
+.rl-action-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--rl-s1);
+  width: 100%;
+  border: 3px solid var(--rl-ink);
+  background: var(--rl-paper);
+  color: var(--rl-ink);
+  font: inherit;
+  text-align: left;
+  padding: var(--rl-s2) var(--rl-s3);
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--rl-shadow);
+  transition:
+    box-shadow 60ms steps(2, end),
+    transform 60ms steps(2, end);
+}
+
+.rl-action-row:hover,
+.rl-action-row:focus-visible {
+  box-shadow: 2px 2px 0 var(--rl-shadow);
+  transform: translate(1px, 1px);
+}
+
+.rl-action-row:hover::before,
+.rl-action-row:focus-visible::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  background: var(--rl-ink);
 }

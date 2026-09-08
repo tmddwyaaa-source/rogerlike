@@ -65,8 +65,8 @@ defineExpose({
   <section class="rl-screen rl-more">
     <template v-if="step === 'more'">
       <h2 class="rl-h2">……</h2>
-      <button class="rl-btn" type="button" @click="openMemories">回忆</button>
-      <button class="rl-btn ghost" type="button" @click="emit('back')">返回</button>
+      <button class="rl-btn rl-glyph-btn" type="button" @click="openMemories">回忆</button>
+      <button class="rl-btn rl-glyph-btn ghost" type="button" @click="emit('back')">返回</button>
     </template>
 
     <template v-else-if="step === 'list'">
@@ -76,7 +76,7 @@ defineExpose({
         <button
           v-for="item in list"
           :key="item.id"
-          class="rl-mem-item"
+          class="rl-mem-item rl-action-row"
           type="button"
           @click="openDetail(item)"
         >
@@ -84,13 +84,13 @@ defineExpose({
           <span>Lv.{{ item.level }}　{{ item.exp }}/{{ item.expNeed }}</span>
         </button>
       </div>
-      <button class="rl-btn ghost" type="button" @click="onBack">返回</button>
+      <button class="rl-btn rl-glyph-btn ghost" type="button" @click="onBack">返回</button>
     </template>
 
     <template v-else-if="step === 'detail' && current">
       <h2 class="rl-h2">对局</h2>
       <div class="rl-mem-detail">
-        <div class="rl-mem-hero rl-frame--dark">
+        <div class="rl-mem-hero">
           <div
             class="rl-mem-portrait"
             @mouseenter="hoverPortrait = true"
@@ -154,7 +154,73 @@ defineExpose({
           </div>
         </div>
       </div>
-      <button class="rl-btn ghost" type="button" @click="onBack">返回</button>
+      <button class="rl-btn rl-glyph-btn ghost" type="button" @click="onBack">返回</button>
     </template>
   </section>
 </template>
+
+<style scoped>
+/* M3 / TASK-009：P35 轻量浅色容器（只改视觉）。
+   布局关系不变：升级选项 ≥60% 与羁绊裸 chip 竖排仍由 pixel.css 的 .rl-mem-cols 负责，
+   此处不声明 flex / width，也不新增独立大框。 */
+
+.rl-screen.rl-more {
+  background: var(--rl-screen);
+  color: var(--rl-ink);
+}
+
+.rl-more .rl-h2 {
+  color: var(--rl-ink);
+}
+
+.rl-more .rl-sub {
+  color: var(--rl-sub);
+}
+
+/* 对局列表：可点击行语言交回全局 .rl-action-row（3px 墨边 + 硬阴影 +
+   hover 左侧像素箭头 + 下压 1px，填充不变）；这里只留次要文字的色阶。 */
+.rl-more .rl-mem-item span {
+  color: var(--rl-sub);
+}
+
+/* 升级选项面板：黄绿战利品框（不声明 flex / width，保留 62% 布局关系） */
+.rl-more .rl-panel {
+  border: 3px solid var(--rl-ink);
+  background: var(--rl-panel);
+  box-shadow: inset 0 0 0 2px var(--rl-lock);
+  color: var(--rl-ink);
+}
+
+.rl-more .rl-panel h3 {
+  color: var(--rl-sub);
+  letter-spacing: 1px;
+}
+
+/* 方案 1：角色结算是唯一的深苔绿主框，双层像素边明确主次。 */
+.rl-more .rl-mem-hero {
+  background: var(--rl-panel-deep);
+  border: 3px solid var(--rl-ink);
+  box-shadow: inset 0 0 0 2px var(--rl-lock);
+  color: var(--rl-paper);
+}
+
+.rl-more .rl-mem-lv {
+  color: var(--rl-btn);
+}
+
+.rl-more .rl-mem-attrs {
+  color: var(--rl-paper);
+}
+
+.rl-more .rl-mem-mult {
+  color: var(--rl-ink);
+}
+
+/* 羁绊 chip：更深苔绿底，和升级图区区分但不新增独立大框。 */
+.rl-more .rl-bond {
+  border: 2px solid var(--rl-ink);
+  background: var(--rl-panel-deep);
+  box-shadow: inset 0 0 0 1px var(--rl-lock);
+  color: var(--rl-paper);
+}
+</style>

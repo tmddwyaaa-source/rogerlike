@@ -25,11 +25,10 @@ const emit = defineEmits([
       <h1 class="rl-title">{{ GAME_TITLE }}</h1>
       <p class="rl-sub">像素幸存者</p>
       <div class="rl-menu-actions">
-        <button class="rl-btn" type="button" @click="emit('play')">开始游戏</button>
-        <button class="rl-btn" type="button" @click="emit('settings')">设置</button>
-        <button class="rl-btn" type="button" @click="emit('exit')">退出游戏</button>
+        <button class="rl-btn rl-glyph-btn" type="button" @click="emit('play')">开始游戏</button>
+        <button class="rl-btn rl-glyph-btn" type="button" @click="emit('settings')">设置</button>
+        <button class="rl-btn rl-glyph-btn" type="button" @click="emit('exit')">退出游戏</button>
       </div>
-      <div class="rl-ribbon" aria-hidden="true"><i></i><i></i></div>
     </template>
 
     <template v-else-if="step === 'char'">
@@ -38,7 +37,7 @@ const emit = defineEmits([
         <button
           v-for="ch in CHARACTERS"
           :key="ch.id"
-          class="rl-pick on rl-frame"
+          class="rl-pick on rl-frame rl-opt"
           type="button"
           @mouseenter="hoverId = ch.id"
           @mouseleave="hoverId = ''"
@@ -58,11 +57,11 @@ const emit = defineEmits([
     <template v-else-if="step === 'difficulty'">
       <h2 class="rl-h2">选择难度</h2>
       <div class="rl-pick-row">
-        <button class="rl-btn rl-frame rl-diff-pick" type="button" @click="emit('pick-diff', DIFFICULTY_ONE.id)">
+        <button class="rl-btn rl-frame rl-diff-pick rl-opt" type="button" @click="emit('pick-diff', DIFFICULTY_ONE.id)">
           {{ DIFFICULTY_ONE.name }}
           <span class="rl-char-tip">{{ OBJECTIVE_TEXT }}</span>
         </button>
-        <button class="rl-btn rl-frame rl-diff-pick" type="button" @click="emit('pick-diff', DIFFICULTY_TWO.id)">
+        <button class="rl-btn rl-frame rl-diff-pick rl-opt" type="button" @click="emit('pick-diff', DIFFICULTY_TWO.id)">
           {{ DIFFICULTY_TWO.name }}
           <span class="rl-char-tip">{{ OBJECTIVE_TEXT_TWO }}</span>
         </button>

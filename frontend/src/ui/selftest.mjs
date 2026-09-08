@@ -1170,6 +1170,223 @@ assert('token 层 :root', pixelCss.includes(':root') && pixelCss.includes('--rl-
 assert('rl-frame 通用类', pixelCss.includes('.rl-frame') && pixelCss.includes('.rl-frame--pop'))
 assert('死样式已删', !pixelCss.includes('.rl-pick.locked') && !pixelCss.includes('.rl-avatar.q'))
 
+/* ---- 局外 UI 设计系统（P35 / TASK-007 M6：断言同步为 P35 真实规则）---- */
+const cssRuleBody = (selector) => {
+  const hit = new RegExp(`${selector}\\s*\\{([^}]*)\\}`).exec(pixelCss)
+  return hit ? hit[1] : ''
+}
+const fontWoff = readFileSync(join(here, '../../public/assets/fonts/zpix.woff2'))
+assert(
+  '像素字体 @font-face 本地化',
+  pixelCss.includes('@font-face') &&
+    /font-family:\s*"Zpix"/.test(pixelCss) &&
+    pixelCss.includes('url("/assets/fonts/zpix.woff2")') &&
+    /format\("woff2"\)/.test(pixelCss) &&
+    /font-display:\s*swap/.test(pixelCss),
+)
+assert('像素字体文件 wOF2', fontWoff.length > 100000 && fontWoff.slice(0, 4).toString() === 'wOF2')
+assert('像素字体不引在线服务', !/fonts\.googleapis|fonts\.gstatic|use\.typekit/.test(pixelCss))
+const rootBody = cssRuleBody('\\.rl-root')
+assert(
+  '字体作用域：.rl-root 保留 HUD 等宽栈且不含 Zpix',
+  /font-family:\s*ui-monospace/.test(rootBody) && !/Zpix/.test(rootBody),
+)
+assert(
+  '字体作用域：Zpix 只挂局外（.rl-screen）',
+  /--rl-font:\s*"Zpix"/.test(pixelCss) &&
+    /\.rl-screen\s*\{[^}]*font-family:\s*var\(--rl-font\)/.test(pixelCss),
+)
+assert(
+  'P34 夜蓝 token 已清（--rl-night*）',
+  !/--rl-night(-deep|-lift)?/.test(pixelCss) && !/#1b202b|#12161f|#232a38/i.test(pixelCss),
+)
+assert('P34 石碑类已清（.rl-slab/.rl-plaque）', !pixelCss.includes('.rl-slab') && !pixelCss.includes('.rl-plaque'))
+assert('P34 横条样式已清（.rl-ribbon）', !pixelCss.includes('.rl-ribbon'))
+assert(
+  '局外背景=浅草地 --rl-screen',
+  (() => {
+    const cssLines = pixelCss.split(/\r?\n/)
+    const rules = []
+    for (let i = 0; i < cssLines.length; i += 1) {
+      if (!/^\.rl-screen\s*\{/.test(cssLines[i])) continue
+      let body = ''
+      for (let j = i + 1; j < cssLines.length && !cssLines[j].includes('}'); j += 1) body += cssLines[j]
+      rules.push({ line: i + 1, body })
+    }
+    if (!rules.length) return false
+    const last = rules[rules.length - 1]
+    return /background:\s*var\(--rl-screen\)/.test(last.body)
+  })(),
+)
+const panelBody = cssRuleBody('\\.rl-panel')
+assert(
+  '轻量浅色框 .rl-panel（1px 墨边、无双层深色内亮线）',
+  /border:\s*1px solid var\(--rl-ink\)/.test(panelBody) &&
+    !/inset 0 0 0 2px/.test(panelBody) &&
+    !/border-radius:\s*[1-9]/.test(panelBody),
+)
+const optBody = cssRuleBody('\\.rl-opt')
+const optHoverBody = (pixelCss.match(/\.rl-opt:hover[^{]*\{([^}]*)\}/) || [])[1] || ''
+assert(
+  '可选行 .rl-opt（1px 墨边 + 下压 1px + 左侧像素箭头）',
+  /border:\s*1px solid var\(--rl-ink\)/.test(optBody) &&
+    /translateY\(1px\)/.test(optHoverBody) &&
+    /\.rl-opt:hover::before[^{]*\{[^}]*background:\s*var\(--rl-ink\)/.test(pixelCss) &&
+    !/background:\s*(var\(--rl-moss|#)/.test(optHoverBody),
+)
+const glyphBody = cssRuleBody('\\.rl-glyph-btn')
+const glyphHoverBody = (pixelCss.match(/\.rl-glyph-btn:hover[^{]*\{([^}]*)\}/) || [])[1] || ''
+assert(
+  '局外按钮 hover 不变亮填充/不反色',
+  /border:\s*1px solid var\(--rl-ink\)/.test(glyphBody) &&
+    /translateY\(1px\)/.test(glyphHoverBody) &&
+    !/background/.test(glyphHoverBody) &&
+    !/color/.test(glyphHoverBody),
+)
+/* R6：悬停不得改填充（只允许箭头/描边/下压；局内 .rl-card:hover 不受约束） */
+const hoverBodyOf = (sel) => {
+  const i = pixelCss.indexOf(sel)
+  if (i < 0) return null
+  const open = pixelCss.indexOf('{', i)
+  const close = pixelCss.indexOf('}', open)
+  return pixelCss.slice(open + 1, close)
+}
+const hoverNoFill = ['.rl-btn:hover', '.rl-pick.on:hover', '.rl-mem-item:hover'].every((sel) => {
+  const body = hoverBodyOf(sel)
+  return body !== null && !/background/.test(body)
+})
+assert('悬停不变填充：.rl-btn/.rl-pick.on/.rl-mem-item', hoverNoFill)
+assert(
+  '悬停反馈=像素箭头/描边/下压',
+  /\.rl-pick\.on:hover::before[^{]*\{[^}]*background:\s*var\(--rl-ink\)/.test(pixelCss) &&
+    /translate\(1px,\s*1px\)|translateY\(1px\)/.test(hoverBodyOf('.rl-btn:hover') || '') &&
+    /inset 0 0 0 1px var\(--rl-ink\)/.test(hoverBodyOf('.rl-mem-item:hover') || ''),
+)
+assert('局内 .rl-card:hover 未被约束', /\.rl-card:hover\s*\{[^}]*background:\s*var\(--rl-mask-hover\)/.test(pixelCss))
+
+/* ---- P36 / TASK-011（M6）：局外交互控件统一断言 ---- */
+const resultSrc = readFileSync(join(here, '../views/ResultView.vue'), 'utf8')
+const actionBtnBody = cssRuleBody('\\.rl-action-btn')
+const actionBtnHover = (pixelCss.match(/\.rl-action-btn:hover[^{]*\{([^}]*)\}/) || [])[1] || ''
+const actionBtnActive = (pixelCss.match(/\.rl-action-btn:active[^{]*\{([^}]*)\}/) || [])[1] || ''
+assert(
+  'P36 动作按钮 .rl-action-btn（3px 边 + 3px 硬阴影）',
+  /border:\s*3px solid var\(--rl-ink\)/.test(actionBtnBody) &&
+    /box-shadow:\s*3px 3px 0 var\(--rl-shadow\)/.test(actionBtnBody),
+)
+assert(
+  'P36 动作按钮 hover/active 只下压收影、不变填充',
+  /translate\(1px,\s*1px\)/.test(actionBtnHover) &&
+    /box-shadow:\s*2px 2px 0/.test(actionBtnHover) &&
+    !/background/.test(actionBtnHover) &&
+    /translate\(2px,\s*2px\)/.test(actionBtnActive) &&
+    /box-shadow:\s*1px 1px 0/.test(actionBtnActive) &&
+    !/background/.test(actionBtnActive),
+)
+assert('P36 动作按钮 focus-visible 3px outline', /\.rl-action-btn:focus-visible[^{]*\{[^}]*outline:\s*3px solid/.test(pixelCss))
+const actionRowBody = cssRuleBody('\\.rl-action-row')
+const actionRowHover = (pixelCss.match(/\.rl-action-row:hover[^{]*\{([^}]*)\}/) || [])[1] || ''
+assert(
+  'P36 可点击行 .rl-action-row（3px 边 + 硬阴影 + 浅底）',
+  /border:\s*3px solid var\(--rl-ink\)/.test(actionRowBody) &&
+    /box-shadow:\s*3px 3px 0 var\(--rl-shadow\)/.test(actionRowBody) &&
+    /background:\s*var\(--rl-paper\)/.test(actionRowBody),
+)
+assert(
+  'P36 可点击行 hover 只箭头+收影+下压、不变填充',
+  !/background/.test(actionRowHover) &&
+    /translate\(1px,\s*1px\)/.test(actionRowHover) &&
+    /box-shadow:\s*2px 2px 0/.test(actionRowHover) &&
+    /\.rl-action-row:hover::before[^{]*\{[^}]*background:\s*var\(--rl-ink\)/.test(pixelCss),
+)
+assert(
+  'P36 小按钮边框仍 3px、硬阴影成比例 2px',
+  /\.rl-btn\.tiny,\s*\.rl-action-btn\.tiny\s*\{[^}]*box-shadow:\s*2px 2px 0/.test(pixelCss) &&
+    /\.rl-action-btn\.tiny:hover:not\(:disabled\)\s*\{[^}]*box-shadow:\s*1px 1px 0/.test(pixelCss),
+)
+const toggleBody = cssRuleBody('\\.rl-toggle')
+const pickerXBody = cssRuleBody('\\.rl-picker-x')
+assert(
+  'P36 开关/红 X 同语言（3px 边 + 硬阴影）',
+  /border:\s*3px solid var\(--rl-ink\)/.test(toggleBody) &&
+    /box-shadow:\s*3px 3px 0 var\(--rl-shadow\)/.test(toggleBody) &&
+    /border:\s*3px solid var\(--rl-ink\)/.test(pickerXBody) &&
+    /box-shadow:\s*3px 3px 0 var\(--rl-shadow\)/.test(pickerXBody),
+)
+assert(
+  'P36 无 !important 堆叠',
+  !/!important/.test(pixelCss.replace(/\/\*[\s\S]*?\*\//g, '')),
+)
+assert(
+  'P36 信息容器仍轻量（1px）',
+  /border:\s*1px solid var\(--rl-ink\)/.test(cssRuleBody('\\.rl-panel')) &&
+    /border:\s*1px solid var\(--rl-ink\)/.test(resultSrc),
+)
+
+const viewRuleBody = (source, selector) => {
+  const selectorIndex = source.indexOf(selector)
+  const openBrace = source.indexOf('{', selectorIndex)
+  const closeBrace = source.indexOf('}', openBrace)
+  if (selectorIndex < 0 || openBrace < 0 || closeBrace < 0) return ''
+  return source.slice(openBrace + 1, closeBrace)
+}
+
+const standardInfoPanels = [
+  viewRuleBody(settingsSrc, '.rl-settings .rl-panel'),
+  viewRuleBody(moreSrc, '.rl-more .rl-panel'),
+  viewRuleBody(resultSrc, '.rl-screen .rl-result'),
+]
+
+assert(
+  'P37 普通信息容器用草地面板色，不铺浅黄色',
+  standardInfoPanels.every(
+    (body) =>
+      /background:\s*var\(--rl-panel\)/.test(body) &&
+      !/background:\s*var\(--rl-paper\)/.test(body),
+  ),
+)
+assert(
+  'P38 角色结算为深苔绿双层像素主框',
+  /background:\s*var\(--rl-panel-deep\)/.test(viewRuleBody(moreSrc, '.rl-more .rl-mem-hero')) &&
+    /border:\s*3px\s+solid\s+var\(--rl-ink\)/.test(viewRuleBody(moreSrc, '.rl-more .rl-mem-hero')) &&
+    /inset\s+0\s+0\s+0\s+2px\s+var\(--rl-lock\)/.test(viewRuleBody(moreSrc, '.rl-more .rl-mem-hero')),
+)
+assert(
+  'P38 回忆羁绊 chip 使用更深苔绿底',
+  /background:\s*var\(--rl-panel-deep\)/.test(viewRuleBody(moreSrc, '.rl-more .rl-bond')) &&
+    /color:\s*var\(--rl-paper\)/.test(viewRuleBody(moreSrc, '.rl-more .rl-bond')),
+)
+assert(
+  'P38 设置容器与测试区使用双层像素框',
+  [
+    viewRuleBody(settingsSrc, '.rl-settings .rl-panel'),
+    viewRuleBody(settingsSrc, '.rl-settings .rl-settings-test'),
+  ].every(
+    (body) =>
+      /border:\s*3px\s+solid\s+var\(--rl-ink\)/.test(body) &&
+      /inset\s+0\s+0\s+0\s+2px\s+var\(--rl-lock\)/.test(body),
+  ),
+)
+assert(
+  'P37 确认弹窗保留纸面高对比',
+  /background:\s*var\(--rl-paper\)/.test(
+    viewRuleBody(settingsSrc, '.rl-settings .rl-modal-box'),
+  ),
+)
+assert(
+  'P36 视图 scoped 覆盖需改类名（当前仍在 .rl-btn 上）',
+  [settingsSrc, moreSrc, resultSrc].every((src) => !/\.rl-action-btn/.test(src)),
+)
+assert(
+  '局外无渐变/圆角/模糊',
+  !/gradient/.test(pixelCss) && !/border-radius:\s*[1-9]/.test(pixelCss) && !/filter:\s*blur/.test(pixelCss),
+)
+assert('首页横条装饰已删（模板+样式）', !/rl-ribbon/.test(startSrc) && !/rl-ribbon/.test(pixelCss))
+assert(
+  '结算三按钮文案',
+  resultSrc.includes('再玩一把') && resultSrc.includes('退出到主页') && resultSrc.includes('重试上报'),
+)
+
 const vol = defaultSettings()
 assert('volume default 70%', formatVolumePct(vol.volume) === '70%')
 assert('clamp high', clampVolume(2) === 1)

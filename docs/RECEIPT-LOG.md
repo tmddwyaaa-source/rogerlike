@@ -2,6 +2,96 @@
 
 > M1 查收专用。禁止仅凭口头「完成了」标 done。
 
+## 2026-09-08 查收 — P36 局外按钮边框一致性修复（M6 / M3 + M7 验收）
+
+用户信号：两窗报「已完成，请查收」→ M7 独立验收。
+
+### 磁盘核对（M1 本窗重跑）
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M6 / TASK-011 | .rl-action-btn / .rl-action-row 新增；toggle/tiny/picker-x 恢复 3px+硬阴影；selftest P36 断言 | ✅ R1~R4 全 PASS |
+| M3 / TASK-012 | 三视图 scoped 1px/box-shadow:none 覆盖清理；回忆列表项改 rl-action-row；信息容器仍 1px | ✅ R1~R4 全 PASS |
+| M7 / TASK-013 | 独立复跑 + 构建产物级联模拟 + 边界 + 两份 verify-report | ✅ pass；findings 均 P3/P4 |
+
+### 客观审计（M1）
+
+| 检查项 | 结果 |
+|--------|------|
+| 浏览器计算样式（`scripts/ui-button-audit.mjs`） | ✅ **14/14 OK**：交互控件 border=3px + 非空硬阴影（tiny=2px）；信息容器 1px |
+| hover 填充 | ✅ 交互控件 hover 无 background（仅 .rl-action-row::before 箭头） |
+| 六屏色板审计 | ✅ 8/8 PASS（草地背景未变） |
+| 局内 HUD | ✅ 探针 RESULT PASS hud-font-original |
+| selftest / build | ✅ RESULT PASS / ✓ 469ms |
+| 截图 | ✅ p36-01…08.png + ingame-09-ingame-hud.png |
+
+**结论**：P36 **pass**。按钮统一为 3px 像素边 + 硬阴影语言，信息容器保持 1px；首页基准未变；局内 HUD 零影响。
+
+---
+
+## 2026-09-08 查收 — P35 局外 UI 重构为阳光草地同世界观（M6 / M2 / M3 + M7 验收）
+
+用户信号：三窗报「已完成，请查收」→ M6 返工 → M7 独立验收。
+
+### 磁盘核对（M1 本窗重跑）
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M6 / TASK-007 | 字体作用域（Zpix 只局外、HUD 恢复原等宽栈）、局外背景=浅草地、轻量 1px 框、P34 清理、hover 不变填充、selftest 断言改 P35 | ✅ 本窗复跑 R1~R6 全 PASS |
+| M2 / TASK-008 | 首页/选角/难度：草地直载、删横条、悬停箭头/描边/下压 | ✅ R1~R4 全 PASS |
+| M3 / TASK-009 | 设置/回忆/结算：轻量浅色容器、开关不用荧光绿 | ✅ R1~R4 全 PASS |
+| M7 / TASK-010 | 独立验收：13 条 verify 复跑 + 边界 + P34 清理 7 条 | ✅ 全部 pass，清理清单 7/7 有证据 |
+
+### 视觉复核（M1 集成）
+
+| 检查项 | 结果 |
+|--------|------|
+| 六屏截图 | ✅ `docs/screenshots/ui-redesign/p35-01…08.png` |
+| 色板审计（`scripts/ui-audit.py --expect grass`） | ✅ 8/8 PASS：背景 #c5e0a3 草地 0.69~0.87，夜蓝/苔藓绿 ≈0.0000 |
+| 局内 HUD 截图 + 字体探针 | ✅ `ingame-09-ingame-hud.png`；探针 **RESULT PASS hud-font-original**（topbar/botbar/hearts = 原等宽栈，无 Zpix） |
+| hover 填充 | ✅ `.rl-btn:hover`/`.rl-pick.on:hover`/`.rl-mem-item:hover` 均无 background，仅位移/描边/箭头 |
+| 边界 | ✅ HudOverlay.vue / UpgradeView.vue / game/** / match.js / backend 零改动 |
+| 禁物/素材 | ✅ 无城堡/天空/山/鸟/帐篷/篝火/卷轴/羊皮纸/告示板；无新增图片；无在线字体/图片 |
+
+### 收口
+
+TASK-007/008/009/010 全部 `done`（`transition` 收口，每步 Full Gate 通过）。
+
+**结论**：P35 **pass**。P34 的夜蓝/墨绿石碑方向已废弃；局外与局内同属阳光草地世界，局内 HUD 零影响。待用户实机最终拍板。
+
+---
+
+## 2026-09-08 查收 — P34 局外 UI 像素化重设计（M6 / M2 / M3 + M7 验收）
+
+用户信号：M3、M6、M2、M7 分别报「已完成，请查收」。
+
+### 磁盘核对（M1 本窗重跑）
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M6 / TASK-002 | 本地 Zpix 字体 @font-face、9 个色板 token、.rl-slab/.rl-plaque/.rl-glyph-btn/.rl-hairline、HUD 未回归、级联修复 | ✅ 本窗复跑 `PASS font / tokens / slab / hud-intact / cascade night=139 legacy=110` |
+| M2 / TASK-003 | 首页/选角/难度 三屏模板类名、文案、事件、悬停提示 | ✅ `PASS menu / char / difficulty / behavior` |
+| M3 / TASK-004 | 设置/回忆/结算 三屏、滑条/开关/自选面板、悬停、事件 | ✅ `PASS settings / memories / result / behavior` |
+| M7 / TASK-005 | selftest 断言同步 + 构建 + 15 条 verify_cmd 复跑 + 边界核查 | ✅ selftest `RESULT PASS`（401 PASS / 0 FAIL）、build ✓ 485ms |
+| M2 / TASK-006 | 第三方复核 M7 的断言与构建 | ✅ 发现 `.rl-hairline` 断言缺失 → M7 补齐（selftest.mjs:1229-1231）→ M1 复核闭环 |
+
+### 视觉复核（M1 集成）
+
+| 检查项 | 结果 |
+|--------|------|
+| 六屏+结算截图（`scripts/ui-shots.mjs`） | ✅ 8 张，`docs/screenshots/ui-redesign/final-*.png` |
+| 色板审计（`scripts/ui-audit.py`） | ✅ 8/8 PASS：背景 #1b202b、旧绿残留 0（选角卡从 26113px → 0） |
+| 局内 HUD 零改动 | ✅ HudOverlay.vue 未改；pixel.css HUD 规则字符串全在 |
+| 字体随包 | ✅ `frontend/dist/assets/fonts/zpix.woff2`（966156 字节） |
+
+### 收口
+
+TASK-002/003/004/005/006 全部 `done`（`transition` 收口，Full Gate 每步通过）；TASK-001 环境自检已 done。
+
+**结论**：P34 **pass**。纯视觉改动，玩法/文案/事件/ESC 全未变；局内 HUD 未触碰。待用户实机最终拍板。
+
+---
+
 ## 2026-08-29 查收 — P33（M8）
 
 | 检查项 | 结果 |

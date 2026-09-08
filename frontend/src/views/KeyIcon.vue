@@ -17,11 +17,13 @@ function paint() {
   c.width = w
   c.height = h
   ctx.imageSmoothingEnabled = false
+  // 三层实心像素块：墨边 → 苔绿内线 → 按键黄，避免普通表单的细描边感。
+  ctx.fillStyle = '#2c2c28'
+  ctx.fillRect(1, 1, w - 2, h - 2)
+  ctx.fillStyle = '#9aaa58'
+  ctx.fillRect(4, 4, w - 8, h - 8)
   ctx.fillStyle = '#cec95f'
-  ctx.fillRect(2, 2, w - 4, h - 4)
-  ctx.strokeStyle = '#2c2c28'
-  ctx.lineWidth = 2
-  ctx.strokeRect(2, 2, w - 4, h - 4)
+  ctx.fillRect(6, 6, w - 12, h - 12)
   ctx.fillStyle = '#2c2c28'
   ctx.font = 'bold 12px monospace'
   ctx.textAlign = 'center'

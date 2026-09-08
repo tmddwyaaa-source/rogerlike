@@ -1,5 +1,9 @@
 # 模块注册表（Module Registry）
 
+> ⚠️ **历史，已作废（2026-09-08）**：本文件记录旧编制（M3～M11）的模块与派工表，**不再作为派工或状态依据**。
+> 当前编制权威 = **`docs/编制-2026.md`**；任务状态单一来源 = **`.task/`**（`transition` 唯一收口），状态视图 = `docs/TASK-STATUS.md`（禁止手改）。
+> 保留价值：各模块历史交付物清单与 `HANDOFF-P*.md` 索引仍可查阅。
+
 > **主导窗口（M1）**维护。状态：`pending` | `in_progress` | `review` | `done` | `blocked`  
 > 规格真相源：`docs/GAME-SPEC.md` · 素材：`docs/ASSETS.md`  
 > 环内：斥候 → 主力 → 搜剿；同一卡点最多 4 次；**仅 M1 可标 done**

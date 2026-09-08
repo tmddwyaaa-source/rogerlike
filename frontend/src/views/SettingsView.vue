@@ -193,8 +193,8 @@ defineExpose({
         </div>
 
         <div class="rl-menu-actions">
-          <button class="rl-btn" type="button" @click="emit('back')">返回</button>
-          <button class="rl-btn ghost" type="button" @click="requestHome">返回主页</button>
+          <button class="rl-btn rl-glyph-btn" type="button" @click="emit('back')">返回</button>
+          <button class="rl-btn rl-glyph-btn ghost" type="button" @click="requestHome">返回主页</button>
         </div>
       </div>
 
@@ -225,7 +225,7 @@ defineExpose({
           >
             火柴人：{{ s.testDummy ? '打开' : '关闭' }}
           </button>
-          <button class="rl-btn" type="button" @click="openUpgradePicker">升级选项自选</button>
+          <button class="rl-btn rl-glyph-btn" type="button" @click="openUpgradePicker">升级选项自选</button>
         </div>
 
         <div class="rl-nudge">
@@ -245,7 +245,7 @@ defineExpose({
         <div class="rl-nudge">
           <span>刷怪速度 ×{{ s.spawnRate.toFixed(2) }}</span>
           <div>
-            <button type="button" class="rl-btn tiny" @click="nudgeSpawn(-1)">◀</button>
+            <button type="button" class="rl-btn rl-glyph-btn tiny" @click="nudgeSpawn(-1)">◀</button>
             <input
               type="range"
               min="0.25"
@@ -254,15 +254,15 @@ defineExpose({
               :value="s.spawnRate"
               @input="patch({ spawnRate: clampSpawnRate($event.target.value) })"
             />
-            <button type="button" class="rl-btn tiny" @click="nudgeSpawn(1)">▶</button>
+            <button type="button" class="rl-btn rl-glyph-btn tiny" @click="nudgeSpawn(1)">▶</button>
           </div>
         </div>
 
         <div class="rl-nudge rl-nudge--inline">
           <span>提高等级 +{{ boost }}</span>
           <div class="rl-level-btns">
-            <button type="button" class="rl-btn tiny" @click="nudgeBoost(-1)">−</button>
-            <button type="button" class="rl-btn tiny" @click="nudgeBoost(1)">+</button>
+            <button type="button" class="rl-btn rl-glyph-btn tiny" @click="nudgeBoost(-1)">−</button>
+            <button type="button" class="rl-btn rl-glyph-btn tiny" @click="nudgeBoost(1)">+</button>
           </div>
         </div>
       </div>
@@ -272,8 +272,8 @@ defineExpose({
       <div class="rl-modal-box rl-frame rl-frame--pop">
         <p>返回后本局无法保持，是否退出？</p>
         <div class="rl-actions">
-          <button class="rl-btn" type="button" @click="emit('home')">确认</button>
-          <button class="rl-btn ghost" type="button" @click="cancelHome">取消</button>
+          <button class="rl-btn rl-glyph-btn" type="button" @click="emit('home')">确认</button>
+          <button class="rl-btn rl-glyph-btn ghost" type="button" @click="cancelHome">取消</button>
         </div>
       </div>
     </div>
@@ -295,3 +295,103 @@ defineExpose({
     </div>
   </section>
 </template>
+
+<style scoped>
+/* M3 / TASK-009：P35 轻量浅色容器（只改视觉；文案、事件与暴露方法零改动）。
+   浅草地底 + 纸面浅底容器 + 1px 墨色描边；交互只用「描边加强 + 下压 1px」，
+   不变亮填充、不反色文字；开关开启态用柔和面板绿，不荧光。 */
+
+.rl-screen.rl-settings {
+  background: var(--rl-screen);
+  color: var(--rl-ink);
+}
+
+/* 普通设置容器：3px 墨边 + 苔绿内线的双层像素框 */
+.rl-settings .rl-panel {
+  border: 3px solid var(--rl-ink);
+  background: var(--rl-panel);
+  box-shadow: inset 0 0 0 2px var(--rl-lock);
+  color: var(--rl-ink);
+}
+
+/* 确认弹窗是短时聚焦内容，保留纸面色以提高层级 */
+.rl-settings .rl-modal-box {
+  border: 3px solid var(--rl-ink);
+  background: var(--rl-paper);
+  box-shadow: inset 0 0 0 2px var(--rl-lock);
+  color: var(--rl-ink);
+}
+
+/* 测试设置：独立的暗黄绿像素框，不能再是透明的普通表单区 */
+.rl-settings .rl-settings-test {
+  border: 3px solid var(--rl-ink);
+  background: var(--rl-panel-test);
+  box-shadow: inset 0 0 0 2px var(--rl-lock);
+  color: var(--rl-ink);
+}
+
+.rl-settings .rl-panel h3,
+.rl-settings .rl-settings-test h3 {
+  color: var(--rl-sub);
+  letter-spacing: 1px;
+}
+
+/* 滑条：纸面轨道 + 苔绿内线 + 块状滑块，和面板共用像素框语法 */
+.rl-settings .rl-slide input[type='range'],
+.rl-settings .rl-nudge input[type='range'] {
+  background: var(--rl-paper);
+  border: 3px solid var(--rl-ink);
+  box-shadow: inset 0 0 0 2px var(--rl-lock);
+  border-radius: 0;
+  accent-color: var(--rl-panel);
+}
+
+.rl-settings .rl-slide input[type='range']::-webkit-slider-thumb,
+.rl-settings .rl-nudge input[type='range']::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--rl-panel);
+  border: 3px solid var(--rl-ink);
+  box-shadow: inset 0 0 0 1px var(--rl-lock);
+  border-radius: 0;
+}
+
+.rl-settings .rl-slide input[type='range']::-moz-range-thumb,
+.rl-settings .rl-nudge input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--rl-panel);
+  border: 3px solid var(--rl-ink);
+  box-shadow: inset 0 0 0 1px var(--rl-lock);
+  border-radius: 0;
+}
+
+.rl-settings .rl-nudge {
+  color: var(--rl-sub);
+}
+
+.rl-settings .rl-vol-num {
+  color: var(--rl-ink);
+}
+
+/* 开关：开启=黄绿，关闭=深苔绿；状态不再依赖透明底。 */
+.rl-settings .rl-toggle.on {
+  background: var(--rl-panel-test);
+  color: var(--rl-ink);
+}
+
+.rl-settings .rl-toggle.off {
+  background: var(--rl-bg);
+  color: var(--rl-paper);
+}
+
+/* 返回主页确认框：草地色薄纱遮罩，不用黑色遮罩加深色弹窗 */
+.rl-settings .rl-modal {
+  background: rgba(197, 224, 163, 0.78);
+}
+
+/* 自选面板：同浅色体系；红 X 用全局控件语言的 3px 边 + 硬阴影 */
+.rl-settings .rl-picker {
+  background: rgba(197, 224, 163, 0.86);
+}
+</style>

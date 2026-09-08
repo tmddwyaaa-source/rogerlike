@@ -19,3 +19,6 @@ Thumbs.db
 
 # ZCode 本地会话文件
 .zcode/
+
+# 多窗口 Hook 触发日志（本地证据，不进 Git）
+.task/hook-runs.jsonl
