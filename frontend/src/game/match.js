@@ -30,6 +30,17 @@ import { BOND_VAJRA } from '../ui/constants.js'
 const sfx = getSharedSfx()
 
 /**
+ * 开局资源按实际 await 的加载边界分组。每一格进度只在对应资源组完成后推进，
+ * 因此不会为了视觉效果使用计时器伪造加载。
+ */
+export const LOAD_GROUPS = Object.freeze([
+  '角色与开局特效',
+  '场景与装饰',
+  '敌人与投射物',
+  '跟班',
+])
+
+/**
  * 黑洞：只标记结晶飞向角色（不当帧删、不当帧给经验）。
  * 兼容旧名；真正逻辑在 env.pullAllCrystals。
  */
@@ -57,6 +68,7 @@ export function createMatchRuntime(opts) {
   let deadNotified = false
   let deathArmed = false
   let starting = false
+  let inputEnabled = false
 
   function onDamage(ent, dmg, meta) {
     if (!ent || !(dmg > 0)) return
@@ -152,6 +164,7 @@ export function createMatchRuntime(opts) {
     combat = null
     companions = null
     active = false
+    inputEnabled = false
     deadNotified = false
     deathArmed = false
     resetDamageNums()
@@ -161,6 +174,22 @@ export function createMatchRuntime(opts) {
 
   function bindCtx() {
     return { player, combat, env, companions }
+  }
+
+  /** 转场期间冻结世界并解除输入；恢复时不重新加载任何资源。 */
+  function setInputEnabled(enabled) {
+    const next = Boolean(enabled && active && player && combat)
+    if (next === inputEnabled) return inputEnabled
+    inputEnabled = next
+    player?.clearMovementKeys?.()
+    if (inputEnabled) {
+      player?.bindInput?.(io())
+      combat?.bindInput?.(io())
+    } else {
+      player?.unbindInput?.()
+      combat?.unbindInput?.()
+    }
+    return inputEnabled
   }
 
   function hpGrowthAdd() {
@@ -183,12 +212,22 @@ export function createMatchRuntime(opts) {
       deathArmed = false
       lastPlayerTarget = null
       const settings = payload.settings || readSettings()
+      const onLoadProgress = typeof payload.onLoadProgress === 'function' ? payload.onLoadProgress : null
+      const reportLoad = (completed, stage) => {
+        onLoadProgress?.({
+          completed,
+          total: LOAD_GROUPS.length,
+          progress: Math.round((completed / LOAD_GROUPS.length) * 100),
+          stage,
+        })
+      }
       const charId =
         payload.charId ||
         payload.ui?.session?.charId ||
         shell.ui?.session?.charId ||
         'ranger'
 
+      reportLoad(0, LOAD_GROUPS[0])
       player = createPlayer({
         godMode: settings.testMode && settings.godMode,
         charId,
@@ -196,8 +235,8 @@ export function createMatchRuntime(opts) {
         getTargets: () => foes?.targets ?? [],
       })
       engine.setFollowTarget(player)
-      player.bindInput(io())
       await player.loadAssets()
+      reportLoad(1, LOAD_GROUPS[1])
       if (settings.testMode) {
         shell.ui?.session?.setElapsedSec?.(settings.testElapsedSec ?? 0)
       }
@@ -215,6 +254,7 @@ export function createMatchRuntime(opts) {
         },
       })
       await env.loadAssets()
+      reportLoad(2, LOAD_GROUPS[2])
       // 不要覆盖 M7 的 pullAllCrystals；vacuumCrystals 已是飞行吸入。
 
       foes = createEnemies({
@@ -232,6 +272,7 @@ export function createMatchRuntime(opts) {
         },
       })
       await foes.loadAssets()
+      reportLoad(3, LOAD_GROUPS[3])
       syncDummy(settings)
 
       combat = createCombat({
@@ -247,7 +288,6 @@ export function createMatchRuntime(opts) {
       if (settings.testMode && settings.infiniteAmmo) {
         combat.pistol.setInfiniteAmmo(true)
       }
-      combat.bindInput(io())
 
       companions = createCompanions({
         player,
@@ -268,6 +308,8 @@ export function createMatchRuntime(opts) {
 
       shell.bind({ player, combat, env, companions })
       active = true
+      setInputEnabled(true)
+      reportLoad(4, '资源已就绪')
     } finally {
       starting = false
     }
@@ -281,6 +323,7 @@ export function createMatchRuntime(opts) {
     syncVajra()
     probeUnity()
     if (!active || !player || !env || !foes || !combat || !companions) return
+    if (!inputEnabled) return
     const p = phase()
     if (p !== 'playing') {
       player.clearMovementKeys?.()
@@ -369,5 +412,6 @@ export function createMatchRuntime(opts) {
     uninstall,
     getPlayer: () => player,
     getCombat: () => combat,
+    setInputEnabled,
   }
 }

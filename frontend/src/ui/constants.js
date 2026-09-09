@@ -66,9 +66,9 @@ export const BOND_THRESHOLDS = {
 
 
 
-/** 首级 15；每升一级需求 +4；无等级上限 */
+/** Lv.0→Lv.1 需 7；之后每升一级需求 +4；无等级上限 */
 
-export const EXP_BASE = 15
+export const EXP_BASE = 7
 
 export const EXP_GROWTH = 4
 
@@ -333,10 +333,8 @@ export function qianDesired(level, rank) {
 }
 
 export function expNeedForLevel(level) {
-
-  const lv = Math.max(1, level | 0)
-
-  return EXP_BASE + EXP_GROWTH * (lv - 1)
+  const lv = Math.max(0, level | 0)
+  return EXP_BASE + EXP_GROWTH * lv
 
 }
 
@@ -384,4 +382,3 @@ export const BOND_TIERS = {
 export function bondTiers(bondId) {
   return BOND_TIERS[bondId] ?? []
 }
-

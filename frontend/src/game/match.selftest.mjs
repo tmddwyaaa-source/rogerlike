@@ -8,7 +8,7 @@ import { BODY, VIEW_HEIGHT, VIEW_WIDTH, WORLD_HEIGHT, WORLD_WIDTH } from './cons
 import { createEnemies } from './enemies/index.js'
 import { createPlayer } from './player/index.js'
 import { createEnvironment } from './world/index.js'
-import { vacuumAllCrystals } from './match.js'
+import { LOAD_GROUPS, vacuumAllCrystals } from './match.js'
 import { applyUpgrade, createMatchUi } from '../ui/index.js'
 
 let failed = 0
@@ -106,6 +106,17 @@ assert('world size', WORLD_WIDTH === BODY * 500 && WORLD_HEIGHT === BODY * 500)
 
 const matchSrc = readFileSync(new URL('./match.js', import.meta.url), 'utf8')
 const appSrc = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+const loadingSrc = readFileSync(new URL('../views/LoadingOverlay.vue', import.meta.url), 'utf8')
+assert('four real load groups', LOAD_GROUPS.length === 4 && LOAD_GROUPS.includes('角色与开局特效') && LOAD_GROUPS.includes('跟班'))
+assert('load progress reports counts and stage', matchSrc.includes('onLoadProgress') && matchSrc.includes('completed') && matchSrc.includes('total'))
+assert(
+  'input waits for loaded assets',
+  matchSrc.indexOf('await companions.loadAssets()') < matchSrc.lastIndexOf('setInputEnabled(true)'),
+)
+assert('app blocks keys while loading', appSrc.includes('blockLoadingKeys') && appSrc.includes('LoadingOverlay'))
+assert('progress overlay contracts', ['progress', 'stage', 'inset', 'pointer-events'].every((key) => loadingSrc.includes(key)))
+assert('transitions freeze without reload', matchSrc.includes('setInputEnabled') && matchSrc.includes('inputEnabled') && appSrc.includes('onFrameTransition'))
+assert('frame controls stay above loading', appSrc.includes('@frame-transition') && loadingSrc.includes('loading-overlay--frame'))
 assert('no start setLevel', !matchSrc.includes('setLevel'))
 assert('crystal queues +1', matchSrc.includes('queueLevelUpFx'))
 assert('notifyExp returns gained', appSrc.includes('return getShell()?.notifyExp'))

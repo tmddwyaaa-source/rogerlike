@@ -6,12 +6,13 @@ import { getSharedSfx } from '../ui/sfx.js'
 import '../ui/pixel.css'
 import HudOverlay from './HudOverlay.vue'
 import MoreView from './MoreView.vue'
+import QuickAudioControls from './QuickAudioControls.vue'
 import ResultView from './ResultView.vue'
 import SettingsView from './SettingsView.vue'
 import StartView from './StartView.vue'
 import UpgradeView from './UpgradeView.vue'
 
-const emit = defineEmits(['start', 'again', 'home'])
+const emit = defineEmits(['start', 'again', 'home', 'frame-transition'])
 
 const ui = createMatchUi()
 const settings = reactive(ui.settings)
@@ -29,9 +30,13 @@ const exited = ref(false)
 const settingsDraftBoost = ref(0)
 const settingsRef = ref(null)
 const moreRef = ref(null)
+const bgmMuted = ref(false)
+const sfxMuted = ref(false)
 
 function syncHud() {
+  const wasLive = inLiveMatch(hud.phase)
   Object.assign(hud, ui.snapshot(bindCtx.player, bindCtx.combat))
+  if (wasLive && !inLiveMatch(hud.phase)) emit('frame-transition', 'exit')
   syncSfx()
 }
 
@@ -111,9 +116,10 @@ function onBack(step) {
   syncHud()
 }
 
-function openSettingsFromMenu() {
+function openSettings() {
+  if (ui.session.phase === 'settings') return
   settingsDraftBoost.value = 0
-  ui.session.pause('menu')
+  ui.session.pause(ui.session.phase)
   syncHud()
 }
 
@@ -126,6 +132,7 @@ function openMore() {
 
 function closeMore() {
   const next = ui.session.resume()
+  if (inLiveMatch(next)) emit('frame-transition', 'enter')
   if (next === 'menu' || next === 'char' || next === 'difficulty') {
     menuStep.value = next === 'menu' ? 'menu' : next
   }
@@ -137,11 +144,7 @@ function inLiveMatch(p) {
 }
 
 function openPauseSettings() {
-  const from = ui.session.phase
-  if (!inLiveMatch(from)) return
-  settingsDraftBoost.value = 0
-  ui.session.pause(from)
-  syncHud()
+  openSettings()
 }
 
 function onSettingsUpdate(next) {
@@ -170,6 +173,7 @@ function closeSettings() {
   const inMatch = inLiveMatch(ui.session.resumePhase)
   const n = settingsDraftBoost.value
   const next = ui.session.resume()
+  if (inMatch && inLiveMatch(next)) emit('frame-transition', 'enter')
   if (next === 'menu' || next === 'char' || next === 'difficulty') {
     menuStep.value = next === 'menu' ? 'menu' : next
   }
@@ -289,8 +293,31 @@ watch(settings, () => ui.persistSettings(), { deep: true })
 /** 实际 BGM = 总音量 × 背景音乐；实际音效 = 总音量 × 音效音量。 */
 function applyVolumes() {
   const master = settings.volume
-  bgm.setVolume(master * (settings.bgmVolume ?? 0.7))
-  sfx.setVolume(master * (settings.sfxVolume ?? 0.7))
+  bgm.setVolume(bgmMuted.value ? 0 : master * (settings.bgmVolume ?? 0.7))
+  sfx.setVolume(sfxMuted.value ? 0 : master * (settings.sfxVolume ?? 0.7))
+}
+
+function toggleBgm() {
+  bgmMuted.value = !bgmMuted.value
+  applyVolumes()
+}
+
+function toggleSfx() {
+  if (sfxMuted.value) {
+    sfxMuted.value = false
+    applyVolumes()
+    sfx.play('ui_click')
+    return
+  }
+  sfx.play('ui_click')
+  sfxMuted.value = true
+  applyVolumes()
+}
+
+function onButtonClick(event) {
+  const button = event.target?.closest?.('button:not(:disabled)')
+  if (!button || button.dataset.audioToggle) return
+  sfx.play('ui_click')
 }
 
 watch(
@@ -305,11 +332,13 @@ function tryPlayBgm() {
 
 onMounted(() => {
   window.addEventListener('keydown', onEsc)
+  window.addEventListener('click', onButtonClick)
   tryPlayBgm()
   window.addEventListener('pointerdown', tryPlayBgm, { once: true })
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onEsc)
+  window.removeEventListener('click', onButtonClick)
 })
 
 defineExpose({
@@ -328,16 +357,27 @@ defineExpose({
   <div class="rl-root">
     <slot />
 
-    <button
-      v-if="inLiveMatch(hud.phase)"
-      class="rl-gear"
-      type="button"
-      aria-label="设置"
-      title="设置（Esc）"
-      @click="openPauseSettings"
+    <div
+      class="rl-global-controls"
+      style="position: absolute; top: 10px; right: 10px; z-index: 120; display: flex; align-items: center; gap: 4px"
     >
-      ⚙
-    </button>
+      <QuickAudioControls
+        :bgm-muted="bgmMuted"
+        :sfx-muted="sfxMuted"
+        @toggle-bgm="toggleBgm"
+        @toggle-sfx="toggleSfx"
+      />
+      <button
+        class="rl-gear"
+        style="position: relative; top: auto; right: auto"
+        type="button"
+        aria-label="设置"
+        title="设置（Esc）"
+        @click="openSettings"
+      >
+        ⚙
+      </button>
+    </div>
 
     <button
       v-if="
@@ -349,6 +389,7 @@ defineExpose({
         hud.phase === 'victory'
       "
       class="rl-ellipsis"
+      style="z-index: 120"
       type="button"
       aria-label="更多"
       title="……"
@@ -367,7 +408,7 @@ defineExpose({
       v-else-if="hud.phase === 'menu' || hud.phase === 'char' || hud.phase === 'difficulty'"
       :step="hud.phase === 'menu' ? menuStep : hud.phase"
       @play="onPlay"
-      @settings="openSettingsFromMenu"
+      @settings="openSettings"
       @exit="onExit"
       @pick-char="onPickChar"
       @pick-diff="onPickDiff"

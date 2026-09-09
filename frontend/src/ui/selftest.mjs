@@ -162,8 +162,8 @@ assert(
     !rangerTip.includes('激光') &&
     !mageTip.includes('命中后扩散'),
 )
-assert('exp 1→2 need 15', expNeedForLevel(1) === EXP_BASE && EXP_BASE === 15)
-assert('exp 2→3 need 19', expNeedForLevel(2) === 19)
+assert('exp 0→1 need 7', expNeedForLevel(0) === EXP_BASE && EXP_BASE === 7)
+assert('exp 1→2 need 11', expNeedForLevel(1) === 11)
 assert('upgrade 散射', UPGRADES.find((u) => u.id === 'ammo_cap')?.title === '散射')
 assert('upgrade 敏捷', UPGRADES.find((u) => u.id === 'move_speed')?.title === '敏捷')
 assert('upgrade 技巧', UPGRADES.find((u) => u.id === 'reload')?.title === '技巧')
@@ -234,10 +234,10 @@ s.pause('playing', 'more')
 assert('pause more', s.phase === 'more' && s.resumePhase === 'playing')
 assert('resume from more', s.resume() === 'playing')
 
-const gained1 = s.addExp(14)
-assert('14 exp no level', gained1 === 0 && s.level === 1 && s.exp === 14)
+const gained1 = s.addExp(6)
+assert('6 exp no level', gained1 === 0 && s.level === 0 && s.exp === 6)
 const gained2 = s.addExp(1)
-assert('15 exp → lv2 levelup', gained2 === 1 && s.level === 2 && s.exp === 0 && s.phase === 'levelup')
+assert('7 exp → lv1 levelup', gained2 === 1 && s.level === 1 && s.exp === 0 && s.phase === 'levelup')
 assert('levelup 先不 rollOffer', s.offer.length === 0)
 const tLevelup = s.elapsedSec
 s.tick(4)
@@ -581,15 +581,15 @@ assert(
 sDiff2t.addBossKill()
 sDiff2t.addBossKill()
 assert('难度二补杀通关', sDiff2t.phase === 'victory' && sDiff2t.bossKills === 2)
-assert('exp 31 uncapped', expNeedForLevel(31) === EXP_BASE + 4 * 30)
+assert('exp 31 uncapped', expNeedForLevel(31) === EXP_BASE + 4 * 31)
 assert('boost max 0–3', LEVEL_BOOST_MAX === 3 && clampLevelBoost(9) === 3 && clampLevelBoost(-2) === 0)
 
 const sLevels = createSession()
 sLevels.start('1')
-const two = sLevels.addExp(expNeedForLevel(1) + expNeedForLevel(2))
+const two = sLevels.addExp(expNeedForLevel(0) + expNeedForLevel(1))
 assert(
   '连升两级不封顶',
-  two === 2 && sLevels.level === 3 && sLevels.pending === 2 && sLevels.phase === 'levelup' && sLevels.offer.length === 0,
+  two === 2 && sLevels.level === 2 && sLevels.pending === 2 && sLevels.phase === 'levelup' && sLevels.offer.length === 0,
 )
 
 assert('growth every 5', LEVEL_GROWTH_EVERY === 5 && LEVEL_GROWTH_ATK === 1 && LEVEL_GROWTH_SPEED === 0.05)
@@ -620,6 +620,7 @@ grow1.attack = 20
 const grow1Spd = grow1.speedUnits
 const sGrow1 = createSession()
 sGrow1.start('1')
+sGrow1.setLevel(1)
 sGrow1.addExp(expSum(1, 6), { player: grow1 })
 assert(
   '升级不白送成长',
@@ -668,6 +669,7 @@ hpEmpty.addEmptyHpMax = () => {
 }
 const sHp = createSession()
 sHp.start('1')
+sHp.setLevel(1)
 sHp.addExp(expSum(1, 11), { player: hpEmpty })
 assert(
   '升级不白送空血',
@@ -681,6 +683,7 @@ assert('applyEmptyHpMax 无 player 不崩', applyEmptyHpMax({}, 1, 11) === 0)
 const pierceBow = createPistol()
 const sPierce = createSession()
 sPierce.start('1')
+sPierce.setLevel(1)
 sPierce.addExp(expSum(1, 16), { pistol: pierceBow })
 assert('升级不白送穿透', sPierce.level === 16 && !pierceBow.pierceBonus)
 const pierceBoost = createPistol()
@@ -710,6 +713,7 @@ assert(
 
 const sQian = createSession()
 sQian.start('1')
+sQian.setLevel(1)
 const qianPl = createPlayer()
 const qianBow = createPistol()
 qianPl.attack = 20
@@ -814,6 +818,7 @@ assert(
 
 const sSanwa = createSession()
 sSanwa.start('1')
+sSanwa.setLevel(1)
 const sanwaPl = createPlayer()
 const sanwaBow = createPistol()
 const sanwaEnv = createEnvironment({ random: () => 0.5 })
@@ -881,7 +886,7 @@ sBoost.start('1')
 assert(
   'boostLevels 3',
   sBoost.boostLevels(3, boostCtx) === 3 &&
-    sBoost.level === 4 &&
+    sBoost.level === 3 &&
     sBoost.pending === 3 &&
     sBoost.phase === 'levelup' &&
     sBoost.offer.length === 0,
@@ -894,13 +899,13 @@ while (sBoost.pending > 0 && sBoost.offer[0]) {
 }
 assert(
   'boost 3 → 三次三选一',
-  boostPicks === 3 && sBoost.pending === 0 && sBoost.phase === 'playing' && sBoost.level === 4,
+  boostPicks === 3 && sBoost.pending === 0 && sBoost.phase === 'playing' && sBoost.level === 3,
 )
 
 const sHome = createSession()
 sHome.pause('menu')
 sHome.resume()
-assert('home settings 不改等级', sHome.level === 1 && sHome.pending === 0 && sHome.phase === 'menu')
+assert('home settings 不改等级', sHome.level === 0 && sHome.pending === 0 && sHome.phase === 'menu')
 
 assert('bgm url', BGM_URL === '/assets/游戏音乐/music.ogg')
 assert('ranger idle url', RANGER_IDLE_SRC === '/assets/characters/1/S_Idle.png')
@@ -959,9 +964,9 @@ assert('strange_egg png', existsSync(join(here, '../../public/assets/upgrades/st
 assert('bat png', existsSync(join(here, '../../public/assets/upgrades/bat.png')))
 
 assert(
-  'sfx 9 键',
-  Object.keys(SFX_URLS).length === 9 &&
-    ['shoot', 'slash', 'fireball', 'pickup', 'levelup', 'heartbeat', 'defeat', 'victory', 'hurt'].every(
+  'sfx 10 键（含 UI 按压声）',
+  Object.keys(SFX_URLS).length === 10 &&
+    ['shoot', 'slash', 'fireball', 'pickup', 'levelup', 'heartbeat', 'defeat', 'victory', 'hurt', 'ui_click'].every(
       (k) => typeof SFX_URLS[k] === 'string',
     ),
 )
@@ -971,11 +976,17 @@ assert(
     SFX_URLS.hurt === '/assets/游戏音乐/受伤音效.mp3' &&
     SFX_URLS.heartbeat === '/assets/游戏音乐/低血量心跳.mp3' &&
     SFX_URLS.victory === '/assets/游戏音乐/通关音效.ogg' &&
-    Object.values(SFX_URLS).every((u) => u.startsWith('/assets/游戏音乐/')),
+    SFX_URLS.ui_click === '/assets/ui/ui-click.wav' &&
+    Object.entries(SFX_URLS)
+      .filter(([name]) => name !== 'ui_click')
+      .every(([, url]) => url.startsWith('/assets/游戏音乐/')),
 )
 assert(
   'sfx 文件在',
-  Object.values(SFX_FILES).every((f) => existsSync(join(here, '../../public/assets/游戏音乐/', f))),
+  Object.entries(SFX_FILES)
+    .filter(([name]) => name !== 'ui_click')
+    .every(([, file]) => existsSync(join(here, '../../public/assets/游戏音乐/', file))) &&
+    existsSync(join(here, '../../public/assets/ui/', SFX_FILES.ui_click)),
 )
 class FakeAudio {
   constructor(url) {
@@ -999,6 +1010,7 @@ assert(
   sfxA.play('levelup') === true && FakeAudio.last.played === true && FakeAudio.last.url === SFX_URLS.levelup,
 )
 assert('sfx 未知不播', sfxA.play('nope') === false)
+assert('sfx UI 按压声', sfxA.play('ui_click') === true && FakeAudio.last.url === SFX_URLS.ui_click)
 assert('SFX_GAIN 表', SFX_GAIN.pickup > 1 && SFX_GAIN.levelup > 1 && (SFX_GAIN.slash ?? 1) === 1)
 const sfxGain = createSfx({ audioCtor: FakeAudio, volume: 0.1 })
 sfxGain.play('pickup')
@@ -1069,6 +1081,35 @@ assert(
 assert('shell 传 charId', shellSrc.includes('hud.charId'))
 assert('shell sfxVolume 分控', shellSrc.includes('settings.sfxVolume'))
 assert('shell 音量乘积', shellSrc.includes('applyVolumes') && shellSrc.includes('bgmVolume'))
+assert(
+  'P39 全局设置与音频快捷控制',
+  shellSrc.includes('QuickAudioControls') &&
+    shellSrc.includes('rl-global-controls') &&
+    shellSrc.includes('toggleBgm') &&
+    shellSrc.includes('toggleSfx') &&
+    shellSrc.includes("sfx.play('ui_click')") &&
+    shellSrc.includes("window.addEventListener('click', onButtonClick)"),
+)
+assert(
+  'P40 边缘控件高于转场',
+  shellSrc.includes("'frame-transition'") && shellSrc.includes('rl-global-controls') && shellSrc.includes('z-index: 120'),
+)
+const quickAudioSrc = readFileSync(join(here, '../views/QuickAudioControls.vue'), 'utf8')
+assert(
+  'P39 静音图标状态可辨识',
+  quickAudioSrc.includes('aria-pressed') &&
+    quickAudioSrc.includes('muted') &&
+    quickAudioSrc.includes('slash') &&
+    quickAudioSrc.includes('bgm-toggle.png') &&
+    quickAudioSrc.includes('sfx-toggle.png'),
+)
+assert(
+  'P39 图标素材在运行时目录',
+  ['bgm-toggle.png', 'sfx-toggle.png'].every((file) => {
+    const path = join(here, '../../public/assets/ui/', file)
+    return existsSync(path) && readFileSync(path).length >= 80
+  }),
+)
 
 const hudSrc = readFileSync(join(here, '../views/HudOverlay.vue'), 'utf8')
 assert(

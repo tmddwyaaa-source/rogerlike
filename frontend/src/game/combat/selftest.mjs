@@ -856,7 +856,7 @@ assert('uses takeHit', takeHitN >= 1)
 // P28 B2：伤害数字为原始命中伤害（DMG_MAX），不因 takeHit 实际扣减而截断。
 assert('pops raw damage not clamped', thLog[0] === DMG_MAX)
 
-assert('FIRE_INTERVAL 0.315', FIRE_INTERVAL === 0.315)
+assert('FIRE_INTERVAL 0.48', FIRE_INTERVAL === 0.48)
 assert('KNOCKBACK_DIST === BODY', KNOCKBACK_DIST === BODY)
 assert('ratio helper', chargeRatio(0.375, 0.75) === 0.5)
 assert('compat pistol alias', cCh.pistol === ch)

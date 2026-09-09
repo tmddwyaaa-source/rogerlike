@@ -7,7 +7,7 @@ import { BODY, BODY_W } from '../constants.js'
 export const WEAPON_NAME = '游侠弓'
 export const CHARGE_MAX_SEC = 0.75
 export const CHARGE_UPGRADE = 0.2
-export const FIRE_INTERVAL = 0.315
+export const FIRE_INTERVAL = 0.48
 /** 角色攻击属性初值。未蓄 = attack，满蓄 = attack×2。 */
 export const ATTACK_BASE = 20
 export const DMG_MIN = ATTACK_BASE

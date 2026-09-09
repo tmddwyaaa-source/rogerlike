@@ -517,7 +517,7 @@ export function createSession() {
     weaponId: 'bow',
     elapsedSec: 0,
     exp: 0,
-    level: 1,
+    level: 0,
     kills: 0,
     bossKills: 0,
     pending: 0,
@@ -581,7 +581,7 @@ export function createSession() {
     session.weaponId = 'bow'
     session.elapsedSec = 0
     session.exp = 0
-    session.level = 1
+    session.level = 0
     session.kills = 0
     session.bossKills = 0
     session.pending = 0
@@ -615,7 +615,7 @@ export function createSession() {
     session.difficulty = difficulty
     session.elapsedSec = 0
     session.exp = 0
-    session.level = 1
+    session.level = 0
     session.kills = 0
     session.bossKills = 0
     session.pending = 0
@@ -710,7 +710,7 @@ export function createSession() {
   }
 
   function setLevel(lv) {
-    const next = Math.max(1, lv | 0)
+    const next = Math.max(0, lv | 0)
     session.level = next
     session.exp = 0
     session.pending = 0

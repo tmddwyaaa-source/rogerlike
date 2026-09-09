@@ -29,7 +29,7 @@ export const CREEP_SPAWN_COUNT0 = 5
 export const CREEP_INTERVAL0 = 5
 export const CREEP_SPEED_MUL0 = 0.62
 export const SPLIT_SPEED_MUL0 = 0.77
-export const SPEED_MUL_PER_TIER = 0.03
+export const SPEED_MUL_PER_TIER = 0.02
 export const SPEED_MUL_CAP = 1.4
 export const ARMOR_DMG_MUL = 0.7
 export const MUSHROOM_HP_PER_TIER = 15
@@ -43,7 +43,7 @@ export const SNAIL_COUNT0 = 4
 export const SNAIL_COUNT_STEP_SEC = 45
 export const SNAIL_INTERVAL = 5
 export const SNAIL_SPEED0 = 0.62
-export const SNAIL_SPEED_PER = 0.02
+export const SNAIL_SPEED_PER = 0.01
 export const SNAIL_SPEED_STEP_SEC = 45
 
 export const GRAY_HP0 = 80
@@ -98,12 +98,12 @@ export function creepSpawnInterval(_t) {
   return CREEP_INTERVAL0
 }
 
-/** 常规蘑菇怪设计单位：min(1.4, 0.62 + 0.04t)，t=floor(秒/45) */
+/** 常规蘑菇怪设计单位：min(1.4, 0.62 + 0.02t)，t=floor(秒/45) */
 export function creepSpeedMul(t) {
   return Math.min(SPEED_MUL_CAP, CREEP_SPEED_MUL0 + SPEED_MUL_PER_TIER * t)
 }
 
-/** 灰树裂怪设计单位：min(1.4, 0.77 + 0.04t) */
+/** 灰树裂怪设计单位：min(1.4, 0.77 + 0.02t) */
 export function splitSpeedMul(t) {
   return Math.min(SPEED_MUL_CAP, SPLIT_SPEED_MUL0 + SPEED_MUL_PER_TIER * t)
 }
@@ -129,7 +129,7 @@ export function snailSpawnCount(elapsedSec) {
   return SNAIL_COUNT0 + Math.floor(snailAge(elapsedSec) / SNAIL_COUNT_STEP_SEC)
 }
 
-/** 蜗牛移速设计单位：0.62 + 0.03×floor((秒-120)/45)，不套 1.4 帽 */
+/** 蜗牛移速设计单位：0.62 + 0.01×floor((秒-120)/45)，不套 1.4 帽 */
 export function snailSpeedMul(elapsedSec) {
   return SNAIL_SPEED0 + SNAIL_SPEED_PER * Math.floor(snailAge(elapsedSec) / SNAIL_SPEED_STEP_SEC)
 }
@@ -145,7 +145,7 @@ export const SLIME_X1_STEP_SEC = 45
 export const SLIME_X1_INTERVAL = 15
 export const SLIME_X1_COUNT0 = 6
 export const SLIME_X1_SPEED0 = 0.87
-export const SLIME_X1_SPEED_PER = 0.02
+export const SLIME_X1_SPEED_PER = 0.01
 export const SLIME_X3_HP_FACTOR = 0.25
 export const SLIME_X3_SPEED_BONUS = 0.1
 export const SLIME_X1_CRYSTALS = 2
@@ -166,7 +166,7 @@ export function slimeX1SpawnCount(elapsedSec) {
   return SLIME_X1_COUNT0 + Math.floor(slimeAge(elapsedSec) / SLIME_X1_STEP_SEC)
 }
 
-/** 0.87 + 0.03×floor(u/45)，不套 1.4 帽 */
+/** 0.87 + 0.01×floor(u/45)，不套 1.4 帽 */
 export function slimeX1SpeedMul(elapsedSec) {
   return SLIME_X1_SPEED0 + SLIME_X1_SPEED_PER * Math.floor(slimeAge(elapsedSec) / SLIME_X1_STEP_SEC)
 }

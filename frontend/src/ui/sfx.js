@@ -17,10 +17,14 @@ export const SFX_FILES = {
   defeat: '游戏失败.ogg',
   victory: '通关音效.ogg',
   hurt: '受伤音效.mp3',
+  ui_click: 'ui-click.wav',
 }
 
 export const SFX_URLS = Object.fromEntries(
-  Object.entries(SFX_FILES).map(([name, file]) => [name, assetUrl(`assets/游戏音乐/${file}`)]),
+  Object.entries(SFX_FILES).map(([name, file]) => [
+    name,
+    assetUrl(name === 'ui_click' ? `assets/ui/${file}` : `assets/游戏音乐/${file}`),
+  ]),
 )
 
 /** 每音效线性增益（缺省 1）：素材电平过低的补偿；最终音量钳制 ≤1。心跳不增益。 */
