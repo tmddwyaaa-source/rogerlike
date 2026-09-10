@@ -2,6 +2,84 @@
 
 > M1 查收专用。禁止仅凭口头「完成了」标 done。
 
+> ⚠️ **遗忘更新（2026-09-10 补标）**：**P39 四任务——TASK-014 数值曲线与开局等级、TASK-015 真实加载进度、TASK-016 主菜单像素标题与跑动、TASK-017 全局设置与音频快捷控制——当时已完成并 `done`，但查收叙事漏写进本文件**；P40（TASK-018 / TASK-019）见下方 2026-09-10 条。本条只作「遗忘」标注，状态以 `.task/` 与 `docs/TASK-STATUS.md` 为准，不虚构当时未跑的复跑证据。
+
+## 2026-09-11 查收 — ROUND-008 · P41（M7 / TASK-020 恶魔跟班口径 + 兔子基础伤 10；attempt=2 定稿）
+
+用户信号：M7（协作挡 **A**，子代理以 M7 窗身份执行，绑定见 `.task/round.json` 的 `subagents`）先后三次报「TASK-020 完工，`transition worker_done`」。
+
+### 三轮经过
+
+| attempt | 交付 | M1 独立验收结论 |
+|---------|------|------------------|
+| 0 | R1 兔子 20→10；R2 恶魔索敌忽略占用、可共享目标；R3 软拉绳（去 3 身位硬墙） | R1/R3 过；**F1（P2）**：万物一心档 8 会把恶魔改派到玩家目标 → 未收口；用户实机又报「追着 Boss 远离角色」 |
+| 1 | R4 恶魔豁免档 8；R5 索敌半径＝离角色 3 身位（3.5 身位释放）；R3 旧断言按新语义替换 | R4/R5 过（探针：Boss 5 身位外 400 帧零锁定、零掉血）；**探针 5 抓到回归**：`claimed` 预登记被并入分配循环，靠前跟班会抢走靠后跟班已锁定的目标 |
+| 2 | R6 恢复 `claimed` 预登记 + 新断言 `goblin earlier in list does not steal target held by later goblin` | ✅ 六条验收本窗全绿，五节探针全合格 → **收口** |
+
+### 磁盘核对 + 本窗重跑（M1）
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M7 / TASK-020 · R1 | 兔子 `RABBIT_DMG` 20→10，`rabbitDamage()` 逻辑不动，selftest 六处期望值下调 | ✅ `RESULT PASS rabbit base 10` + companions selftest 188 PASS |
+| M7 / TASK-020 · R2 | 恶魔索敌忽略「已被占用」，可取与兔子/地精同一目标 | ✅ `demon shares nearest target with other companion` |
+| M7 / TASK-020 · R3 | 软拉绳保持 6 身位、无硬墙；旧断言 `demon soft leash can leave keep radius` 按新语义删除 | ✅ `demon leash assertions updated` + match/ui selftest + `vite build ✓ 435ms` |
+| M7 / TASK-020 · R4 | 恶魔豁免万物一心档 8 的优先目标 | ✅ `demon exempt from tier 8 priority target` |
+| M7 / TASK-020 · R5 | 索敌半径＝离角色 3 身位内（3.5 身位释放，带滞回） | ✅ `demon ignores target beyond 3 body of player`、`demon hits target inside 3 body of player` |
+| M7 / TASK-020 · R6 | 恢复「不抢已被占用目标」预登记 | ✅ `claimed pre-registration assertion` |
+| M1 独立验收 | 对抗探针五节（追 Boss / 档 8 / 共享目标 / 滞回 / claimed） | ✅ 证据 `.task/TASK-020/evidence/m1-verifier-probe.mjs`、`m1-verifier-probe5.mjs`、`m1-verifier-probe-r2.mjs` |
+| M1 独立验收 | 断言非平凡性（worker 先不加修复跑新断言 → 唯一 FAIL）＋ 磁盘边界（只改 3 个 allowed_paths 文件） | ✅ 独立复现同一结论；`git status` 无越界业务改动 |
+
+### 关键实测数字（M1 探针，用户实机问题的验收证据）
+
+- **追 Boss**：Boss 在 5 身位外、2 身位处有普通怪，跑 400 帧 → 恶魔**从未锁定 Boss**、Boss **掉血 0**、恶魔离角色最大 **2.2 身位**，近怪掉血 **686**（不是靠不打架换来的）。
+- **档 8**：优先目标为 8 身位外远怪 → 地精被改派去打远怪（档 8 对其他跟班仍生效），恶魔仍锁半径内最近的。
+- **滞回**：目标 2.5 身位锁定 → 3.2 身位保持 → 4.0 身位放弃。
+- **claimed**：attempt=1 时靠前地精会抢走靠后地精已持有的目标；attempt=2 后改选另一只，回归消除。
+
+### 收口
+
+`worker_done → verifying → verified → integrated → done`（每步本窗 Full Gate 通过）；`audit-round` = `BASIC_GATE_PASS + FULL_GATE_PASS + ROUND_READY_TO_CLOSE`；验收报告 `.task/TASK-020/verify-report.json`（reviewer=M1 ≠ 实施窗口 M7）。设计表与 `docs/GAME-SPEC.md` 已按定稿口径回写（恶魔：3 身位索敌 / 3.5 身位释放 / 6 身位绳长 / 档 8 豁免）。
+
+**遗留（P4，接受不返工）**：R6 的预登记遍历整份 list，恶魔上一帧的目标也会占住 claimed，靠前的非恶魔跟班会避开它一帧——与 §2.5 口径一致、不影响 R2 与档 8，无玩家可感影响。
+
+---
+
+## 2026-09-10 查收 — ROUND-008 · P41（M7 / TASK-020 首轮，已被上方 attempt=2 定稿取代）
+
+> 存档：attempt=0 的本窗重跑记录（当时因 F1 未收口）。
+
+| 项 | 结果 |
+|----|------|
+| R1 / R2 / R3 本窗复跑 | ✅ 三条 exit 0（companions selftest 194 条） |
+| F1（P2，待裁决） | 万物一心档 8 提前返回，把玩家目标派给所有跟班（含恶魔）→ R2 的「始终」在该路径不成立 |
+| F2（P3，待确认手感） | 软拉绳平衡点 = 6 身位：1~6 身位目标可命中，8/10 身位够不到；目标消失 8 秒后回到 2.0 身位舒适环 |
+| F3（P4，已自纠） | M1 首版探针把玩家放在世界原点，被 `clampWorld()` 钳到 `≥BODY`，造成「恶魔一次都没打到」的假象；改到世界中心后推翻，缺陷探针已删除 |
+
+---
+
+## 2026-09-10 收尾 — ROUND-007（M3 / TASK-018、M4 / TASK-019）
+
+> 接班 M1 本窗复跑收口。两个任务由上一任 M1 于 2026-09-09 走完 `transition`；本条只补「本轮复跑证据」，不改状态。
+
+### 本窗重跑证据（M1，2026-09-10）
+
+| 检查项 | 结果 |
+|--------|------|
+| `node src/game/match.selftest.mjs` | ✅ RESULT PASS |
+| `node src/ui/selftest.mjs` | ✅ RESULT PASS |
+| `npm run build` | ✅ ✓ built in 1.81s |
+| `taskctl.py audit-round` | ✅ **BASIC_GATE_PASS + FULL_GATE_PASS + ROUND_READY_TO_CLOSE** |
+| `.task/TASK-018`（M3）可逆黑框转场与边缘控件层级 | ✅ done；四条 verify 全过；元素隔离契约 PASS |
+| `.task/TASK-019`（M4）主菜单无路径线跑动与朝向修正 | ✅ R1 PASS clean runner lane；R2 PASS runner facing |
+
+**结论**：ROUND-007 **pass**，本轮闭环、无未交窗口、无 `POLICY_CONFLICT`。
+
+**环境说明**：本轮首次 `audit-round` 在受限文件沙箱下报 `FULL_GATE_FAIL`，根因是 `npm run build` 中 vite 探测路径触发 `spawn EPERM`（沙箱管道限制，非代码缺陷）；放开权限后复跑全绿，`rerun.json` 已被真实结果覆盖。
+
+**仍欠的账（用户指示暂不动）**：P39 四任务（TASK-014~017）的查收叙事未写入本文件；`docs/编制-2026.md` §4b「当前派工」仍停在 ROUND-001/002。
+
+---
+
 ## 2026-09-08 查收 — P36 局外按钮边框一致性修复（M6 / M3 + M7 验收）
 
 用户信号：两窗报「已完成，请查收」→ M7 独立验收。

@@ -9,7 +9,7 @@ export const GOBLIN_INTERVAL = 0.4
 export const GOBLIN_DMG_BASE = 15
 export const GOBLIN_DMG_ATK_RATIO = 0.6
 export const GOBLIN_MAX_TARGETS = 2
-export const RABBIT_DMG = 20
+export const RABBIT_DMG = 10
 export const RABBIT_MAX_TARGETS = 1
 export const BAT_SRC = assetUrl('assets/跟班/蝙蝠.png')
 export const BAT_DMG = 7
@@ -47,11 +47,22 @@ export const TAMER_DMG = 5
 /** 0.05 设计单位 × SPEED_PX_PER_UNIT(80)。 */
 export const TAMER_SPEED_ADD = 0.05 * SPEED_PX_PER_UNIT
 export const DEMON_SRC = assetUrl('assets/跟班/恶魔.png')
-/** P28 B4 恶魔：基础伤 10 + 角色伤害×20%；常驻角色 3 身位内、打 1 单位。 */
+/** P28 B4 恶魔：基础伤 10 + 角色伤害×20%；软拉绳跟随角色、打 1 单位。 */
 export const DEMON_DMG_BASE = 10
 export const DEMON_ATK_RATIO = 0.2
-/** 3 身位（BODY=22）＝ 66 px。 */
+/** 3 身位（BODY=22）＝ 66 px；软拉绳的平衡点约在 2×该值，不再是硬边界。 */
 export const DEMON_KEEP_RADIUS = 3 * BODY
+/**
+ * P42 恶魔索敌半径：只在「距角色 ≤3 身位」的活怪里取最近的一只（实机问题修：
+ * 恶魔会追着 Boss 跑、远离角色）。数值恰好与 DEMON_KEEP_RADIUS 相同，但语义不同：
+ * 这里限制的是「以角色为中心的索敌距离」，不是跟随绳长，调绳长/舒适环时不要连带改这里。
+ */
+export const DEMON_TARGET_RADIUS = 3 * BODY
+/**
+ * 索敌滞回：已锁定的目标要超出 3.5 身位才放弃，避免目标在 3 身位边界上
+ * 反复「锁定→丢弃→再锁定」造成抖动。
+ */
+export const DEMON_RELEASE_RADIUS = 3.5 * BODY
 /** P30 恶魔软跟随：舒适环绕距离（2 身位）。 */
 export const DEMON_COMFORT_RADIUS = 2 * BODY
 export const DEMON_MAX_TARGETS = 1
@@ -75,7 +86,7 @@ export function goblinDamage(attack, bonus = 0) {
   return base + (Number(bonus) || 0)
 }
 
-/** 兔子固定 20 + companionBonus。 */
+/** 兔子固定 10 + companionBonus。 */
 export function rabbitDamage(bonus = 0) {
   return RABBIT_DMG + (Number(bonus) || 0)
 }

@@ -19,7 +19,9 @@ import {
   DEMON_DMG_BASE,
   DEMON_KEEP_RADIUS,
   DEMON_MAX_TARGETS,
+  DEMON_RELEASE_RADIUS,
   DEMON_SRC,
+  DEMON_TARGET_RADIUS,
   EGG_MAX_TARGETS,
   EGG_SRC,
   GOBLIN_DRAW,
@@ -63,7 +65,9 @@ export {
   DEMON_DMG_BASE,
   DEMON_KEEP_RADIUS,
   DEMON_MAX_TARGETS,
+  DEMON_RELEASE_RADIUS,
   DEMON_SRC,
+  DEMON_TARGET_RADIUS,
   EGG_KILL_BONUS_EVERY,
   EGG_MAX_TARGETS,
   EGG_MUL,
@@ -537,7 +541,8 @@ export function createCompanions(opts = {}) {
   }
 
   /**
-   * P28 B4 恶魔：常驻角色 3 身位内、打 1 单位、优先离角色最近。
+   * P28 B4 恶魔：软拉绳跟随角色（可短时离开去够目标）、打 1 单位、
+   * 永远取「离角色 3 身位内（DEMON_TARGET_RADIUS）」最近的那只活怪；半径内无目标就回角色身边。
    * 角色联动：getDemonAttackBonus() 产生的「角色伤害加值」由 M1/M8 接线到角色攻击，
    * getAttack() 应返回不含该联动加值的基础攻击，避免恶魔基础伤重复计入。
    */
@@ -588,34 +593,79 @@ export function createCompanions(opts = {}) {
     return isLive(t) && targets.includes(t) ? t : null
   }
 
-  function assignChases(targets) {
-    const pri = priorityChase(targets)
-    if (pri) {
-      for (const g of list) g.chase = pri
-      return
+  /**
+   * R5 恶魔索敌：只在「距角色 ≤ DEMON_TARGET_RADIUS（3 身位）」的活怪里取最近的一只；
+   * 已锁定目标要超出 DEMON_RELEASE_RADIUS（3.5 身位）才放弃——一点滞回避免目标在 3 身位
+   * 边界上反复锁定/丢弃导致抖动。半径内没有任何目标时返回 null：恶魔不得再追任何东西，
+   * 由 demonStep 的「无敌人」分支拉回角色身边环绕。
+   */
+  function demonTargetFor(g, targets, live) {
+    if (!player) return null
+    const cur = g.chase
+    if (
+      cur &&
+      isLive(cur) &&
+      targets.includes(cur) &&
+      dist(player, cur) <= DEMON_RELEASE_RADIUS
+    ) {
+      return cur
     }
+    return nearestTo(
+      player,
+      live.filter((e) => dist(player, e) <= DEMON_TARGET_RADIUS),
+    )
+  }
+
+  /**
+   * 索敌分配。R4：万物一心档 8 命中 priorityChase 时，其他跟班仍全体改派「玩家正在攻击的目标」，
+   * 但恶魔豁免——仍走 demonTargetFor 的半径 + 最近规则（否则恶魔会被派去追远处的 Boss）。
+   * R6：进入分配循环前先预登记本帧已持有的 chase，靠前的跟班不得抢走靠后跟班的目标。
+   */
+  function assignChases(targets) {
     const live = liveList(targets)
-    for (const g of list) {
-      if (!chaseStillValid(g, targets)) g.chase = null
+    const pri = priorityChase(targets)
+    if (!pri) {
+      for (const g of list) {
+        if (g.kind !== 'demon' && !chaseStillValid(g, targets)) g.chase = null
+      }
     }
     const claimed = new Set()
+    // R6 预登记：先把本帧仍然有效、已被各跟班持有的 chase 全部登记进 claimed，
+    // 再进入分配循环。否则「靠前的跟班先挑」，此刻 claimed 里还没有靠后跟班已持有的
+    // 目标，靠前的会把它抢走——违反设计表 §2.5 / GAME-SPEC §4.2「优先领尚未被其他
+    // 跟班占用的活目标」。恶魔仍每帧重算、不受 claimed 限制，故不参与预登记。
     for (const g of list) {
       if (g.chase) claimed.add(g.chase)
     }
     for (const g of list) {
-      if (g.chase) continue
+      if (g.kind === 'demon') {
+        // 恶魔不受「已被其他跟班占用」限制：允许与地精/兔子/蝙蝠选中同一只
+        // （不再被迫改选第二近），且档 8 的优先目标对它无效。
+        g.chase = demonTargetFor(g, targets, live)
+        if (g.chase) claimed.add(g.chase)
+        continue
+      }
+      if (pri) {
+        g.chase = pri
+        claimed.add(pri)
+        continue
+      }
+      if (g.chase) {
+        claimed.add(g.chase)
+        continue
+      }
       const free = live.filter((e) => !claimed.has(e))
       const pool = free.length ? free : live
-      const pick =
-        g.kind === 'demon' ? nearestTo(player, pool) : nearestTo(g, pool)
+      const pick = nearestTo(g, pool)
       g.chase = pick
       if (pick && free.length) claimed.add(pick)
     }
   }
 
   /**
-   * P30 恶魔软性跟随：朝角色移动、靠近舒适距离减速/自然环绕，
-   * 不再“超 3 身位硬弹回”，避免贴边界抽搐。
+   * P30 恶魔软性跟随：朝角色移动、靠近舒适距离减速/自然环绕；
+   * P41 软拉绳：有目标时朝目标的外向分量按 pull<1 渐近保留，可离开角色去够目标，
+   * 目标过远或消失则被渐近拉回角色身边舒适环。无 3 身位硬边界。
    */
   function demonStep(g, chase, player, dt, spd) {
     const px = player?.x ?? g.x
@@ -627,8 +677,10 @@ export function createCompanions(opts = {}) {
     const ny = dy / pd
     const keep = DEMON_KEEP_RADIUS
     const comfort = DEMON_COMFORT_RADIUS
-    // 0 = 舒适距离附近，1 = 越过拉绳距离 → 越远越往角色拉，不再突跳。
-    const pull = clamp((pd - comfort) / (keep - comfort), 0, 1)
+    // 软拉绳：pull 恒 < 1（渐进趋近），朝目标的外向分量永不归零 → 无硬墙。
+    // 净方向为 0 的平衡点在 2×keep（6 身位）：拉绳范围内能追出去够到目标并打到，
+    // 目标过远/消失时被渐近拉回角色身边舒适环。
+    const pull = pd / (pd + keep * 2)
     let dirX = 0
     let dirY = 0
     if (chase) {

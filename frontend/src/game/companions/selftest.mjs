@@ -16,7 +16,9 @@ import {
   DEMON_DMG_BASE,
   DEMON_KEEP_RADIUS,
   DEMON_MAX_TARGETS,
+  DEMON_RELEASE_RADIUS,
   DEMON_SRC,
+  DEMON_TARGET_RADIUS,
   EGG_SRC,
   GOBLIN_DRAW,
   GOBLIN_FOLLOW_DIST,
@@ -104,8 +106,8 @@ assert('dmg attack20 = 27', goblinDamage(20) === 27)
 assert('dmg attack21 = 28', goblinDamage(21) === Math.ceil(15 + 0.6 * 21))
 assert('dmg 0 = 15', goblinDamage(0) === 15)
 assert('dmg 20 + bonus10 = 37', goblinDamage(20, 10) === 37)
-assert('rabbit dmg 20', rabbitDamage(0) === RABBIT_DMG && RABBIT_DMG === 20)
-assert('rabbit dmg +10 = 30', rabbitDamage(10) === 30)
+assert('rabbit dmg 10', rabbitDamage(0) === RABBIT_DMG && RABBIT_DMG === 10)
+assert('rabbit dmg +10 = 20', rabbitDamage(10) === 20)
 assert('egg src x', String(EGG_SRC[1]).includes('奇怪的蛋-x.png'))
 assert('egg stage 0/99=1 100=2 300=3', eggStage(0) === 1 && eggStage(99) === 1 && eggStage(100) === 2 && eggStage(299) === 2 && eggStage(300) === 3)
 assert('egg dmg s1 atk20 = 4', eggDamage(20, 1) === 4)
@@ -449,13 +451,13 @@ const origin = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
   const far = dummy(r.x + 80, r.y)
   foes.push(a, b, far)
   pack.update(0.4)
-  assert('rabbit collision pair: max 1', a.hp === 80 && b.hp === 100)
+  assert('rabbit collision pair: max 1', a.hp === 90 && b.hp === 100)
   assert('rabbit far 0', far.hp === 100)
   pack.addDamageBonus(10)
   a.hp = 100
   r.atkAcc = 0
   pack.update(0.4)
-  assert('rabbit 20+bonus10 = 30', a.hp === 70)
+  assert('rabbit 10+bonus10 = 20', a.hp === 80)
 }
 
 {
@@ -742,13 +744,13 @@ const origin = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
   foes.push(a, b)
   pack.setUnityTier(6)
   pack.update(0.4)
-  assert('unity 6 rabbit targets 2', a.hp === 100 - 20 - 9 && b.hp === 100 - 20 - 9)
+  assert('unity 6 rabbit targets 2', a.hp === 100 - 10 - 9 && b.hp === 100 - 10 - 9)
   pack.setUnityTier(2)
   a.hp = 100
   b.hp = 100
   r.atkAcc = 0
   pack.update(0.4)
-  assert('unity drop to 2 rabbit max 1', a.hp === 75 && b.hp === 100)
+  assert('unity drop to 2 rabbit max 1', a.hp === 85 && b.hp === 100)
 }
 
 {
@@ -793,6 +795,32 @@ const origin = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
 }
 
 {
+  // R6：claimed 预登记（attempt=1 回归）。两只地精 g0（list 靠前）/ g1（list 靠后）、
+  // 两只怪 X（距两只地精都最近）/ Y（更远）；人为让靠后的 g1 预先持有 X。
+  // 进入分配循环前必须先把 g1.chase 预登记进 claimed，否则靠前的 g0 会先挑走 X
+  //（违反设计表 §2.5 / GAME-SPEC §4.2「优先领尚未被其他跟班占用的活目标」）。
+  const player = { x: origin.x, y: origin.y, speed: 80 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const g0 = pack.addGoblin()
+  const g1 = pack.addGoblin()
+  g0.x = origin.x + 20
+  g0.y = origin.y
+  g1.x = origin.x + 40
+  g1.y = origin.y
+  const X = dummy(origin.x + 30, origin.y, 100000) // 距 g0(10px)/g1(10px) 都最近
+  const Y = dummy(origin.x + 300, origin.y, 100000) // 更远
+  foes.push(X, Y)
+  g0.chase = null
+  g1.chase = X // 靠后那只本帧已持有 X
+  pack.update(0.05)
+  assert(
+    'goblin earlier in list does not steal target held by later goblin',
+    g1.chase === X && g0.chase !== X && g0.chase === Y,
+  )
+}
+
+{
   const player = { x: origin.x, y: origin.y, speed: 0 }
   const foes = []
   let pri = null
@@ -834,6 +862,12 @@ assert(
 )
 assert('demon base/ratio', DEMON_DMG_BASE === 10 && DEMON_ATK_RATIO === 0.2)
 assert('demon keep 3 body', DEMON_KEEP_RADIUS === 3 * BODY)
+assert(
+  'demon target radius 3 body / release 3.5 body',
+  DEMON_TARGET_RADIUS === 3 * BODY &&
+    DEMON_TARGET_RADIUS === 66 &&
+    DEMON_RELEASE_RADIUS === 3.5 * BODY,
+)
 assert('demon max 1', DEMON_MAX_TARGETS === 1)
 assert('demon dmg 14', demonDamage(20) === 14)
 assert('demon dmg +bonus10 = 24', demonDamage(20, 10) === 24)
@@ -957,17 +991,18 @@ assert(
 }
 
 {
+  // 软拉绳语义：远在拉绳外时，即使有更远的目标，也仍被渐近拉回角色（不是硬边界）。
   const player = { x: origin.x, y: origin.y, speed: 100 }
   const foes = []
   const pack = makePack(player, foes, () => 20)
   const d = pack.addDemon()
   d.x = player.x + 300
   d.y = player.y
-  const far = dummy(player.x + 400, player.y)
+  const far = dummy(player.x + 400, player.y, 100000)
   foes.push(far)
   const x0 = d.x
   pack.update(0.25)
-  assert('demon stays within 3 body radius', Math.abs(d.x - player.x) < Math.abs(x0 - player.x))
+  assert('demon far target: leash still pulls inward', Math.abs(d.x - player.x) < Math.abs(x0 - player.x))
 }
 
 {
@@ -1085,6 +1120,161 @@ assert('demon comfort radius 2 body', DEMON_COMFORT_RADIUS === 2 * BODY)
   const x0 = d.x
   for (let k = 0; k < 12; k++) pack.update(0.05)
   assert('demon soft follow keeps nearest-to-player priority', d.chase === nearPlayer && d.x > x0)
+}
+
+{
+  // R2：离角色最近的怪先被兔子锁定，恶魔不受占用限制，仍取同一只（不被迫改选第二近）。
+  // R5 语义：被共享的目标必须落在「离角色 ≤3 身位」的索敌半径内，否则恶魔不会去锁它
+  // （旧坐标 dist 20 同样在半径内，这里按新语义显式写成 2.5 身位）。
+  const player = { x: origin.x, y: origin.y, speed: 80 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const r = pack.addRabbit()
+  r.x = player.x + 10
+  r.y = player.y
+  r.speed = 0
+  const nearest = dummy(player.x + 2.5 * BODY, player.y)
+  const second = dummy(player.x + 300, player.y)
+  foes.push(nearest, second)
+  const d = pack.addDemon()
+  d.x = player.x - 80
+  d.y = player.y
+  d.speed = 0
+  pack.update(0.05)
+  assert(
+    'demon shares nearest target with other companion',
+    Math.hypot(nearest.x - player.x, nearest.y - player.y) <= DEMON_TARGET_RADIUS &&
+      Math.hypot(nearest.x - player.x, nearest.y - player.y) <
+        Math.hypot(second.x - player.x, second.y - player.y) &&
+      r.chase === nearest &&
+      d.chase === nearest,
+  )
+}
+
+{
+  // R3 + R5：目标在 2.5 身位（索敌半径内）→ 恶魔离开舒适环追出去够它；
+  // 随后目标跑出 3.5 身位滞回边界 → 恶魔放弃目标，被渐近拉回角色身边舒适环。
+  // （旧断言「软拉绳可以离开 keep 半径」的场景目标是 5.7 身位外的怪，
+  //   R5 收窄索敌半径后恶魔根本不会去追，故删除，改由本条覆盖「追出去 + 收绳回来」。）
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.x = player.x - DEMON_COMFORT_RADIUS
+  d.y = player.y
+  const foe = dummy(player.x + 2.5 * BODY, player.y, 100000)
+  foes.push(foe)
+  let touched = false
+  for (let k = 0; k < 20; k++) {
+    pack.update(0.1)
+    if (overlapsDraw(d, foe)) touched = true
+  }
+  const sprint = Math.hypot(d.x - player.x, d.y - player.y)
+  foe.x = player.x + 5 * BODY
+  const hpAtRelease = foe.hp
+  for (let k = 0; k < 80; k++) pack.update(0.1)
+  const back = Math.hypot(d.x - player.x, d.y - player.y)
+  // 无目标环绕是离散步进（每帧 8px 方向点），40 秒实测极限半径 ≈ comfort+1.34，容差取 +2。
+  assert(
+    'demon returns to player after sprint',
+    touched &&
+      sprint > DEMON_COMFORT_RADIUS &&
+      d.chase === null &&
+      back <= DEMON_COMFORT_RADIUS + 2 &&
+      foe.hp === hpAtRelease,
+  )
+}
+
+{
+  // R5 滞回：已锁定目标在 3 身位外但没超 3.5 身位时仍保留锁定，超 3.5 身位才放弃。
+  const player = { x: origin.x, y: origin.y, speed: 0 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  d.speed = 0
+  const foe = dummy(player.x + 2 * BODY, player.y, 100000)
+  foes.push(foe)
+  pack.update(0.05)
+  d.x = player.x - DEMON_COMFORT_RADIUS
+  d.y = player.y
+  foe.x = player.x + 3.2 * BODY
+  pack.update(0.05)
+  const kept = d.chase === foe
+  foe.x = player.x + 3.6 * BODY
+  pack.update(0.05)
+  assert(
+    'demon lock hysteresis: keeps target inside 3.5 body, drops beyond',
+    kept && d.chase === null,
+  )
+}
+
+{
+  // R4：档 8 + 玩家优先目标是一只远怪时，其他跟班（地精）改派该远怪，
+  // 恶魔豁免、仍取「半径内离角色最近」的那只。
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const foes = []
+  let pri = null
+  const pack = makePack(player, foes, () => 20, { getPriorityTarget: () => pri })
+  const goblin = pack.addGoblin()
+  const d = pack.addDemon()
+  d.speed = 0
+  const near = dummy(player.x + 2 * BODY, player.y)
+  const far = dummy(player.x + 400, player.y)
+  foes.push(near, far)
+  pack.update(0.05)
+  const beforeDemon = d.chase === near
+  const beforeGoblin = goblin.chase === near
+  pri = far
+  pack.setUnityTier(8)
+  pack.update(0.05)
+  assert(
+    'demon exempt from tier 8 priority target',
+    beforeDemon && beforeGoblin && d.chase === near && goblin.chase === far,
+  )
+}
+
+{
+  // R5：目标在 5 身位（超出 3 身位索敌半径）→ 恶魔不锁定、不追击，
+  // 停在离角色 ≤3 身位处环绕，该目标全程不掉血（跑 40 秒确认没被接触伤害）。
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  const foe = dummy(player.x + 5 * BODY, player.y, 100000)
+  foes.push(foe)
+  const hp0 = foe.hp
+  let everLocked = false
+  let maxPd = 0
+  for (let k = 0; k < 400; k++) {
+    pack.update(0.1)
+    if (d.chase === foe) everLocked = true
+    maxPd = Math.max(maxPd, Math.hypot(d.x - player.x, d.y - player.y))
+  }
+  assert(
+    'demon ignores target beyond 3 body of player',
+    !everLocked && d.chase === null && maxPd <= DEMON_TARGET_RADIUS && foe.hp === hp0,
+  )
+}
+
+{
+  // R5：目标在 2.5 身位（半径内）→ 恶魔能追到、真正接触并造成真实掉血
+  // （证明不是「悬停在够不到的距离」的假跟随）。
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const foes = []
+  const pack = makePack(player, foes, () => 20)
+  const d = pack.addDemon()
+  const foe = dummy(player.x + 2.5 * BODY, player.y, 100000)
+  foes.push(foe)
+  const hp0 = foe.hp
+  let overlapped = false
+  for (let k = 0; k < 60; k++) {
+    pack.update(0.1)
+    if (overlapsDraw(d, foe)) overlapped = true
+  }
+  assert(
+    'demon hits target inside 3 body of player',
+    d.chase === foe && overlapped && foe.hp <= hp0 - demonDamage(20),
+  )
 }
 
 console.log(failed ? `\nRESULT FAIL (${failed})` : '\nRESULT PASS')
