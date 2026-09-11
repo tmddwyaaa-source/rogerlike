@@ -585,6 +585,49 @@ export function createCombat(opts = {}) {
     pulses.push({ x: player.x, y: player.y, r: R, t: 0, life: 0.9 })
   }
 
+  // P42 批次2 R1：荆棘（受击时对 4 身位内活敌结算一次伤害）。
+  // 口径：伤害 = 攻击 × (1.5 + 0.5 × (层数 − 1))；掷暴击复用武器同一套 rollCrit；
+  // 走 dealDamage + notifyDamage 统一通道；不触发点燃/减速/击退/穿透衰减。
+  const THORN_RANGE_BODIES = 4
+  const THORN_DMG_BASE_MUL = 1.5
+  const THORN_DMG_STEP_MUL = 0.5
+  let thornPicks = 0
+
+  function setThornPicks(n) {
+    thornPicks = Math.max(0, Math.floor(Number(n) || 0))
+    return thornPicks
+  }
+
+  /**
+   * 荆棘爆刺：以 origin（默认玩家）为中心，对 4 × BODY 内（按敌人中心距）
+   * 所有活敌结算一次伤害。层数 0 直接返回、不产生任何伤害。
+   * @returns {number} 命中敌数
+   */
+  function thornBurst(origin = player) {
+    const picks = thornPicks
+    if (picks <= 0 || !origin) return 0
+    const atk = weapon.attack ?? player?.attack ?? ATTACK_BASE
+    const mul = THORN_DMG_BASE_MUL + THORN_DMG_STEP_MUL * (picks - 1)
+    const crit = rollCrit(weapon.critRate ?? 0)
+    const critMul = crit ? critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0) : 1
+    const dmg = atk * mul * critMul
+    const R = BODY * THORN_RANGE_BODIES
+    const R2 = R * R
+    let hits = 0
+    for (const ent of targets) {
+      if (!ent || ent.hp <= 0) continue
+      const dx = ent.x - origin.x
+      const dy = ent.y - origin.y
+      if (dx * dx + dy * dy > R2) continue
+      const { applied } = dealDamage(ent, dmg)
+      const disp = applied
+      const base = crit ? disp / critMul : disp
+      notifyDamage(ent, disp, { base, crit, critMul, damage: disp })
+      hits += 1
+    }
+    return hits
+  }
+
   function strike(ent, b, deal) {
     const hpBefore = ent.hp ?? 0
     const { dealt, applied } = dealDamage(ent, deal)
@@ -1018,6 +1061,9 @@ export function createCombat(opts = {}) {
     },
     getVajraComplete: () => Boolean(weapon.vajraComplete),
     getPulseTimer: () => pulseTimer,
+    setThornPicks,
+    getThornPicks: () => thornPicks,
+    thornBurst,
     applyKnockback,
     getRecoil: () => 0,
     getSwing: () => 0,

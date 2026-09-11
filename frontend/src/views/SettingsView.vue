@@ -1,8 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { UPGRADES, descFor } from '../ui/constants.js'
+import { UPGRADES, descFor, CHARGE_MAX_SEC } from '../ui/constants.js'
 import { clampLevelBoost, clampSpawnRate, clampTestElapsedSec, clampVolume, formatVolumePct, TEST_ELAPSED_MAX, TEST_ELAPSED_STEP } from '../ui/settings.js'
-import { formatTime } from '../ui/session.js'
+import { availableUpgrades, formatTime } from '../ui/session.js'
 import KeyIcon from './KeyIcon.vue'
 import PixelIcon from './PixelIcon.vue'
 
@@ -11,6 +11,8 @@ const props = defineProps({
   boost: { type: Number, default: 0 },
   inMatch: { type: Boolean, default: false },
   charId: { type: String, default: 'ranger' },
+  /** 本局真实蓄力上限（由 GameShell 从 combat 透传）；门控「唯快不破 / 技巧」与正式池一致。 */
+  chargeMax: { type: Number, default: CHARGE_MAX_SEC },
 })
 
 const emit = defineEmits([
@@ -95,6 +97,25 @@ function onElapsedInput(e) {
 function openUpgradePicker() {
   pickerOpen.value = true
 }
+
+/**
+ * 升级选项自选（P42 批次2 F1 追加项）：只列该角色当前真正可选的项。
+ * 成员资格一律复用 ui/session.js 的 availableUpgrades（普通 + 高级两池），
+ * 这里只按 UPGRADES 的既有顺序重排，不另写过滤规则。战士 / 法师因此看不到「强化射击」。
+ * P42 批次2 R6：chargeMax 用 GameShell 透传的本局真实蓄力上限（不再传 null），
+ * 使「唯快不破」（chargeMax<=0 才进池）在测试面板里与正式三选一池口径一致。
+ */
+const pickerPool = computed(() => {
+  const charId = props.charId
+  const chargeMax = props.chargeMax ?? CHARGE_MAX_SEC
+  const allowed = new Set(
+    [
+      ...availableUpgrades({ chargeMax }, { tier: 'normal', charId }),
+      ...availableUpgrades({ chargeMax }, { tier: 'advanced', charId }),
+    ].map((u) => u.id),
+  )
+  return UPGRADES.filter((u) => allowed.has(u.id))
+})
 
 function closeUpgradePicker() {
   pickerOpen.value = false
@@ -282,7 +303,7 @@ defineExpose({
       <button class="rl-picker-x" type="button" @click="closeUpgradePicker">X</button>
       <div class="rl-picker-grid">
         <button
-          v-for="u in UPGRADES"
+          v-for="u in pickerPool"
           :key="u.id"
           class="rl-picker-item"
           type="button"

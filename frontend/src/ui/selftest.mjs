@@ -53,6 +53,7 @@ import {
   formatTime,
   pickUpgradeChoices,
   levelGrowthSteps,
+  uniqueBondCount,
 } from './session.js'
 import { createMatchUi } from './index.js'
 import { MEMORY_CAP, loadMemories, saveMemory, summarizePicked } from './memories.js'
@@ -70,6 +71,9 @@ import {
   TEST_ELAPSED_MAX,
 } from './settings.js'
 import { createEnvironment } from '../game/world/index.js'
+// P42 批次2（TASK-023）新增常量走命名空间导入：未落地时取到 undefined 即断言 FAIL，
+// 不会因缺少具名导出导致整个自测在链接期崩掉（自证伪需要看到 FAIL 而不是崩溃）。
+import * as C42 from './constants.js'
 
 let failed = 0
 function assert(name, cond) {
@@ -81,7 +85,7 @@ function assert(name, cond) {
 }
 
 assert('title 类幸存者', createMatchUi().title === '类幸存者')
-assert('normal pool 21', UPGRADES.filter((u) => u.tier !== 'advanced').length === 21)
+assert('normal pool 23', UPGRADES.filter((u) => u.tier !== 'advanced').length === 23)
 assert('advanced 9', UPGRADES.filter((u) => u.tier === 'advanced').length === 9)
 assert('upgrade 暴击', UPGRADES.find((u) => u.id === 'crit')?.title === '暴击')
 assert('暴击文案', UPGRADES.find((u) => u.id === 'crit')?.desc === '暴击率 +10')
@@ -114,7 +118,7 @@ assert('unity 蝙蝠 bond', UPGRADES.find((u) => u.id === 'bat')?.bond === BOND_
 assert(
   '七兄弟入小金刚羁绊',
   ['giant', 'erse', 'sanwa', 'siwa', 'wuwa', 'liuwa', 'blackhole'].every(
-    (id) => UPGRADES.find((u) => u.id === id)?.bond === BOND_VAJRA,
+    (id) => C42.belongsToBond(UPGRADES.find((u) => u.id === id), BOND_VAJRA),
   ),
 )
 assert(
@@ -487,6 +491,164 @@ assert('精益求精 hook', applyUpgrade('refine', refineHost) === true && refin
 assert(
   '非游侠高级仍有地精',
   availableUpgrades(null, { tier: 'advanced', charId: 'warrior' }).some((u) => u.id === 'goblin'),
+)
+
+/* ---- P42 批次2（TASK-023 / M6）：荆棘 R1 / 滋补 R2 / 生生不息 R3 ---- */
+
+/* R1 荆棘：普通项；id/title/desc/bond/tier；applyUpgrade 累计层数并同步 combat.setThornPicks。 */
+const thornHost = { calls: [], setThornPicks(n) { this.calls.push(n) } }
+const thornNoCombat = {}
+const thornDef = UPGRADES.find((u) => u.id === 'thorn')
+assert(
+  '荆棘条目',
+  C42.UPGRADE_THORN === 'thorn' &&
+    thornDef?.id === C42.UPGRADE_THORN &&
+    thornDef?.title === '荆棘' &&
+    thornDef?.desc === '受击时对 4 身位内敌人造成 攻击×150%（每层 +50%）' &&
+    thornDef?.bond === C42.BOND_SHENG &&
+    thornDef?.tier !== 'advanced' &&
+    applyUpgrade('thorn', { combat: thornHost }) === true &&
+    thornHost.calls.join() === '1' &&
+    applyUpgrade('thorn', { combat: thornHost }) === true &&
+    thornHost.calls.join() === '1,2' &&
+    thornHost.thornPicks === 2 &&
+    applyUpgrade('thorn', thornNoCombat) === true &&
+    applyUpgrade('thorn', thornNoCombat) === true &&
+    thornNoCombat.thornPicks === 2,
+)
+
+/* R2 滋补：普通项；阈值 max(100, 1000 − 100×(层数−1))，下限 100。 */
+const nourishDef = UPGRADES.find((u) => u.id === 'nourish')
+assert(
+  '滋补条目',
+  C42.UPGRADE_NOURISH === 'nourish' &&
+    nourishDef?.id === 'nourish' &&
+    nourishDef?.title === '滋补' &&
+    nourishDef?.desc === '每击杀 1000 个敌人回复 1 滴血（每层 −100）' &&
+    nourishDef?.bond === C42.BOND_SHENG &&
+    nourishDef?.tier !== 'advanced',
+)
+const nourishThr = C42.nourishKillThreshold
+assert(
+  '滋补阈值 1000/900/下限100',
+  typeof nourishThr === 'function' &&
+    nourishThr(1) === 1000 &&
+    nourishThr(2) === 900 &&
+    nourishThr(10) === 100 &&
+    nourishThr(11) === 100 &&
+    nourishThr(12) === 100 &&
+    nourishThr(0) === 0 &&
+    C42.NOURISH_KILL_MIN === 100,
+)
+const nourishS = createSession()
+nourishS.start('1')
+const nourishPl = createPlayer()
+nourishS.grantUpgrade('nourish', { player: nourishPl })
+nourishPl.hp = nourishPl.hpMax - 1
+const nourishHp0 = nourishPl.hp
+nourishS.addKill(999, { player: nourishPl })
+const nourishUnder = nourishPl.hp === nourishHp0
+nourishS.addKill(1, { player: nourishPl })
+const nourishCross = nourishPl.hp === nourishHp0 + 1
+nourishS.addKill(1000, { player: nourishPl })
+const nourishFullHold = nourishPl.hp === nourishPl.hpMax
+nourishS.addKill(999, { player: nourishPl })
+const nourishNoBank = nourishPl.hp === nourishPl.hpMax
+const nourishS2 = createSession()
+nourishS2.start('1')
+const nourishPl2 = createPlayer()
+nourishS2.grantUpgrade('nourish', { player: nourishPl2 })
+nourishS2.grantUpgrade('nourish', { player: nourishPl2 })
+nourishPl2.hp = nourishPl2.hpMax - 1
+const nourishHp2 = nourishPl2.hp
+nourishS2.addKill(899, { player: nourishPl2 })
+const nourishHold2 = nourishPl2.hp === nourishHp2
+nourishS2.addKill(1, { player: nourishPl2 })
+const nourishCross2 = nourishPl2.hp === nourishHp2 + 1
+assert(
+  '滋补跨阈值回心且满血不囤积',
+  nourishUnder && nourishCross && nourishFullHold && nourishNoBank && nourishHold2 && nourishCross2,
+)
+
+/* R3 生生不息：阈值 [3,5]；计入项恰好 5 个；档 5 每 45s 回 1 心。 */
+const shengS = createSession()
+shengS.start('1')
+const shengPl = createPlayer()
+const shengCtx = { player: shengPl }
+const shengRank = () => shengS.bonds.find((b) => b.id === 'sheng')?.rank ?? 0
+shengS.grantUpgrade('survive', shengCtx)
+shengS.grantUpgrade('recover', shengCtx)
+const shengRank2 = shengRank()
+shengS.grantUpgrade('sanwa', shengCtx)
+const shengRank3 = shengRank()
+shengS.grantUpgrade('nourish', shengCtx)
+const shengRank4 = shengRank()
+shengS.grantUpgrade('thorn', shengCtx)
+const shengRank5 = shengRank()
+const shengIds = UPGRADES.filter((u) => u.bond === C42.BOND_SHENG).map((u) => u.id)
+assert(
+  '羁绊 生生不息 档位',
+  C42.BOND_SHENG === 'sheng' &&
+    C42.BOND_SHENG_TITLE === '生生不息' &&
+    C42.BOND_SHENG_THRESHOLDS?.join?.() === '3,5' &&
+    C42.BOND_THRESHOLDS?.['sheng']?.join?.() === '3,5' &&
+    bondRank('sheng', 2) === 0 &&
+    bondRank('sheng', 3) === 3 &&
+    bondRank('sheng', 5) === 5 &&
+    shengIds.length === 5 &&
+    [...shengIds].sort().join() === ['nourish', 'recover', 'sanwa', 'survive', 'thorn'].join() &&
+    shengRank2 === 0 &&
+    shengRank3 === 3 &&
+    shengRank4 === 3 &&
+    shengRank5 === 5 &&
+    shengS.bonds.some((b) => b.id === 'sheng' && b.rank === 5 && b.title === C42.BOND_SHENG_TITLE),
+)
+const shengHealS = createSession()
+shengHealS.start('1')
+const shengHealPl = createPlayer()
+const shengHealCtx = { player: shengHealPl }
+for (const id of ['survive', 'recover', 'sanwa', 'nourish', 'thorn']) shengHealS.grantUpgrade(id, shengHealCtx)
+shengHealPl.hp = shengHealPl.hpMax - 1
+const shengHealHp0 = shengHealPl.hp
+shengHealS.tick(44)
+const shengHealHold = shengHealPl.hp === shengHealHp0
+shengHealS.tick(1.5)
+const shengHealOnce = shengHealPl.hp === shengHealHp0 + 1
+shengHealS.tick(45)
+const shengHealFullCap = shengHealPl.hp === shengHealPl.hpMax
+assert(
+  '生生不息 45s 回心',
+  shengHealHold && shengHealOnce && shengHealFullCap && C42.BOND_SHENG_HEAL_SEC === 45,
+)
+assert(
+  '生生不息 档3 数值待接线',
+  C42.BOND_SHENG_HURT_SPEED_UNITS === 0.2 && C42.BOND_SHENG_HURT_SPEED_SEC === 1.5,
+)
+/* R5 生存双属：天行健 11 / 生生不息 5 / 小金刚 7，survive 同时计入天行健与生生不息。 */
+const bondPick = (ids) => ids.map((id) => ({ id }))
+const qianPickedIds = UPGRADES.filter((u) => C42.belongsToBond(u, BOND_QIAN)).map((u) => u.id)
+const vajraPickedIds = UPGRADES.filter((u) => C42.belongsToBond(u, BOND_VAJRA)).map((u) => u.id)
+const surviveDef = UPGRADES.find((u) => u.id === 'survive')
+const qianCount11 = uniqueBondCount(bondPick(qianPickedIds), BOND_QIAN)
+const shengCount5 = uniqueBondCount(bondPick(UPGRADES.filter((u) => C42.belongsToBond(u, 'sheng')).map((u) => u.id)), 'sheng')
+const vajraCount7 = uniqueBondCount(bondPick(vajraPickedIds), BOND_VAJRA)
+assert(
+  '生存双属 天行健11',
+  qianPickedIds.length === 11 &&
+    qianCount11 === 11 &&
+    shengCount5 === 5 &&
+    vajraPickedIds.length === 7 &&
+    vajraCount7 === 7 &&
+    surviveDef?.bond === C42.BOND_SHENG &&
+    C42.belongsToBond(surviveDef, BOND_QIAN) &&
+    C42.belongsToBond(surviveDef, 'sheng') &&
+    shengS.bonds.find((b) => b.id === 'sheng')?.rank === 5,
+)
+/* 三娃同时计入生生不息（主 bond）与小金刚（bonds 附加）——七兄弟档 7 保持可达。 */
+assert(
+  '三娃双羁绊（生生不息 + 小金刚）',
+  UPGRADES.find((u) => u.id === 'sanwa')?.bond === C42.BOND_SHENG &&
+    C42.belongsToBond(UPGRADES.find((u) => u.id === 'sanwa'), BOND_VAJRA),
 )
 
 const advAt5 = pickUpgradeChoices(null, 3, () => 0.9, { level: 5 })
@@ -1148,6 +1310,29 @@ assert('满蓄模式文案', settingsSrc.includes('满蓄模式') && !settingsSr
 assert('测试时间滑条', settingsSrc.includes('testElapsedSec') && settingsSrc.includes('TEST_ELAPSED_MAX'))
 assert('升级选项自选', settingsSrc.includes('升级选项自选') && settingsSrc.includes('grant-upgrade') && settingsSrc.includes('UPGRADES'))
 assert('自选红 X', settingsSrc.includes('rl-picker-x') && settingsSrc.includes('isUpgradePickerOpen'))
+assert(
+  '自选面板按角色过滤',
+  settingsSrc.includes('availableUpgrades') &&
+    !settingsSrc.includes('v-for="u in UPGRADES"') &&
+    !availableUpgrades(null, { tier: 'normal', charId: 'warrior' }).some((u) => u.id === 'empower_shot') &&
+    !availableUpgrades(null, { tier: 'advanced', charId: 'warrior' }).some((u) => u.id === 'empower_shot') &&
+    !availableUpgrades(null, { tier: 'normal', charId: 'mage' }).some((u) => u.id === 'empower_shot') &&
+    !availableUpgrades(null, { tier: 'advanced', charId: 'mage' }).some((u) => u.id === 'empower_shot') &&
+    availableUpgrades(null, { tier: 'normal', charId: 'ranger' }).length > 0 &&
+    availableUpgrades(null, { tier: 'advanced', charId: 'ranger' }).some((u) => u.id === 'empower_shot'),
+)
+assert(
+  '自选面板传真实chargeMax',
+  /* 源码断言：SettingsView 有 chargeMax prop 且不再以 null 调 availableUpgrades；GameShell 有 charge-max 传参。 */
+  /chargeMax:\s*\{\s*type:\s*Number/.test(settingsSrc) &&
+    settingsSrc.includes('props.chargeMax') &&
+    !/availableUpgrades\(\s*null/.test(settingsSrc) &&
+    /(?:^|[\s"'])(?::)?charge-max\s*=/.test(shellSrc) &&
+    shellSrc.includes('CHARGE_MAX_SEC') &&
+    /* 行为断言：真实 chargeMax 决定 only_fast 是否进池。 */
+    availableUpgrades({ chargeMax: 0 }, { tier: 'normal' }).some((u) => u.id === 'only_fast') &&
+    !availableUpgrades({ chargeMax: 0.75 }, { tier: 'normal' }).some((u) => u.id === 'only_fast'),
+)
 assert('火柴人开关', settingsSrc.includes('火柴人') && settingsSrc.includes('testDummy'))
 assert('音效音量滑条', settingsSrc.includes('音效音量') && settingsSrc.includes('onSfxVolumeInput'))
 assert('测试排版两列', settingsSrc.includes('rl-test-toggles') && settingsSrc.includes('rl-nudge--inline'))

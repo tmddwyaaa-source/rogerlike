@@ -17,6 +17,8 @@ import { createEnemies } from './enemies/index.js'
 import {
   createPlayer,
   drawDamageNums,
+  HURT_SPEED_BUFF_SEC,
+  HURT_SPEED_BUFF_UNITS,
   resetDamageNums,
   spawnDamageNum,
   spawnHealNum,
@@ -155,6 +157,14 @@ export function createMatchRuntime(opts) {
     combat.setVajraComplete(Boolean(v && (v.rank ?? 0) >= 7))
   }
 
+  // P42 批次2：生生不息（羁绊 id 恒为 'sheng'）。档 3 = 受击后 1.5s 移速 +0.20，接线见 onHurt。
+  const BOND_SHENG_ID = 'sheng'
+  function shengRank() {
+    const bonds = shell.ui?.session?.bonds
+    const b = Array.isArray(bonds) ? bonds.find((x) => x.id === BOND_SHENG_ID) : null
+    return b ? (b.rank ?? 0) : 0
+  }
+
   function teardown() {
     player?.unbindInput?.()
     combat?.unbindInput?.()
@@ -231,7 +241,15 @@ export function createMatchRuntime(opts) {
       player = createPlayer({
         godMode: settings.testMode && settings.godMode,
         charId,
-        onHurt: () => sfx.play('hurt'),
+        onHurt: () => {
+          sfx.play('hurt')
+          // P42 批次2：荆棘 —— 受击时对 4 身位内活敌结算（层数由 ui 侧 applyUpgrade → combat.setThornPicks 同步）。
+          combat?.thornBurst?.(player)
+          // P42 批次2：生生不息档 3 —— 受击后 1.5s 移速 +0.20 设计单位。
+          if (shengRank() >= 3) {
+            player?.applyHurtSpeedBuff?.(HURT_SPEED_BUFF_UNITS, HURT_SPEED_BUFF_SEC)
+          }
+        },
         getTargets: () => foes?.targets ?? [],
       })
       engine.setFollowTarget(player)

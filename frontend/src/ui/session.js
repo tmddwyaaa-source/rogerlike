@@ -15,6 +15,11 @@ import {
   BOND_UNITY_TITLE,
   BOND_VAJRA,
   BOND_VAJRA_TITLE,
+  BOND_SHENG,
+  BOND_SHENG_TITLE,
+  BOND_SHENG_HEAL_SEC,
+  belongsToBond,
+  nourishKillThreshold,
   DIFFICULTY_ONE,
   DIFFICULTY_TWO,
   bondRank,
@@ -61,6 +66,8 @@ import {
   UPGRADE_RECOVER,
   UPGRADE_RELOAD,
   UPGRADE_SURVIVE,
+  UPGRADE_THORN,
+  UPGRADE_NOURISH,
   UPGRADES,
   descFor,
   expNeedForLevel,
@@ -209,7 +216,7 @@ export function uniqueBondCount(picked, bondId) {
   const ids = new Set()
   for (const p of picked || []) {
     const def = upgradeById(p.id)
-    if (def?.bond === bondId) ids.add(def.id)
+    if (belongsToBond(def, bondId)) ids.add(def.id)
   }
   return ids.size
 }
@@ -222,6 +229,9 @@ export function listActiveBonds(picked) {
   if (unity) out.push({ id: BOND_UNITY, title: BOND_UNITY_TITLE, rank: unity })
   const vajra = bondRank(BOND_VAJRA, uniqueBondCount(picked, BOND_VAJRA))
   if (vajra) out.push({ id: BOND_VAJRA, title: BOND_VAJRA_TITLE, rank: vajra })
+  // P42 批次2：生生不息（match.js 会读 session.bonds，M3 的档 3 移速按这里的 rank 判定接线）。
+  const sheng = bondRank(BOND_SHENG, uniqueBondCount(picked, BOND_SHENG))
+  if (sheng) out.push({ id: BOND_SHENG, title: BOND_SHENG_TITLE, rank: sheng })
   return out
 }
 
@@ -332,6 +342,24 @@ export function applyUpgrade(id, ctx = {}) {
   }
   if (id === UPGRADE_SANWA) {
     // P27：三娃为唯一效果；护甲在 recordPicked 里按“每集满 3 个不同葫芦娃”发放，这里不再立即加甲。
+    return true
+  }
+  if (id === UPGRADE_THORN) {
+    // P42 批次2（R1）：只累计层数并同步给 combat；伤害结算（thornBurst）由 M2 / combat 侧负责。
+    // 没有 combat 时把层数落在传入的 ctx 上，便于单测（同一 ctx 连续调用即可 1→2）。
+    const host = combat ?? ctx.thornHost ?? ctx
+    if (host && typeof host === 'object') {
+      host.thornPicks = Math.max(0, (host.thornPicks ?? 0) | 0) + 1
+    }
+    if (typeof combat?.setThornPicks === 'function') combat.setThornPicks(host.thornPicks)
+    return true
+  }
+  if (id === UPGRADE_NOURISH) {
+    // P42 批次2（R2）：层数记账；回血在 session 的 addKill 里按击杀阈值触发。
+    const host = combat ?? ctx.nourishHost ?? ctx
+    if (host && typeof host === 'object') {
+      host.nourishPicks = Math.max(0, (host.nourishPicks ?? 0) | 0) + 1
+    }
     return true
   }
   if (id === UPGRADE_LIUWA) {
@@ -554,6 +582,56 @@ export function createSession() {
   let sanwaPicks = 0
   let sanwaLevelAcc = 0
   let sanwaN = 0
+  // P42 批次2：滋补（R2）层数与击杀累计；生生不息（R3）当前档位与 45s 回心计时。
+  let nourishPicks = 0
+  let nourishKills = 0
+  let shengTier = 0
+  let shengHealT = 0
+  // addKill / tick 拿不到 ctx（match.js 调的是 shell.ui.addKill()），
+  // 用最近一次带 player 的调用（每帧的 snapshot 一定带）兜底。
+  const lastCtx = { player: null, combat: null }
+
+  function rememberCtx(ctx = {}) {
+    if (ctx?.player) lastCtx.player = ctx.player
+    if (ctx?.combat) lastCtx.combat = ctx.combat
+  }
+
+  /** 回 1 心：走既有 player 通道；满血 / 死亡 / 无 player 都返回 false（不囤积）。 */
+  function healOne(player) {
+    if (!player) return false
+    if (typeof player.heal === 'function') return player.heal(1) === true
+    if (typeof player.hp === 'number' && typeof player.hpMax === 'number') {
+      if (player.hp <= 0 || player.hp >= player.hpMax) return false
+      player.hp = Math.min(player.hpMax, player.hp + 1)
+      return true
+    }
+    return false
+  }
+
+  /** R2：击杀累计跨过当前阈值就回 1 心并减去阈值；满血照常计数、不回血、不囤积。 */
+  function applyNourishKills(n, ctx = {}) {
+    if (nourishPicks <= 0 || n <= 0) return 0
+    nourishKills += n
+    const threshold = nourishKillThreshold(nourishPicks)
+    let healed = 0
+    while (threshold > 0 && nourishKills >= threshold) {
+      nourishKills -= threshold
+      if (healOne(ctx?.player ?? lastCtx.player)) healed += 1
+    }
+    return healed
+  }
+
+  /** R3 档 5：每 45s 回 1 心；满血不回但计时照走。 */
+  function applyShengHeal(dt) {
+    if (shengTier < 5 || dt <= 0) return 0
+    shengHealT += dt
+    let healed = 0
+    while (shengHealT >= BOND_SHENG_HEAL_SEC) {
+      shengHealT -= BOND_SHENG_HEAL_SEC
+      if (healOne(lastCtx.player)) healed += 1
+    }
+    return healed
+  }
 
   function bumpSanwaLevel(ctx, n = 1) {
     if (sanwaN <= 0 || n <= 0) return
@@ -572,6 +650,10 @@ export function createSession() {
     sanwaPicks = 0
     sanwaLevelAcc = 0
     sanwaN = 0
+    nourishPicks = 0
+    nourishKills = 0
+    shengTier = 0
+    shengHealT = 0
   }
 
   function reset() {
@@ -648,6 +730,7 @@ export function createSession() {
   function tick(dt) {
     if (session.phase !== 'playing' || dt <= 0) return false
     session.elapsedSec += dt
+    applyShengHeal(dt)
     return tryFinishWin()
   }
 
@@ -739,7 +822,7 @@ export function createSession() {
     return true
   }
 
-  function addKill(n = 1) {
+  function addKill(n = 1, ctx = {}) {
     if (n <= 0) return
     if (
       session.phase === 'menu' ||
@@ -751,7 +834,10 @@ export function createSession() {
     ) {
       return
     }
+    rememberCtx(ctx)
     session.kills += n
+    // P42 批次2（R2）：滋补按击杀数跨阈值回心（挂既有击杀计数，不改计数口径）。
+    applyNourishKills(n, ctx)
   }
 
   function inMenuLikePhase() {
@@ -785,6 +871,8 @@ export function createSession() {
       sanwaPicks += 1
       sanwaN = Math.max(1, 11 - sanwaPicks)
     }
+    // P42 批次2（R2）：滋补层数记账（阈值 = nourishKillThreshold(nourishPicks)）。
+    if (id === UPGRADE_NOURISH) nourishPicks += 1
     if (sanwaN > 0 && sanwaLevelAcc >= sanwaN) {
       if (typeof ctx.player?.addArmor === 'function') ctx.player.addArmor(1)
       sanwaLevelAcc -= sanwaN
@@ -823,7 +911,12 @@ export function createSession() {
   }
 
   function syncBonds(ctx = {}) {
+    rememberCtx(ctx)
     session.bonds = listActiveBonds(session.picked)
+    // P42 批次2（R3）：档 5 的 45s 回心计时。刚集齐档 5 时从 0 起算；掉回 5 档以下清零。
+    const nextSheng = bondRank(BOND_SHENG, uniqueBondCount(session.picked, BOND_SHENG))
+    if ((nextSheng >= 5) !== (shengTier >= 5)) shengHealT = 0
+    shengTier = nextSheng
     syncQian(ctx)
     syncUnity(ctx)
   }
@@ -832,6 +925,7 @@ export function createSession() {
     if (session.phase !== 'upgrade' || session.pending <= 0) return false
     const ok = applyUpgrade(id, ctx)
     if (!ok) return false
+    rememberCtx(ctx)
     recordPicked(id, ctx)
     syncBonds(ctx)
     session.pending -= 1
@@ -848,6 +942,7 @@ export function createSession() {
   function grantUpgrade(id, ctx = {}) {
     const ok = applyUpgrade(id, ctx)
     if (!ok) return false
+    rememberCtx(ctx)
     recordPicked(id, ctx)
     syncBonds(ctx)
     return true
@@ -917,6 +1012,7 @@ export function createSession() {
   }
 
   function snapshot(player, combat) {
+    rememberCtx({ player, combat })
     const hud = hudFields(player, combat)
     session._lastHud = hud
     return {

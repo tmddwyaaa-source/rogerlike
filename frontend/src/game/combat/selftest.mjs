@@ -1095,6 +1095,79 @@ for (let i = 0; i < 30; i++) cCrit.update(0.016)
 assert('crit dmg full', critLog.length >= 1 && Math.abs(critLog[0].d - DMG_MAX * CRIT_DAMAGE_MUL) < 1e-9)
 assert('crit meta', critLog[0].meta.crit === true && critLog[0].meta.critMul === CRIT_DAMAGE_MUL && Math.abs(critLog[0].meta.base - DMG_MAX) < 1e-9)
 
+// P42 批次2 R1：荆棘（受击时对 4 身位内活敌结算一次伤害；掷暴击；不附带点燃/减速/击退）
+const thornBurstOf = (c, origin) => (typeof c?.thornBurst === 'function' ? c.thornBurst(origin) : undefined)
+const thornPicksOf = (c) => (typeof c?.getThornPicks === 'function' ? c.getThornPicks() : undefined)
+const setThornPicksOn = (c, n) => {
+  if (typeof c?.setThornPicks === 'function') c.setThornPicks(n)
+}
+
+{
+  const thornP = mkFireP()
+  const thornW = createBow()
+  const tIn = makeCreep(BODY, 400)
+  const tEdge = makeCreep(BODY * 4, 400)
+  const tOut = makeCreep(BODY * 4 + 1, 400)
+  const cThorn = createCombat({ player: thornP, targets: [tIn, tEdge, tOut], weapon: thornW })
+  setThornPicksOn(cThorn, 1)
+  assert('thorn picks setter', thornPicksOf(cThorn) === 1)
+  thornBurstOf(cThorn, thornP)
+  assert(
+    'thorn burst 1 pick dmg 150%',
+    tIn.hp === 400 - ATTACK_BASE * 1.5 && tEdge.hp === 400 - ATTACK_BASE * 1.5,
+  )
+  assert('thorn range 4 body', BODY * 4 === 88 && tEdge.hp < 400 && tOut.hp === 400)
+
+  const t2 = makeCreep(BODY, 400)
+  const cThorn2 = createCombat({ player: mkFireP(), targets: [t2], weapon: createBow() })
+  setThornPicksOn(cThorn2, 2)
+  thornBurstOf(cThorn2)
+  assert('thorn burst 2 picks 200%', t2.hp === 400 - ATTACK_BASE * 2)
+
+  const t0 = makeCreep(BODY, 400)
+  const cThorn0 = createCombat({ player: mkFireP(), targets: [t0], weapon: createBow() })
+  setThornPicksOn(cThorn0, 0)
+  thornBurstOf(cThorn0)
+  assert('thorn 0 picks no dmg', t0.hp === 400)
+
+  const critW = createBow()
+  critW.critRate = 100
+  const tCrit = makeCreep(BODY, 400)
+  const critMeta = []
+  const cThornCrit = createCombat({
+    player: mkFireP(),
+    targets: [tCrit],
+    weapon: critW,
+    hooks: { onDamage: (t, d, meta) => critMeta.push({ t, d, meta }) },
+  })
+  setThornPicksOn(cThornCrit, 1)
+  thornBurstOf(cThornCrit)
+  assert(
+    'thorn burst can crit',
+    tCrit.hp === 400 - ATTACK_BASE * 1.5 * CRIT_DAMAGE_MUL &&
+      critMeta.length === 1 &&
+      critMeta[0].meta.crit === true &&
+      Math.abs(critMeta[0].d - ATTACK_BASE * 1.5 * CRIT_DAMAGE_MUL) < 1e-9,
+  )
+
+  const statusW = createBow()
+  statusW.applyUpgrade('siwa')
+  statusW.applyUpgrade('wuwa')
+  statusW.applyUpgrade('knockback')
+  const tStatus = makeCreep(BODY, 400)
+  const statusX = tStatus.x
+  const cThornStatus = createCombat({ player: mkFireP(), targets: [tStatus], weapon: statusW })
+  setThornPicksOn(cThornStatus, 1)
+  thornBurstOf(cThornStatus)
+  assert(
+    'thorn burst no burn/slow/knockback',
+    tStatus.hp === 400 - ATTACK_BASE * 1.5 &&
+      !(tStatus.burnLeft > 0) &&
+      !(tStatus.slowLeft > 0) &&
+      tStatus.x === statusX,
+  )
+}
+
 console.log(
   `\ncharge=${CHARGE_MAX_SEC}s attack=${ATTACK_BASE} full×2 interval=${FIRE_INTERVAL}s BODY=${BODY}`,
 )

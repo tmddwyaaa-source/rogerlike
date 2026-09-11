@@ -1,7 +1,7 @@
 /**
  * M4 自测。运行：node src/game/player/selftest.mjs
  */
-import { BODY, WORLD_WIDTH, WORLD_HEIGHT } from '../constants.js'
+import { BODY, SPEED_PX_PER_UNIT, WORLD_WIDTH, WORLD_HEIGHT } from '../constants.js'
 import {
   ARMOR_OUTLINE,
   CHAR_NAME,
@@ -183,6 +183,66 @@ assert(
 )
 godListener.hp = 1
 assert('onHurt god floor no call', godListener.takeDamage(1) === false && godCalls === 1)
+
+// —— P42 批次 2 · 生生不息档 3：受击后限时移速加成（玩家侧，M3） ——
+// 增量法：激活时 speed += units × SPEED_PX_PER_UNIT，到期把同一增量原样减回；全程不改 speedUnits。
+// 这里用 ?.() 调用：接口未实现时断言直接 FAIL（而不是抛 TypeError 打断整个 selftest）。
+const HURT_BUFF_UNITS = 0.2
+const HURT_BUFF_SEC = 1.5
+assert('applyHurtSpeedBuff exposed', typeof player.applyHurtSpeedBuff === 'function')
+
+const applyBuff = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+const applySpeed0 = applyBuff.speed
+applyBuff.applyHurtSpeedBuff?.(HURT_BUFF_UNITS, HURT_BUFF_SEC)
+const applyBuffed = applyBuff.speed
+assert(
+  'hurt speed buff applies',
+  SPEED_PX_PER_UNIT === 80 && applyBuffed === applySpeed0 + HURT_BUFF_UNITS * 80,
+)
+applyBuff.update(HURT_BUFF_SEC)
+assert('hurt speed buff expires', applyBuffed > applySpeed0 && applyBuff.speed === applySpeed0)
+
+const refreshBuff = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+const refreshSpeed0 = refreshBuff.speed
+refreshBuff.applyHurtSpeedBuff?.(HURT_BUFF_UNITS, HURT_BUFF_SEC)
+const refreshOnce = refreshBuff.speed
+refreshBuff.update(1.0)
+refreshBuff.applyHurtSpeedBuff?.(HURT_BUFF_UNITS, HURT_BUFF_SEC)
+assert(
+  'hurt speed buff refresh not stacking',
+  refreshOnce === refreshSpeed0 + HURT_BUFF_UNITS * 80 &&
+    refreshBuff.speed === refreshOnce &&
+    refreshBuff.hurtSpeedT === HURT_BUFF_SEC,
+)
+refreshBuff.update(HURT_BUFF_SEC)
+assert('hurt speed buff restored after refresh', refreshOnce > refreshSpeed0 && refreshBuff.speed === refreshSpeed0)
+
+const keepBuff = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+const keepUnits0 = keepBuff.speedUnits
+const keepSpeed0 = keepBuff.speed
+keepBuff.applyHurtSpeedBuff?.(HURT_BUFF_UNITS, HURT_BUFF_SEC)
+const keepEngaged = keepBuff.speed === keepSpeed0 + HURT_BUFF_UNITS * 80
+keepBuff.update(0.5)
+keepBuff.applyHurtSpeedBuff?.(HURT_BUFF_UNITS, HURT_BUFF_SEC)
+keepBuff.update(HURT_BUFF_SEC)
+assert(
+  'hurt speed buff keeps speedUnits',
+  keepUnits0 === PLAYER_SPEED_UNITS &&
+    keepBuff.speedUnits === keepUnits0 &&
+    keepEngaged &&
+    keepBuff.speed === keepSpeed0,
+)
+
+const deadBuff = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+deadBuff.hp = 0
+const deadSpeed0 = deadBuff.speed
+deadBuff.applyHurtSpeedBuff?.(HURT_BUFF_UNITS, HURT_BUFF_SEC)
+assert(
+  'hurt speed buff dead no-op',
+  typeof deadBuff.applyHurtSpeedBuff === 'function' &&
+    deadBuff.speed === deadSpeed0 &&
+    deadBuff.hurtSpeedT === 0,
+)
 
 // —— P25 三娃护甲 ——
 assert('armor default 0', player.armor === 0 && player.getArmor() === 0)

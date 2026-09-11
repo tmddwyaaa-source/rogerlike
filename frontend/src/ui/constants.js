@@ -46,11 +46,16 @@ export const BOND_UNITY = 'unity'
 
 export const BOND_VAJRA = 'vajra'
 
+/** P42 批次2：新增羁绊「生生不息」。 */
+export const BOND_SHENG = 'sheng'
+
 export const BOND_QIAN_TITLE = '天行健'
 
 export const BOND_UNITY_TITLE = '万物一心'
 
 export const BOND_VAJRA_TITLE = '小金刚'
+
+export const BOND_SHENG_TITLE = '生生不息'
 
 export const BOND_QIAN_THRESHOLDS = [2, 4, 6, 8]
 
@@ -58,10 +63,22 @@ export const BOND_UNITY_THRESHOLDS = [2, 4, 6, 8]
 
 export const BOND_VAJRA_THRESHOLDS = [7]
 
+/** 生生不息：3 档 / 5 档（5 个计入项，全拿 = 档 5）。 */
+export const BOND_SHENG_THRESHOLDS = [3, 5]
+
+/** 档 5：每 45s 回 1 心（满血不回、计时照走）。 */
+export const BOND_SHENG_HEAL_SEC = 45
+
+/** 档 3：受击后 1.5s 移速 +0.20 设计单位（效果由 M3 的 player.applyHurtSpeedBuff 提供，M1 接线）。 */
+export const BOND_SHENG_HURT_SPEED_UNITS = 0.2
+
+export const BOND_SHENG_HURT_SPEED_SEC = 1.5
+
 export const BOND_THRESHOLDS = {
   [BOND_QIAN]: BOND_QIAN_THRESHOLDS,
   [BOND_UNITY]: BOND_UNITY_THRESHOLDS,
   [BOND_VAJRA]: BOND_VAJRA_THRESHOLDS,
+  [BOND_SHENG]: BOND_SHENG_THRESHOLDS,
 }
 
 
@@ -163,6 +180,38 @@ export const UPGRADE_SLIME_GG = 'slime_gg'
 
 export const UPGRADE_COMPANIONSHIP = 'companionship'
 
+/** P42 批次2：荆棘 / 滋补（均为普通项，图标未过审 → 局内空白方块）。 */
+export const UPGRADE_THORN = 'thorn'
+
+export const UPGRADE_NOURISH = 'nourish'
+
+/** 滋补：每击杀 1000 个敌人回 1 心；每层 −100，下限 100。 */
+export const NOURISH_KILL_BASE = 1000
+
+export const NOURISH_KILL_STEP = 100
+
+export const NOURISH_KILL_MIN = 100
+
+/**
+ * 滋补层数为 picks 时的回血阈值（击杀数）。
+ * 0 层未持有 → 0（不挂回血）；≥1 层 = max(100, 1000 − 100×(picks − 1))。
+ */
+export function nourishKillThreshold(picks) {
+  const n = Math.max(0, picks | 0)
+  if (n <= 0) return 0
+  return Math.max(NOURISH_KILL_MIN, NOURISH_KILL_BASE - NOURISH_KILL_STEP * (n - 1))
+}
+
+/**
+ * 升级归属羁绊判定：主 `bond`，外加 `bonds` 里声明的附加羁绊。
+ * P42 批次2 双属项：三娃（生生不息 + 小金刚）、生存（生生不息 + 天行健，避免削弱天行健计入项）。
+ */
+export function belongsToBond(def, bondId) {
+  if (!def || !bondId) return false
+  if (def.bond === bondId) return true
+  return Array.isArray(def.bonds) && def.bonds.includes(bondId)
+}
+
 /** 每次选择地精：所有跟班伤害 +10 */
 export const COMPANION_DAMAGE_BONUS = 10
 
@@ -189,9 +238,9 @@ export const UPGRADES = [
 
   { id: UPGRADE_POWER, title: '力量', desc: '伤害 +10', bond: BOND_QIAN },
 
-  { id: UPGRADE_SURVIVE, title: '生存', desc: '血上限 +1，回 1 滴血', bond: BOND_QIAN },
+  { id: UPGRADE_SURVIVE, title: '生存', desc: '血上限 +1，回 1 滴血', bond: BOND_SHENG, bonds: [BOND_QIAN] },
 
-  { id: UPGRADE_RECOVER, title: '恢复', desc: '回复 2 滴血' },
+  { id: UPGRADE_RECOVER, title: '恢复', desc: '回复 2 滴血', bond: BOND_SHENG },
 
   { id: UPGRADE_EARTH, title: '大地啊', desc: '普通树 +2，果实概率 +10%' },
 
@@ -203,7 +252,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_ERSE, title: '二娃·千里眼', desc: '三选一 20%/层 概率变四选一', tier: 'advanced', bond: BOND_VAJRA },
 
-  { id: UPGRADE_SANWA, title: '三娃·铜头铁臂', desc: '获得 1 层护甲；之后每升 N 级再获得 1 层（N=11−已选次数，可叠）', bond: BOND_VAJRA },
+  { id: UPGRADE_SANWA, title: '三娃·铜头铁臂', desc: '获得 1 层护甲；之后每升 N 级再获得 1 层（N=11−已选次数，可叠）', bond: BOND_SHENG, bonds: [BOND_VAJRA] },
 
   { id: UPGRADE_SIWA, title: '四娃·喷火', desc: '命中点燃 3 秒，每秒 30% 攻击（+10%/层）', tier: 'advanced', bond: BOND_VAJRA },
 
@@ -238,6 +287,10 @@ export const UPGRADES = [
   { id: UPGRADE_SLIME_GG, title: '史莱姆gg', desc: '生成 2 个史莱姆跟班（g-1、g-2），基础伤害 5', bond: BOND_UNITY },
 
   { id: UPGRADE_COMPANIONSHIP, title: '伴我同行', desc: '角色每击杀 100 怪物，跟班伤害 +1（+0.5/层）', bond: BOND_UNITY },
+
+  { id: UPGRADE_THORN, title: '荆棘', desc: '受击时对 4 身位内敌人造成 攻击×150%（每层 +50%）', bond: BOND_SHENG },
+
+  { id: UPGRADE_NOURISH, title: '滋补', desc: '每击杀 1000 个敌人回复 1 滴血（每层 −100）', bond: BOND_SHENG },
 
   { id: UPGRADE_EGG, title: '奇怪的蛋', desc: '生成 1 个可成长的蛋跟班；可叠', tier: 'advanced', bond: BOND_UNITY },
 
@@ -358,6 +411,7 @@ export const BOND_DESC = {
   [BOND_QIAN]: '不同种类升级集齐解锁档位，按角色等级补发',
   [BOND_UNITY]: '不同跟班集齐解锁档位',
   [BOND_VAJRA]: '集齐七兄弟解锁',
+  [BOND_SHENG]: '生存 / 恢复 / 三娃 / 滋补 / 荆棘 集齐解锁档位',
 }
 
 export const BOND_TIERS = {
@@ -376,6 +430,10 @@ export const BOND_TIERS = {
   [BOND_VAJRA]: [
     { rank: 7, text: '每 3.0s 释放七色脉冲（范围 1.5 身位，伤害攻击×1.3，独立暴击；减速 30% 持续 0.4s）' },
     { rank: 7, text: '所有葫芦娃效果值 +10%（加法）' },
+  ],
+  [BOND_SHENG]: [
+    { rank: 3, text: '受击后 1.5s 移速 +0.20' },
+    { rank: 5, text: '每 45s 回 1 心（满血不回）' },
   ],
 }
 

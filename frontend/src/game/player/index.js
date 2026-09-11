@@ -7,6 +7,7 @@
  * P14：回血绿边 spawnHealNum；开局目标 queueObjectiveFx（不自动开始）。
  * P15：局内不再画开局目标字。
  * P25：三娃护甲（armor / addArmor / getArmor）、六娃失锁脉冲（unlockLevel / applyUnlockPulse / unlockDurationFor）。
+ * P42：受击后限时移速加成 applyHurtSpeedBuff（增量法，不改 speedUnits；计时走 update；死亡不再生效）。
  */
 import {
   BODY,
@@ -101,6 +102,13 @@ export const IFRAME_SEC = 0.85
 export const SCATTER_COUNT = 16
 export const SCATTER_LIFE = 0.7
 export const WALK_FPS = 10
+
+/**
+ * P42 生生不息档 3：受击后 1.5s 移速 +0.20 设计单位。
+ * 只在本模块给默认值/文档口径；触发与档位判定由 M6 定义、M1 在 match.js 的 onHurt 里接线。
+ */
+export const HURT_SPEED_BUFF_UNITS = 0.2
+export const HURT_SPEED_BUFF_SEC = 1.5
 
 /** P25 三娃护甲：整数层，可无限叠，抵挡一次完整伤害。 */
 export const ARMOR_OUTLINE = '#e0b84a'
@@ -264,6 +272,9 @@ export function createPlayer(opts = {}) {
     charging: false,
     attackT: 0,
     hurtT: 0,
+    /** P42 受击限时移速加成剩余秒数 / 本次已加上的 px/s 增量（到期原样减回）。 */
+    hurtSpeedT: 0,
+    hurtSpeedDelta: 0,
     deathT: 0,
     animTime: 0,
     anim: 'Idle',
@@ -283,6 +294,7 @@ export function createPlayer(opts = {}) {
     update,
     takeDamage,
     heal,
+    applyHurtSpeedBuff,
     addVitality,
     addEmptyHpMax,
     lookAt,
@@ -367,6 +379,36 @@ export function createPlayer(opts = {}) {
     const next = Math.min(player.hpMax, player.hp + n)
     if (next === player.hp) return false
     player.hp = next
+    return true
+  }
+
+  /**
+   * P42 生生不息档 3：受击后限时移速加成（增量法）。
+   *
+   * - 激活：`player.speed += units * SPEED_PX_PER_UNIT`；到期把**同一增量原样减回**。
+   * - **不改 `player.speedUnits`**：敏捷 / 天行健 是直接改 speedUnits 与 speed 的（见 ui/session.js），
+   *   增量法与之相加互不打架、到期也不会把它们加的那份一起抹掉。
+   * - 计时期间再次调用**只刷新计时、不叠加速度**（连续受击不滚雪球），沿用首次生效的增量。
+   * - 与 invuln / hurtT 各自独立计时；玩家已死亡时不再生效（死亡那次 onHurt 也不会挂上）。
+   *
+   * @param {number} units 设计单位增量（档 3 = 0.20）
+   * @param {number} sec 持续秒数（档 3 = 1.5）
+   * @returns {boolean} 是否处于加成生效状态
+   */
+  function applyHurtSpeedBuff(units, sec) {
+    const u = Number(units)
+    const s = Number(sec)
+    if (player.hp <= 0) return false
+    if (!Number.isFinite(u) || u <= 0 || !Number.isFinite(s) || s <= 0) return false
+    if (player.hurtSpeedT > 0) {
+      // 已在加成中：只刷新计时，速度不叠。
+      player.hurtSpeedT = s
+      return true
+    }
+    const delta = u * SPEED_PX_PER_UNIT
+    player.hurtSpeedDelta = delta
+    player.speed += delta
+    player.hurtSpeedT = s
     return true
   }
 
@@ -473,6 +515,15 @@ export function createPlayer(opts = {}) {
     }
     if (player.attackT > 0) {
       player.attackT = Math.max(0, player.attackT - dt)
+    }
+    if (player.hurtSpeedT > 0) {
+      // P42：限时移速加成到期，把同一增量原样减回。
+      player.hurtSpeedT = Math.max(0, player.hurtSpeedT - dt)
+      if (player.hurtSpeedT <= 0) {
+        player.hurtSpeedT = 0
+        player.speed -= player.hurtSpeedDelta
+        player.hurtSpeedDelta = 0
+      }
     }
     stepScatter(player, dt)
     stepUnlockPulse(dt)

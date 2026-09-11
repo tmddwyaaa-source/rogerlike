@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { createMatchUi, getSharedBgm } from '../ui/index.js'
-import { bondTiers, BOND_DESC } from '../ui/constants.js'
+import { bondTiers, BOND_DESC, CHARGE_MAX_SEC } from '../ui/constants.js'
 import { getSharedSfx } from '../ui/sfx.js'
 import '../ui/pixel.css'
 import HudOverlay from './HudOverlay.vue'
@@ -429,6 +429,7 @@ defineExpose({
       :boost="settingsDraftBoost"
       :in-match="inLiveMatch(hud.resumePhase)"
       :char-id="hud.charId"
+      :charge-max="bindCtx.combat?.chargeMax ?? CHARGE_MAX_SEC"
       @update:settings="onSettingsUpdate"
       @boost="onSettingsBoost"
       @back="closeSettings"
