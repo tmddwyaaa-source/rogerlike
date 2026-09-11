@@ -185,7 +185,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_AMMO, title: '散射', desc: '弹道 +1，伤害 −3', bond: BOND_QIAN },
 
-  { id: UPGRADE_RELOAD, title: '技巧', desc: '蓄力时间 −0.20', bond: BOND_QIAN },
+  { id: UPGRADE_RELOAD, title: '技巧', desc: '蓄力时间 −0.15', bond: BOND_QIAN },
 
   { id: UPGRADE_POWER, title: '力量', desc: '伤害 +10', bond: BOND_QIAN },
 
@@ -217,7 +217,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_GOBLIN, title: '地精', desc: '生成 1 个地精跟班，所有跟班伤害 +10', tier: 'advanced', bond: BOND_UNITY },
 
-  { id: UPGRADE_EMPOWER, title: '强化射击', tier: 'advanced', bond: BOND_QIAN, desc: (charId) => charId === CHAR_RANGER ? '满蓄改为激光，伤害 ceil(攻击×2.5)，穿透 +2，过量可溢出，攻击 +5' : '+15' },
+  { id: UPGRADE_EMPOWER, title: '强化射击', tier: 'advanced', bond: BOND_QIAN, desc: '满蓄改为激光，伤害 ceil(攻击×2.5)，穿透 +2，过量可溢出，攻击 +5' },
 
   { id: UPGRADE_RABBIT, title: '兔子', desc: '生成 1 个兔子跟班', bond: BOND_UNITY },
 
@@ -225,7 +225,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_CRIT, title: '暴击', desc: '暴击率 +10', bond: BOND_QIAN },
 
-  { id: UPGRADE_ONLY_FAST, title: '唯快不破', desc: '攻击速度 +20%（不改变蓄力时间）；可叠', tier: 'advanced', bond: BOND_QIAN },
+  { id: UPGRADE_ONLY_FAST, title: '唯快不破', desc: '攻击速度 +20%（不改变蓄力时间）；可叠', bond: BOND_QIAN },
 
   { id: UPGRADE_REFINE, title: '精益求精', desc: '暴击率每 30% 使暴击伤害 +0.2；可叠', tier: 'advanced', bond: BOND_QIAN },
 
@@ -346,7 +346,7 @@ export function upgradeById(id) {
 
 }
 
-/** 升级介绍：desc 支持按角色函数（如强化射击）；charId 以当前 session 为准。 */
+/** 升级介绍：desc 为字符串（descFor 仍兼容按角色函数写法）；charId 以当前 session 为准。 */
 export function descFor(idOrUpgrade, charId) {
   const u = typeof idOrUpgrade === 'string' ? upgradeById(idOrUpgrade) : idOrUpgrade
   if (!u) return ''

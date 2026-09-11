@@ -237,12 +237,12 @@ export function availableUpgrades(combat, opts = {}) {
   const wantAdvanced = opts.tier === 'advanced'
   const charId = resolveCharId(combat, opts)
   return UPGRADES.filter((u) => {
+    // 强化射击：游侠专属；战士 / 法师的池子里一律不出现。
+    if (u.id === UPGRADE_EMPOWER && charId !== CHAR_RANGER) return false
+    // 唯快不破：降为普通项后仍只在本局蓄力上限已到 0 时进池（与 tier 无关，不得放开）。
+    if (u.id === UPGRADE_ONLY_FAST) return chargeMax <= 0
     const isAdv = u.tier === 'advanced'
-    if (wantAdvanced) {
-      if (!isAdv) return false
-      if (u.id === UPGRADE_ONLY_FAST) return chargeMax <= 0
-      return true
-    }
+    if (wantAdvanced) return isAdv
     if (isAdv) return false
     if (u.id !== UPGRADE_RELOAD) return true
     return chargeMax > 0

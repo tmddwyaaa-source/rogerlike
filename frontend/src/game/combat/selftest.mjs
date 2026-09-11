@@ -361,10 +361,23 @@ assert('giant 2nd+full ×2.25', Math.abs(cG.bullets[0].sizeMul - 1.8 * 1.25) < 1
 
 const ch = createBow()
 const cCh = createCombat({ player, targets: [], weapon: ch })
-assert('charge -0.20', cCh.applyUpgrade('reload') === true && Math.abs(ch.chargeMax - 0.55) < 1e-9)
+// P42：技巧每层 −0.15（原 −0.20）。0.75 → 0.60 → 0.45 → 0.30 → 0.15 → 0 共 5 次到 0。
+assert(
+  'charge -0.15',
+  CHARGE_UPGRADE === 0.15 &&
+    cCh.applyUpgrade('reload') === true &&
+    Math.abs(ch.chargeMax - 0.6) < 1e-9 &&
+    Math.abs(ch.reloadSec - 0.6) < 1e-9,
+)
 cCh.applyUpgrade('reload')
 cCh.applyUpgrade('reload')
 cCh.applyUpgrade('reload')
+const chargeAfter4 = ch.chargeMax // 第 4 次应为 0.15，尚未到 0（每层 −0.20 时这里已提前钳到 0）
+cCh.applyUpgrade('reload')
+assert(
+  'charge 5 picks to 0',
+  Math.abs(chargeAfter4 - CHARGE_UPGRADE) < 1e-9 && chargeAfter4 > 0 && ch.chargeMax === 0,
+)
 assert('charge clamped 0', ch.chargeMax === 0)
 assert('charge 0 still ok', cCh.applyUpgrade('reload') === true && ch.chargeMax === 0)
 cCh.beginCharge()

@@ -4,6 +4,37 @@
 
 > ⚠️ **遗忘更新（2026-09-10 补标）**：**P39 四任务——TASK-014 数值曲线与开局等级、TASK-015 真实加载进度、TASK-016 主菜单像素标题与跑动、TASK-017 全局设置与音频快捷控制——当时已完成并 `done`，但查收叙事漏写进本文件**；P40（TASK-018 / TASK-019）见下方 2026-09-10 条。本条只作「遗忘」标注，状态以 `.task/` 与 `docs/TASK-STATUS.md` 为准，不虚构当时未跑的复跑证据。
 
+## 2026-09-11 查收 — ROUND-009 · P42 批次 1（M6 / TASK-021 + M2 / TASK-022）
+
+用户需求（P42 提案 `docs/P42-内容扩充提案.md` 第 1 节）：技巧 −0.15、唯快不破降普通、强化射击限游侠。
+用户信号：M2（run_id `d867e841-…`）与 M6（run_id `edcc7e18-…`）先后报「完工，`transition worker_done`」；两窗并行（文件不重叠）。
+
+### 磁盘核对 + 本窗重跑（M1）
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M2 / TASK-022 · R1 | `CHARGE_UPGRADE` 0.2 → 0.15（`CHARGE_MAX_SEC` 0.75 不动）；断言改成「5 次到 0」 | ✅ 本窗复跑 exit 0；独立探针序列 `0.75 → 0.60 → 0.45 → 0.30 → 0.15 → 0.00 → 0.00`，第 4 次仍 >0、第 5 次归 0、第 6 次钳 0，`reloadSec` 同步 |
+| M6 / TASK-021 · R1 | 技巧文案 → `蓄力时间 −0.15`（U+2212） | ✅ 本窗复跑 exit 0 |
+| M6 / TASK-021 · R2 | 唯快不破去掉 `tier: advanced`，**门控迁移**后仍只在 `chargeMax <= 0` 时进池 | ✅ 本窗复跑 exit 0；独立探针：`chargeMax=0.75` 时 normal/advanced **都不含** only_fast，`=0` 时 normal **含** |
+| M6 / TASK-021 · R3 | 强化射击按 `charId` 过滤（仅游侠）；desc 去函数分支 | ✅ 本窗复跑 exit 0；独立探针：ranger advanced=9 含、warrior/mage advanced=8 **不含**，两桶都不含 |
+| M1 独立验收 | 分桶纯净性（普通桶不得混入高级项、反之亦然） | ✅ 三角色 6 个桶全部干净（确认 worker 简化 `wantAdvanced` 分支时没有删掉 `if (isAdv) return false`） |
+| M1 集成 | `match.selftest.mjs` + `npm run build` | ✅ RESULT PASS + `✓ built in 467ms`（新包 `index-B_W_vAhi.js`） |
+| 收口 | `transition` ×2（每步本窗 Full Gate 通过） | ✅ `audit-round` = **BASIC_GATE_PASS + FULL_GATE_PASS + ROUND_READY_TO_CLOSE** |
+
+### 独立验收发现
+
+- **F1（P3，不打回）**：测试模式「升级选项自选」面板直接列 `UPGRADES` + `grantUpgrade`，不经 `availableUpgrades` 过滤 → 战士/法师仍能在**测试面板**自选到强化射击（M6 主动披露、未擅自扩大范围；R3 只要求池子过滤，已满足）。→ 已登记为批次 2 的 M6 追加项。
+- **F2（P4，接受）**：强化射击限游侠后，战士/法师的天行健可计入种类 11 → 10，档 8 仍可达，阈值不动。
+
+### 文档回写（M1）
+
+- `游戏当前设计表.md`：§2.4 技巧 → −0.15（5 个到 0）；强化射击 → **高级 / 游侠专属**（去「其他角色 +15」）；唯快不破 → **普通**（保留门控说明）；高级项 **10 → 9**；高级出现机制 → 代码口径（等级 5 的倍数第 1 格必出 + 其余 30%，非 5 倍数不出）；文首对齐摘要更新。
+- `docs/GAME-SPEC.md`：技巧 −0.15、强化射击游侠专属、唯快不破普通、高级出现机制（§4.1 表格 + §9 清单两处）、头标「最后对齐」更新。
+
+**结论**：ROUND-009 **pass**，两任务 `done`，本轮闭环。
+
+---
+
 ## 2026-09-11 查收 — ROUND-008 · P41（M7 / TASK-020 恶魔跟班口径 + 兔子基础伤 10；attempt=2 定稿）
 
 用户信号：M7（协作挡 **A**，子代理以 M7 窗身份执行，绑定见 `.task/round.json` 的 `subagents`）先后三次报「TASK-020 完工，`transition worker_done`」。

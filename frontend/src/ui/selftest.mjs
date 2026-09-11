@@ -81,11 +81,11 @@ function assert(name, cond) {
 }
 
 assert('title 类幸存者', createMatchUi().title === '类幸存者')
-assert('normal pool 20', UPGRADES.filter((u) => u.tier !== 'advanced').length === 20)
-assert('advanced 10', UPGRADES.filter((u) => u.tier === 'advanced').length === 10)
+assert('normal pool 21', UPGRADES.filter((u) => u.tier !== 'advanced').length === 21)
+assert('advanced 9', UPGRADES.filter((u) => u.tier === 'advanced').length === 9)
 assert('upgrade 暴击', UPGRADES.find((u) => u.id === 'crit')?.title === '暴击')
 assert('暴击文案', UPGRADES.find((u) => u.id === 'crit')?.desc === '暴击率 +10')
-assert('upgrade 唯快不破', UPGRADES.find((u) => u.id === 'only_fast')?.title === '唯快不破' && UPGRADES.find((u) => u.id === 'only_fast')?.tier === 'advanced')
+assert('upgrade 唯快不破', UPGRADES.find((u) => u.id === 'only_fast')?.title === '唯快不破' && UPGRADES.find((u) => u.id === 'only_fast')?.tier !== 'advanced')
 assert('upgrade 精益求精', UPGRADES.find((u) => u.id === 'refine')?.title === '精益求精' && UPGRADES.find((u) => u.id === 'refine')?.tier === 'advanced')
 assert('upgrade 奇怪的蛋', UPGRADES.at(-1)?.id === 'strange_egg' && UPGRADES.find((u) => u.id === 'strange_egg')?.title === '奇怪的蛋')
 assert('穿透文案 无括注', UPGRADES.find((u) => u.id === 'pierce')?.desc === '穿透 +1')
@@ -275,10 +275,11 @@ assert(
   applyUpgrade('ammo_cap', { pistol }) === true && pistol.extraShots === 1 && pistol.dmgBonus === -3,
 )
 assert(
-  '技巧 −0.20',
+  '技巧 applyUpgrade 扣 CHARGE_UPGRADE',
   applyUpgrade('reload', { pistol }) === true &&
     Math.abs(pistol.chargeMax - (CHARGE_MAX_SEC - CHARGE_UPGRADE)) < 1e-9,
 )
+assert('技巧文案 蓄力−0.15', UPGRADES.find((u) => u.id === 'reload')?.desc === '蓄力时间 −0.15')
 
 const vit = createPlayer()
 vit.hp = 2
@@ -396,27 +397,25 @@ assert(
 assert('蝙蝠无程序图标', iconRows('bat') == null)
 
 assert('upgrade 强化射击', UPGRADES.find((u) => u.id === 'empower_shot')?.title === '强化射击')
+const empowerDesc = '满蓄改为激光，伤害 ceil(攻击×2.5)，穿透 +2，过量可溢出，攻击 +5'
 assert(
-  '强化射击按角色',
-  typeof UPGRADES.find((u) => u.id === 'empower_shot')?.desc === 'function' &&
+  '强化射击文案统一游侠版',
+  typeof UPGRADES.find((u) => u.id === 'empower_shot')?.desc === 'string' &&
     UPGRADES.find((u) => u.id === 'empower_shot')?.tier === 'advanced' &&
-    descFor('empower_shot', 'ranger') === '满蓄改为激光，伤害 ceil(攻击×2.5)，穿透 +2，过量可溢出，攻击 +5' &&
-    descFor('empower_shot', 'warrior') === '+15' &&
-    descFor('empower_shot', 'mage') === '+15',
+    descFor('empower_shot', 'ranger') === empowerDesc &&
+    descFor('empower_shot', 'warrior') === empowerDesc &&
+    descFor('empower_shot', 'mage') === empowerDesc,
 )
 assert('descFor 普通项原样', descFor('power') === '伤害 +10' && descFor('nope') === '')
 const sEmp = createSession()
 sEmp.start('1')
 sEmp.charId = 'warrior'
 sEmp.grantUpgrade('empower_shot', {})
-assert('回忆存定型文案 战士', sEmp.picked[0]?.desc === '+15')
+assert('回忆存强化射击文案 战士', sEmp.picked[0]?.desc === empowerDesc)
 const sEmpR = createSession()
 sEmpR.start('1')
 sEmpR.grantUpgrade('empower_shot', {})
-assert(
-  '回忆存定型文案 游侠',
-  sEmpR.picked[0]?.desc === '满蓄改为激光，伤害 ceil(攻击×2.5)，穿透 +2，过量可溢出，攻击 +5',
-)
+assert('回忆存强化射击文案 游侠', sEmpR.picked[0]?.desc === empowerDesc)
 const bowEmp = createPistol()
 assert(
   '强化射击 applyUpgrade',
@@ -440,18 +439,26 @@ assert(
 )
 assert('crit 在普通池', availableUpgrades(null, { tier: 'normal' }).some((u) => u.id === 'crit'))
 assert(
-  'empower 全角色高级池',
+  '强化射击仅游侠',
   availableUpgrades(null, { tier: 'advanced', charId: 'ranger' }).some((u) => u.id === 'empower_shot') &&
-    availableUpgrades(null, { tier: 'advanced', charId: 'warrior' }).some((u) => u.id === 'empower_shot') &&
-    availableUpgrades(null, { tier: 'advanced', charId: 'mage' }).some((u) => u.id === 'empower_shot'),
+    !availableUpgrades(null, { tier: 'advanced', charId: 'warrior' }).some((u) => u.id === 'empower_shot') &&
+    !availableUpgrades(null, { tier: 'advanced', charId: 'mage' }).some((u) => u.id === 'empower_shot') &&
+    !availableUpgrades(null, { tier: 'normal', charId: 'warrior' }).some((u) => u.id === 'empower_shot') &&
+    !availableUpgrades(null, { tier: 'normal', charId: 'mage' }).some((u) => u.id === 'empower_shot'),
 )
 assert(
   'chargeMax>0 无 only_fast',
-  !availableUpgrades(null, { tier: 'advanced' }).some((u) => u.id === 'only_fast'),
+  !availableUpgrades(null, { tier: 'normal' }).some((u) => u.id === 'only_fast'),
 )
 assert(
   'chargeMax=0 有 only_fast',
-  availableUpgrades({ chargeMax: 0 }, { tier: 'advanced' }).some((u) => u.id === 'only_fast'),
+  availableUpgrades({ chargeMax: 0 }, { tier: 'normal' }).some((u) => u.id === 'only_fast'),
+)
+assert(
+  '唯快不破降为普通',
+  UPGRADES.find((u) => u.id === 'only_fast')?.tier !== 'advanced' &&
+    !availableUpgrades(null, { tier: 'normal', charId: 'ranger' }).some((u) => u.id === 'only_fast') &&
+    availableUpgrades({ chargeMax: 0 }, { tier: 'normal', charId: 'ranger' }).some((u) => u.id === 'only_fast'),
 )
 assert(
   'strange_egg 在高级池',
