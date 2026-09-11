@@ -2,6 +2,9 @@
  * M6 逻辑自测（不依赖浏览器 / 不改 engine）。
  * 运行：在 frontend/ 下 `node src/game/enemies/selftest.mjs`
  */
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   BODY,
   SPEED_PX_PER_UNIT,
@@ -11,9 +14,16 @@ import {
   WORLD_WIDTH,
 } from '../constants.js'
 import {
+  CREEP_ANIM_FPS,
+  CREEP_ANIM_SEC,
   CREEP_DRAW,
+  CREEP_FRAME_KINDS,
+  CREEP_FRAME_NAMES,
+  CREEP_FRAME_SEC,
+  CREEP_FRAMES,
   CREEP_HP,
   CREEP_SRC,
+  creepFrameAt,
   SNAIL_SRC,
   SPLIT_SRC,
   SLIME_X1_SRC,
@@ -137,6 +147,9 @@ function assert(name, cond) {
   }
 }
 
+/** P42 批次4：序列帧素材磁盘目录（frontend/public/assets/小怪/）。 */
+const CREEP_ASSET_DIR = fileURLToPath(new URL('../../../public/assets/小怪/', import.meta.url))
+
 function makeFocus() {
   return {
     x: WORLD_WIDTH / 2,
@@ -172,7 +185,7 @@ assert('split mul t1 = 0.79', Math.abs(splitSpeedMul(1) - 0.79) < 1e-12)
 assert('split mul cap 1.4', splitSpeedMul(99) === 1.4)
 assert('creep px t0 = 0.62×80', creepSpeedPx(0) === 0.62 * SPEED_PX_PER_UNIT)
 assert('split px t0 = 0.77×80', splitSpeedPx(0) === 0.77 * SPEED_PX_PER_UNIT)
-assert('sprite is 蘑菇怪.png single frame', CREEP_SRC.includes('蘑菇怪.png'))
+assert('sprite frame 0 is 蘑菇怪.png', CREEP_SRC.includes('蘑菇怪.png'))
 assert('snail sprite 蜗牛怪.png', SNAIL_SRC.includes('蜗牛怪.png'))
 assert('split sprite 裂怪.png', SPLIT_SRC.includes('裂怪.png'))
 assert('split src is not mushroom', !SPLIT_SRC.includes('蘑菇怪'))
@@ -1177,6 +1190,139 @@ assert('elite chance consts', ELITE_CHANCE_BASE === 0.02 && ELITE_CHANCE_PER_MIN
   foes.update(0.8, focus, camera, 300.9)
   const st = foes.stingers()[0]
   assert('no elite in difficulty1', st && st.elite != true && st.hp === 260 && st.knockbackResist === BODY)
+}
+
+// —— P42 批次4：8 种小怪 4 帧序列动画（时间驱动 0.1s/帧 ≈ 10fps、0.4s 一轮无限循环） ——
+assert(
+  'creep frames 4',
+  CREEP_FRAMES === 4 &&
+    CREEP_ANIM_FPS === 10 &&
+    Math.abs(CREEP_FRAME_SEC - 0.1) < 1e-12 &&
+    Math.abs(CREEP_ANIM_SEC - 0.4) < 1e-12,
+)
+
+assert(
+  'creep anim time driven',
+  creepFrameAt('creep', 0, CREEP_FRAMES) === 0 &&
+    creepFrameAt('creep', 0.1, CREEP_FRAMES) === 1 &&
+    creepFrameAt('creep', 0.2, CREEP_FRAMES) === 2 &&
+    creepFrameAt('creep', 0.3, CREEP_FRAMES) === 3 &&
+    creepFrameAt('creep', 0.4, CREEP_FRAMES) === 0 &&
+    creepFrameAt('creep', 0.5, CREEP_FRAMES) === 1 &&
+    creepFrameAt('snail', 0.35, CREEP_FRAMES) === 3 &&
+    creepFrameAt('orchid', 1, CREEP_FRAMES) === 2,
+)
+
+assert(
+  'creep frame index wraps',
+  creepFrameAt('creep', -1, 4) === 0 &&
+    creepFrameAt('creep', -1e-9, 4) === 0 &&
+    creepFrameAt('creep', 3.9, 4) === 3 &&
+    creepFrameAt('creep', 4, 4) === 0 &&
+    creepFrameAt('creep', 100.1, 4) === 1 &&
+    creepFrameAt('creep', Number.NaN, 4) === 0 &&
+    creepFrameAt('creep', Number.POSITIVE_INFINITY, 4) === 0 &&
+    creepFrameAt('creep', 1, 0) === 0 &&
+    creepFrameAt('creep', 1, -4) === 0 &&
+    [0, 0.1, 0.2, 0.3, 0.4, 0.55, 7.77, 12345.6, -3].every((t) => {
+      const i = creepFrameAt('creep', t, CREEP_FRAMES)
+      return Number.isInteger(i) && i >= 0 && i < CREEP_FRAMES
+    }),
+)
+
+assert(
+  'creep anim one cycle wraps',
+  [0, 0.1, 0.2, 0.3].every(
+    (t) => creepFrameAt('creep', t, CREEP_FRAMES) === creepFrameAt('creep', t + CREEP_ANIM_SEC, CREEP_FRAMES),
+  ),
+)
+
+{
+  // R1⑤：8 种小怪 × 4 帧 = 32 张 PNG 全部在磁盘上（素材由 M1 双拷落盘，本任务不改素材）。
+  const missing = []
+  let count = 0
+  for (const key of CREEP_FRAME_KINDS) {
+    for (const name of CREEP_FRAME_NAMES[key] ?? []) {
+      count += 1
+      if (!fs.existsSync(path.join(CREEP_ASSET_DIR, name))) missing.push(`${key}:${name}`)
+    }
+  }
+  assert('creep 4 frame assets exist', CREEP_FRAME_KINDS.length === 8 && count === 32 && missing.length === 0)
+}
+
+{
+  // R2①：同屏多只各自相位 —— 同一时刻不整齐划一，且每只仍严格按时间口径循环。
+  let n = 0
+  const phases = [0.1, 0.9]
+  const foes = createEnemies({ random: () => phases[n++] ?? 0.5 })
+  const a = foes.spawnCreepAt(focus.x + 200, focus.y + 40, 'regular')
+  const b = foes.spawnCreepAt(focus.x + 200, focus.y - 40, 'regular')
+  const cycleOf = (ph) =>
+    [0, 0.1, 0.2, 0.3].map((t) => creepFrameAt('creep', t + ph * CREEP_ANIM_SEC, CREEP_FRAMES)).join()
+  const followsTime = (ent) =>
+    foes.creepFrameOf(ent) ===
+    creepFrameAt('creep', (ent.animT ?? 0) + ent.animPhase * CREEP_ANIM_SEC, CREEP_FRAMES)
+  assert(
+    'creep anim phase per instance',
+    a.animPhase === 0.1 &&
+      b.animPhase === 0.9 &&
+      a.animPhase !== b.animPhase &&
+      followsTime(a) &&
+      followsTime(b) &&
+      cycleOf(a.animPhase) !== cycleOf(b.animPhase),
+  )
+  foes.update(0.15, focus, camera, 0)
+  foes.update(0.25, focus, camera, 0)
+  assert(
+    'creep anim phase holds over time',
+    Math.abs(a.animT - 0.4) < 1e-9 && Math.abs(b.animT - 0.4) < 1e-9 && followsTime(a) && followsTime(b),
+  )
+}
+
+{
+  // R2②：序列动画不碰任何既有判定字段（hurtbox / 护甲 / 精英 / 击退抗性 / 生命）。
+  const foes = createEnemies({ random: () => 0.5 })
+  const snail = foes.spawnSnailAt(focus.x + 120, focus.y)
+  const creep = foes.spawnCreepAt(focus.x + 160, focus.y, 'regular')
+  const snap = (e) =>
+    [e.w, e.h, e.hurtW, e.hurtH, e.armor, e.elite, e.knockbackResist, e.hp, e.maxHp].join(',')
+  const before = [snap(snail), snap(creep)]
+  const f0 = foes.creepFrameOf(creep)
+  foes.update(CREEP_ANIM_SEC, focus, camera, 0)
+  assert(
+    'creep anim keeps gameplay fields',
+    before[0] === snap(snail) && before[1] === snap(creep) && creep.animT === CREEP_ANIM_SEC,
+  )
+  assert('creep anim full cycle same frame', foes.creepFrameOf(creep) === f0)
+}
+
+{
+  // R2③：暂停 / 升级时（playing 以外）match.js 不调 foes.update ⇒ 只有 update 推进动画，帧停住。
+  const foes = createEnemies({ random: () => 0.5 })
+  const creep = foes.spawnCreepAt(focus.x + 200, focus.y, 'regular')
+  foes.update(0.25, focus, camera, 0)
+  const t1 = creep.animT
+  const f1 = foes.creepFrameOf(creep)
+  const ctx = {
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    beginPath() {},
+    arc() {},
+    stroke() {},
+    strokeRect() {},
+    fillRect() {},
+    drawImage() {},
+  }
+  foes.update(0, focus, camera, 0)
+  foes.draw(ctx)
+  assert(
+    'creep anim paused when not playing',
+    t1 === 0.25 &&
+      creep.animT === t1 &&
+      foes.creepFrameOf(creep) === f1 &&
+      f1 === creepFrameAt('creep', 0.25 + creep.animPhase * CREEP_ANIM_SEC, CREEP_FRAMES),
+  )
 }
 
 if (failed) {

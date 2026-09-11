@@ -2,6 +2,7 @@
  * M11 跟班自测（不依赖浏览器 / 不改 match / ui / enemies）。
  * 运行：在 frontend/ 下 `node src/game/companions/selftest.mjs`
  */
+import { existsSync } from 'node:fs'
 import { BODY, WORLD_HEIGHT, WORLD_WIDTH } from '../constants.js'
 import {
   BAT_DMG,
@@ -20,8 +21,12 @@ import {
   DEMON_SRC,
   DEMON_TARGET_RADIUS,
   EGG_SRC,
+  GOBLIN_ANIM_SEC,
   GOBLIN_DRAW,
   GOBLIN_FOLLOW_DIST,
+  GOBLIN_FRAMES,
+  GOBLIN_FRAME_SEC,
+  GOBLIN_FRAME_SRC,
   GOBLIN_INTERVAL,
   GOBLIN_MAX_TARGETS,
   GOBLIN_SRC,
@@ -39,6 +44,7 @@ import {
   eggDamage,
   eggStage,
   goblinDamage,
+  goblinFrameAt,
   rabbitDamage,
   unityAtkBonus,
   unityDamageAdd,
@@ -1274,6 +1280,152 @@ assert('demon comfort radius 2 body', DEMON_COMFORT_RADIUS === 2 * BODY)
   assert(
     'demon hits target inside 3 body of player',
     d.chase === foe && overlapped && foe.hp <= hp0 - demonDamage(20),
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * P42 批次4（TASK-031 / M7）：地精 4 帧序列动画。
+ * 口径与 TASK-030 一致：时间驱动 10fps / 0.4s 一轮 / 无限循环；
+ * 多只地精相位错开；不影响索敌/跟随/伤害/暂停冻结。
+ * ------------------------------------------------------------------ */
+
+assert(
+  'goblin frames 4',
+  GOBLIN_FRAMES === 4 &&
+    GOBLIN_FRAME_SEC === 0.1 &&
+    GOBLIN_ANIM_SEC === GOBLIN_FRAME_SEC * GOBLIN_FRAMES &&
+    Math.abs(GOBLIN_ANIM_SEC - 0.4) < 1e-9 &&
+    GOBLIN_FRAME_SRC.length === 4 &&
+    GOBLIN_FRAME_SRC[0] === GOBLIN_SRC,
+)
+
+assert(
+  'goblin anim time driven',
+  typeof goblinFrameAt === 'function' &&
+    // t=0/0.1/0.2/0.3 → 帧 0/1/2/3；t=0.4 回到 0，再往后继续绕
+    goblinFrameAt(0) === 0 &&
+    goblinFrameAt(0.1) === 1 &&
+    goblinFrameAt(0.2) === 2 &&
+    goblinFrameAt(0.3) === 3 &&
+    goblinFrameAt(0.4) === 0 &&
+    goblinFrameAt(0.5) === 1 &&
+    goblinFrameAt(0.7) === 3 &&
+    goblinFrameAt(0.8) === 0 &&
+    // 时间驱动而非逐帧计数：同一 t 恒等，调用次数 / 帧率都不影响
+    goblinFrameAt(0.25) === goblinFrameAt(0.25) &&
+    goblinFrameAt(0.25) === 2 &&
+    // 越界 / 负时间兜底
+    goblinFrameAt(-0.1) === 3 &&
+    goblinFrameAt(-0.4) === 0 &&
+    goblinFrameAt(-0.5) === 3 &&
+    // 非有限值兜底，且结果恒落在合法帧区间
+    [NaN, Infinity, -Infinity, undefined, null, 1e9, -1e9, 0.05, 0.3999999].every((t) => {
+      const f = goblinFrameAt(t)
+      return Number.isInteger(f) && f >= 0 && f < GOBLIN_FRAMES
+    }) &&
+    // 素材退化单帧时不越界
+    goblinFrameAt(0.3, 1) === 0 &&
+    goblinFrameAt(1.7, 2) === 1,
+)
+
+{
+  // 三只地精：相位必须错开（同一时刻不能叠成同一帧）。
+  let pick = 0
+  const random = () => [0.05, 0.55, 0.95][pick++ % 3]
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const pack = makePack(player, [], () => 20, { random })
+  const g1 = pack.addGoblin()
+  const g2 = pack.addGoblin()
+  const g3 = pack.addGoblin()
+  const phases = [g1, g2, g3].map((g) => g.animPhase)
+  pack.update(0.15)
+  const frames = [g1, g2, g3].map((g) =>
+    typeof pack.goblinFrameOf === 'function' ? pack.goblinFrameOf(g) : null,
+  )
+  assert(
+    'goblin anim phase per instance',
+    typeof pack.goblinFrameOf === 'function' &&
+      new Set(phases).size === phases.length &&
+      phases.every((p) => Number.isFinite(p) && p >= 0 && p < GOBLIN_ANIM_SEC + 1e-9) &&
+      frames.every((f) => Number.isInteger(f) && f >= 0 && f < GOBLIN_FRAMES) &&
+      new Set(frames).size > 1,
+  )
+
+  // 暂停冻结：时间只在 update 里推进，draw 与 dt<=0 都不推进
+  const t0 = typeof pack.getAnimTime === 'function' ? pack.getAnimTime() : null
+  pack.draw(null)
+  pack.draw(null)
+  pack.update(0)
+  const t1 = typeof pack.getAnimTime === 'function' ? pack.getAnimTime() : null
+  assert('goblin anim frozen without update', t0 > 0 && t1 === t0)
+  // 动画不改变既有判定：三只地精仍是可索敌的普通跟班（无血、不可击退）
+  assert(
+    'goblin anim keeps companion contract',
+    [g1, g2, g3].every((g) => g.kind === 'goblin' && g.knockbackable === false) &&
+      pack.list.length === 3,
+  )
+}
+
+assert(
+  'goblin 4 frame assets exist',
+  ['地精.png', '地精-2.png', '地精-3.png', '地精-4.png'].every(
+    (f) =>
+      existsSync(new URL(`../../../public/assets/跟班/${f}`, import.meta.url)) &&
+      existsSync(new URL(`../../../../assets/source/跟班/${f}`, import.meta.url)),
+  ) &&
+    GOBLIN_FRAME_SRC.length === 4,
+)
+
+{
+  // 搜剿自检：帧号算对了不等于真的换图——用假 Image + 记录型 ctx 证明
+  // 随着时间推进，draw() 真的在 4 张不同贴图之间切换（否则整个动画是空壳）。
+  const RealImage = globalThis.Image
+  const srcs = []
+  globalThis.Image = class {
+    constructor() {
+      this.naturalWidth = 32
+      this.naturalHeight = 32
+    }
+    set src(v) {
+      this._src = v
+      srcs.push(v)
+    }
+    get src() {
+      return this._src
+    }
+    decode() {
+      return Promise.resolve()
+    }
+  }
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const pack = makePack(player, [], () => 20, { random: () => 0.5 })
+  let loaded = null
+  try {
+    loaded = await pack.loadAssets()
+  } catch {
+    loaded = null
+  }
+  const drawn = []
+  const ctx = {
+    drawImage(sheet) {
+      drawn.push(sheet)
+    },
+  }
+  pack.addGoblin()
+  const seen = []
+  for (let step = 0; step < 8; step++) {
+    pack.update(GOBLIN_FRAME_SEC)
+    drawn.length = 0
+    pack.draw(ctx)
+    if (drawn.length) seen.push(drawn[drawn.length - 1])
+  }
+  globalThis.Image = RealImage
+  assert(
+    'goblin anim draws 4 distinct frames',
+    loaded?.goblinFrames?.length === 4 &&
+      GOBLIN_FRAME_SRC.every((s) => srcs.includes(s)) &&
+      seen.length === 8 &&
+      new Set(seen).size === 4,
   )
 }
 

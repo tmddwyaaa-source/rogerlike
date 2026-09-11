@@ -120,22 +120,20 @@ import { drawStickman, STICKMAN_H, STICKMAN_W } from '../render/stickman.js'
 import {
   BLACK_KEY,
   ARMOR_OUTLINE,
+  CREEP_ANIM_SEC,
   CREEP_DRAW,
-  CREEP_SRC,
+  CREEP_FRAME_KINDS,
+  CREEP_FRAME_NAMES,
+  CREEP_FRAME_SEC,
+  CREEP_FRAMES,
   GRAY_DRAW,
   GRAY_SRC,
+  creepFrameSrcs,
   ICE_BULLET_DRAW,
   ICE_BULLET_SRC,
   ICE_MAN_DRAW,
   ICE_MAN_SRC,
   ORCHID_DRAW,
-  ORCHID_SRC,
-  SCORPION_SRC,
-  SLIME_X1_SRC,
-  SLIME_X3_SRC,
-  SNAIL_SRC,
-  SPLIT_SRC,
-  STINGER_SRC,
   ELITE_OUTLINE,
   ICE_BULLET_OUTLINE,
 } from './constants.js'
@@ -144,11 +142,17 @@ export { outlinePixels, outlineSheet } from './outline.js'
 
 export {
   ARMOR_OUTLINE,
+  CREEP_ANIM_FPS,
+  CREEP_ANIM_SEC,
   CREEP_DRAW,
+  CREEP_FRAME_KINDS,
+  CREEP_FRAME_NAMES,
+  CREEP_FRAME_SEC,
   CREEP_FRAMES,
   CREEP_SRC,
   GRAY_DRAW,
   GRAY_SRC,
+  creepFrameSrcs,
   ICE_BULLET_SRC,
   ICE_MAN_DRAW,
   ICE_MAN_SRC,
@@ -264,6 +268,48 @@ function overlaps(ax, ay, aw, ah, bx, by, bw, bh) {
   return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
 }
 
+/**
+ * P42：按时间取帧（纯函数，便于断言）。
+ * 帧时长 0.1s（10fps）、4 帧一轮 0.4s、无限循环：t=0.4 回到第 0 帧。
+ * 越界 / 负时间 / 非有限数 / 非法帧数一律兜底到第 0 帧，不抛错、不产生越界索引。
+ * @param {string} _kind 小怪键（为将来按怪分口径预留；当前 8 种共用同一口径）
+ * @param {number} t 该实例的动画时间（秒）
+ * @param {number} [frames] 帧数，默认 CREEP_FRAMES
+ * @returns {number} 合法帧索引 [0, frames-1]
+ */
+export function creepFrameAt(_kind, t, frames = CREEP_FRAMES) {
+  const n = Number.isFinite(frames) ? Math.floor(frames) : 0
+  if (n <= 0) return 0
+  if (!Number.isFinite(t) || t <= 0) return 0
+  // 0.3 / 0.1 在 IEEE754 下是 2.9999999999999996，加极小量再向下取整，避免少走一帧。
+  const i = Math.floor(t / CREEP_FRAME_SEC + 1e-9)
+  if (!Number.isFinite(i) || i < 0) return 0
+  return i % n
+}
+
+/** P42：本轮走 4 帧序列动画的小怪（键与 CREEP_FRAME_NAMES 一致）。冰人 / 灰树 / 木桩不在内。 */
+const ANIMATED_KINDS = new Set([
+  'creep',
+  'snail',
+  'slime_x1',
+  'slime_x3',
+  'scorpion',
+  'stinger',
+  'orchid',
+])
+
+/** kind（+ 裂怪的 speedKind）→ 序列帧表键。 */
+function animKeyOf(ent) {
+  if (ent?.kind === 'creep') return ent.speedKind === 'split' ? 'split' : 'creep'
+  return ent?.kind
+}
+
+/** 该怪一轮的帧数（表项缺失时退回 CREEP_FRAMES）。 */
+function animFramesOf(key) {
+  const n = CREEP_FRAME_NAMES[key]?.length
+  return Number.isFinite(n) && n > 0 ? n : CREEP_FRAMES
+}
+
 function chromaBlack(img) {
   const c = document.createElement('canvas')
   c.width = img.naturalWidth || img.width
@@ -292,18 +338,37 @@ function loadImage(src) {
   })
 }
 
-function drawSprite(ctx, sheet, ent, fallback) {
+/**
+ * 选中该帧的贴图（含护甲黄边 / 精英紫边变体）。
+ * sheets 为按帧序的数组时按 frame 取帧；该帧缺图（加载失败 / 未接线）则退回第 0 帧。
+ * @returns {*} 可用贴图，或 null（交给兜底色块）
+ */
+function spriteOf(sheets, ent, frame) {
+  const list = Array.isArray(sheets) ? sheets : [sheets]
+  const n = list.length
+  const fi = Number.isFinite(frame) ? Math.floor(frame) : 0
+  const order = fi > 0 && n > 0 ? [((fi % n) + n) % n, 0] : [0]
+  for (const i of order) {
+    const s = list[i]
+    if (!s) continue
+    const spr =
+      ent.elite && ent.armor > 0 && s.eliteArmored
+        ? s.eliteArmored
+        : ent.elite && s.elite
+          ? s.elite
+          : (ent.armor ?? 0) > 0 && s.armored
+            ? s.armored
+            : s
+    if (spr && (spr.naturalWidth || spr.width)) return spr
+  }
+  return null
+}
+
+function drawSprite(ctx, sheets, ent, fallback, frame = 0) {
   const dx = Math.round(ent.x - ent.w / 2)
   const dy = Math.round(ent.y - ent.h / 2)
-  const spr =
-    ent.elite && ent.armor > 0 && sheet?.eliteArmored
-      ? sheet.eliteArmored
-      : ent.elite && sheet?.elite
-        ? sheet.elite
-        : (ent.armor ?? 0) > 0 && sheet?.armored
-          ? sheet.armored
-          : sheet
-  if (spr && (spr.naturalWidth || spr.width)) {
+  const spr = spriteOf(sheets, ent, frame)
+  if (spr) {
     const sw = spr.naturalWidth || spr.width
     const sh = spr.naturalHeight || spr.height
     ctx.drawImage(spr, 0, 0, sw, sh, dx, dy, ent.w, ent.h)
@@ -352,15 +417,17 @@ export function createEnemies(opts = {}) {
   const SLOW_PARTICLE_INTERVAL = 0.2
   const PARTICLE_LIFE = 0.7
   const PARTICLE_RISE = 26
-  let mushroomSheet = null
-  let snailSheet = null
-  let splitSheet = null
-  let slimeX1Sheet = null
-  let slimeX3Sheet = null
+  /** P42：8 种小怪各 4 帧贴图数组（按帧序，元素为 sheet() 抠图/描边结果）。 */
+  let creepSheets = null
+  let snailSheets = null
+  let splitSheets = null
+  let slimeX1Sheets = null
+  let slimeX3Sheets = null
+  let orchidSheets = null
+  let scorpionSheets = null
+  let stingerSheets = null
+  /** 冰人 / 子弹仍是单帧。 */
   let iceManSheet = null
-  let orchidSheet = null
-  let scorpionSheet = null
-  let stingerSheet = null
   let iceBulletSheet = null
   let graySprite = null
 
@@ -462,6 +529,11 @@ export function createEnemies(opts = {}) {
       dead: false,
       armor: 0,
       ...extra,
+    }
+    if (ANIMATED_KINDS.has(kind)) {
+      // P42 序列帧：每只怪按实例错开相位（同屏不整齐划一），动画时间只在 update（=playing）里推进。
+      mob.animPhase = random()
+      mob.animT = 0
     }
     bindTakeHit(mob, () => {
       mob.dead = true
@@ -1170,6 +1242,8 @@ export function createEnemies(opts = {}) {
 
     for (const ent of targets) {
       if (ent.hp <= 0) continue
+      // P42 序列帧：动画时间只随本窗 update 的 dt 推进；暂停/升级时 match.js 不调 update ⇒ 整帧停住。
+      if (ANIMATED_KINDS.has(ent.kind)) ent.animT = (ent.animT ?? 0) + dt
       if (ent.kind === 'ice_man') {
         stepIceManRegen(ent, player, dt, hooks)
         tickIceAbilities(ent, player, camera, dt)
@@ -1226,20 +1300,17 @@ export function createEnemies(opts = {}) {
 
   async function loadAssets() {
     if (typeof Image === 'undefined') return null
-    const [mushImg, snailImg, splitImg, slime1Img, slime3Img, iceImg, orchidImg, scorpImg, stingerImg, bulletImg, grayImg] =
-      await Promise.all([
-        loadImage(CREEP_SRC),
-        loadImage(SNAIL_SRC),
-        loadImage(SPLIT_SRC),
-        loadImage(SLIME_X1_SRC),
-        loadImage(SLIME_X3_SRC),
-        loadImage(ICE_MAN_SRC),
-        loadImage(ORCHID_SRC),
-        loadImage(SCORPION_SRC),
-        loadImage(STINGER_SRC),
-        loadImage(ICE_BULLET_SRC),
-        loadImage(GRAY_SRC),
-      ])
+    // P42：8 种小怪各按帧序加载 4 张 32×32 PNG（共 32 张）；冰人 / 子弹 / 灰树仍单帧。
+    const [animImgs, iceImg, bulletImg, grayImg] = await Promise.all([
+      Promise.all(
+        CREEP_FRAME_KINDS.map((key) =>
+          Promise.all(creepFrameSrcs(key).map((src) => loadImage(src))),
+        ),
+      ),
+      loadImage(ICE_MAN_SRC),
+      loadImage(ICE_BULLET_SRC),
+      loadImage(GRAY_SRC),
+    ])
     const sheet = (img) => {
       try {
         const base = chromaBlack(img)
@@ -1251,31 +1322,43 @@ export function createEnemies(opts = {}) {
         return img
       }
     }
-    mushroomSheet = sheet(mushImg)
-    snailSheet = sheet(snailImg)
-    splitSheet = sheet(splitImg)
-    slimeX1Sheet = sheet(slime1Img)
-    slimeX3Sheet = sheet(slime3Img)
+    const sheetsByKey = {}
+    CREEP_FRAME_KINDS.forEach((key, i) => {
+      sheetsByKey[key] = (animImgs[i] ?? []).map((img) => sheet(img))
+    })
+    creepSheets = sheetsByKey.creep
+    splitSheets = sheetsByKey.split
+    snailSheets = sheetsByKey.snail
+    slimeX1Sheets = sheetsByKey.slime_x1
+    slimeX3Sheets = sheetsByKey.slime_x3
+    scorpionSheets = sheetsByKey.scorpion
+    stingerSheets = sheetsByKey.stinger
+    orchidSheets = sheetsByKey.orchid
     iceManSheet = sheet(iceImg)
-    orchidSheet = sheet(orchidImg)
-    scorpionSheet = sheet(scorpImg)
-    stingerSheet = sheet(stingerImg)
     // P27 冰人子弹：素材最外圈蓝色。
     iceBulletSheet = outlineSheet(chromaBlack(bulletImg), ICE_BULLET_OUTLINE)
     graySprite = grayImg
     return {
-      mushroomSheet,
-      snailSheet,
-      splitSheet,
-      slimeX1Sheet,
-      slimeX3Sheet,
+      creepSheets,
+      snailSheets,
+      splitSheets,
+      slimeX1Sheets,
+      slimeX3Sheets,
       iceManSheet,
-      orchidSheet,
-      scorpionSheet,
-      stingerSheet,
+      orchidSheets,
+      scorpionSheets,
+      stingerSheets,
       iceBulletSheet,
       graySprite,
     }
+  }
+
+  /** P42：该实例当前应画的帧（时间驱动 + 本实例相位）。 */
+  function creepFrameOf(ent) {
+    if (!ent) return 0
+    const key = animKeyOf(ent)
+    const t = (ent.animT ?? 0) + (ent.animPhase ?? 0) * CREEP_ANIM_SEC
+    return creepFrameAt(key, t, animFramesOf(key))
   }
 
   function draw(ctx) {
@@ -1294,18 +1377,20 @@ export function createEnemies(opts = {}) {
       if (ent.kind === 'gray') drawGray(ctx, ent)
     }
     for (const ent of targets) {
+      // P42：8 种小怪按「时间取帧」画序列帧（冰人 / 灰树 / 木桩仍是单帧）。
+      const frame = creepFrameOf(ent)
       if (ent.kind === 'creep') {
         if (ent.speedKind === 'split') {
-          drawSprite(ctx, splitSheet, ent, { a: '#4a3028', b: '#d07040' })
+          drawSprite(ctx, splitSheets, ent, { a: '#4a3028', b: '#d07040' }, frame)
         } else {
-          drawSprite(ctx, mushroomSheet, ent, { a: '#3a2a22', b: '#c45a3a' })
+          drawSprite(ctx, creepSheets, ent, { a: '#3a2a22', b: '#c45a3a' }, frame)
         }
       } else if (ent.kind === 'snail') {
-        drawSprite(ctx, snailSheet, ent, { a: '#5a4030', b: '#c4a070' })
+        drawSprite(ctx, snailSheets, ent, { a: '#5a4030', b: '#c4a070' }, frame)
       } else if (ent.kind === 'slime_x1') {
-        drawSprite(ctx, slimeX1Sheet, ent, { a: '#3a6a4a', b: '#7ec88a' })
+        drawSprite(ctx, slimeX1Sheets, ent, { a: '#3a6a4a', b: '#7ec88a' }, frame)
       } else if (ent.kind === 'slime_x3') {
-        drawSprite(ctx, slimeX3Sheet, ent, { a: '#2a5a3a', b: '#5eaa6a' })
+        drawSprite(ctx, slimeX3Sheets, ent, { a: '#2a5a3a', b: '#5eaa6a' }, frame)
       } else if (ent.kind === 'ice_man') {
         drawSprite(ctx, iceManSheet, ent, { a: '#2a4a6a', b: '#7ec8e8' })
         if (ent.dashPhase === 'telegraph') {
@@ -1313,11 +1398,11 @@ export function createEnemies(opts = {}) {
           ctx.strokeRect(Math.round(ent.x - ent.w / 2) - 1, Math.round(ent.y - ent.h / 2) - 1, ent.w + 2, ent.h + 2)
         }
       } else if (ent.kind === 'orchid') {
-        drawSprite(ctx, orchidSheet, ent, { a: '#3a2050', b: '#c878d0' })
+        drawSprite(ctx, orchidSheets, ent, { a: '#3a2050', b: '#c878d0' }, frame)
       } else if (ent.kind === 'scorpion') {
-        drawSprite(ctx, scorpionSheet, ent, { a: '#3a2010', b: '#c87828' })
+        drawSprite(ctx, scorpionSheets, ent, { a: '#3a2010', b: '#c87828' }, frame)
       } else if (ent.kind === 'stinger') {
-        drawSprite(ctx, stingerSheet, ent, { a: '#4a2a1a', b: '#d87838' })
+        drawSprite(ctx, stingerSheets, ent, { a: '#4a2a1a', b: '#d87838' }, frame)
       } else if (ent.kind === 'dummy') {
         drawStickman(ctx, ent)
       }
@@ -1383,6 +1468,7 @@ export function createEnemies(opts = {}) {
     spawnDummyAt,
     setDummyEnabled,
     removeDummy,
+    creepFrameOf,
     creeps: () => liveOf('creep'),
     snails: () => liveOf('snail'),
     scorpions: () => liveOf('scorpion'),
