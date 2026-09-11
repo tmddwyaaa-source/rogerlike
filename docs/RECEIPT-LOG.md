@@ -34,6 +34,12 @@ M1 独立复核的接线：`match.js` 在 `phase() !== 'playing'` 时冻结对�
 
 `游戏当前设计表.md`（新增 **§2.4c 激发力量**、文首摘要与对齐日期）、`docs/GAME-SPEC.md`（新增 **§4.1b**、头标）。
 
+### 发布（M1，同日）
+
+- `main`：`84c8656` 已推送（含批次 1 / 2 / 3 与派工文档、`更新日志.md` v0.11 → **v0.12**）。
+- `gh-pages`：`a66e4c8` 已部署；**热更新实测**：`index.html` 从 `index-Cf9GJ4Ew.js` 切到 `index-Dsq4MMGH.js`（约 20 秒生效），新 JS/CSS **200**、旧 JS **404**，新帧图 `assets/小怪/蘑菇怪-2.png`、`assets/跟班/地精-3.png` 均 **200**。
+- ⚠️ 顺带发现（**待用户拍板**）：`frontend/public/assets/upgrades/knockback.png`、`companionship.png` 是**未过审生成图**（86×86 / 276×276，非 12×12 栅格化口径；knockback 图上还自带一个左上红方块，会与程序绘制的「高级 3×3 红点」重叠）。它们**未入 git**，但 Vite 会整份拷贝 `public/`，因此**已随本次部署上线**。要么用户确认这就是过审版（M1 补进 git 并保留），要么 M1 撤回并让 M10 按口径重出。
+
 **结论**：ROUND-011 **pass**，四任务 `done`，本轮闭环。**待用户拍板**：F1 的连射口径（当前实现＝整组副本）。
 
 ---
