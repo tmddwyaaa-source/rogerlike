@@ -4,6 +4,40 @@
 
 > ⚠️ **遗忘更新（2026-09-10 补标）**：**P39 四任务——TASK-014 数值曲线与开局等级、TASK-015 真实加载进度、TASK-016 主菜单像素标题与跑动、TASK-017 全局设置与音频快捷控制——当时已完成并 `done`，但查收叙事漏写进本文件**；P40（TASK-018 / TASK-019）见下方 2026-09-10 条。本条只作「遗忘」标注，状态以 `.task/` 与 `docs/TASK-STATUS.md` 为准，不虚构当时未跑的复跑证据。
 
+## 2026-09-12 查收 — ROUND-011 · P42 批次 3「激发力量」（M6 / TASK-026 + M2 / TASK-027 + M3 / TASK-028 + M7 独立验收 / TASK-029）
+
+用户需求（`docs/P42-内容扩充提案.md` 第 5 节）：新增 `power`「激发力量」——等级每 10 级一次、卡牌屏强制选 1 张；游侠专属池（连射 / 贯穿强化 / 定神）＋ `sp-power` 可叠；不计入羁绊、回忆留痕。
+用户信号：用户报「批次 3 的 M6、M2、M3、M7 已完成，请查收」→ M1 磁盘核对 + 本窗逐字复跑 + 收口。
+
+### 磁盘核对 + 本窗重跑（M1）
+
+| 窗口 | 检查项 | 结果 |
+|------|--------|------|
+| M6 / TASK-026 · R1~R3 | ui 侧 power 池按角色 / 每 10 级触发 / 唯一性与可叠 / 强制选择 / 卡牌屏结构 / 不计羁绊 / 回忆记录 | ✅ 三条验收 exit 0；`PowerView.vue` 实测含 `选一张` + `scaleX` + `steps(` 且不引 png；`GameShell.vue` 在 `hud.phase === 'power'` 渲染 PowerView 并屏蔽 ESC / 设置入口 |
+| M2 / TASK-027 · R1~R3 | combat 侧 `applyPower`：连射 50%/100% 与 0.75s 额外冷却、贯穿强化 +1 穿透且每穿 ×1.5、sp +20 可叠 | ✅ 三条验收 exit 0；M1 复核「额外发也吃既有加成」为**既定口径**（见 F1） |
+| M3 / TASK-028 · R1 | player 侧 `applyPower('steady')` / `consumeSteadyCrit()`：静止 0.3s 就绪、只吃一次、移动/受击/死亡重置、与既有计时器共存 | ✅ 一条验收 exit 0 |
+| M7 / TASK-029 · R1~R3 | 独立验收方（reviewer=M7 ≠ 施工窗 M6/M2/M3）：三份 verify-report + 自写探针 28/28 | ✅ 10 条命令本窗逐字复跑全 exit 0（含 TASK-029 自身三条） |
+| M1 集成 | 三条 selftest + `npm run build` | ✅ ui / combat / player 全 `RESULT PASS` + `✓ built in 485ms`（`index-Ccns_6nk.js`） |
+| 收口 | `transition` ×8（026/027/028 `verified→integrated→done`；029 `worker_done→integrated→done`）+ `audit-round` | ✅ **BASIC_GATE_PASS + FULL_GATE_PASS + ROUND_READY_TO_CLOSE** |
+
+M1 独立复核的接线：`match.js` 在 `phase() !== 'playing'` 时冻结对局（power 屏同样冻结），`tryBeginUpgradeOffer()` 只在 `levelup` 相位动作 → `levelup → upgrade → power → playing` 不互相抢相位；`session.applyPowerChoice` 把同一 id 同时交给 `ctx.combat.applyPower` 与 `ctx.player.applyPower`（本模块只调用、不实现）。
+
+### 独立验收发现
+
+- **F1（medium，口径待用户裁决，未回工）**：`rapid` 的「额外一发」实现是**整组弹幕的副本**（复用主发同一份 angles / damage / sizeMul / spec），拿到散射后单次开火 = 主发 2 支 + 额外 2 支 = **4 支**；与用户原话「额外发射一发箭矢」的字面口径有出入。M7 判不 fail、不回工，请 M1 带话请用户拍板：① 保持现状（额外那组照吃既有加成）；② 改成严格「恰好多 1 支箭矢」。
+- **F2（low，流程）**：把含 `%` 的 `verify_cmd` 逐字写进 `.cmd` 再用 `cmd /c` 跑，`%` 会被批处理当变量吃掉、**静默削弱断言**（TASK-027 的 R2 因此首跑 exit=1，R1 侥幸仍 PASS）。后续改用**不经过 shell 的字节精确驱动器**（`.task/TASK-029/evidence/_rerun.mjs`）复跑；M2 亦独立踩到同一坑并用 `%%` 转义。
+- **F3（low，非缺陷）**：M6 的「power 不计入羁绊」断言在删掉 power 实现后仍 PASS——该断言查的 id 不存在时结论恒为 0，属**回归护栏**而非新功能证据，保留即可，收口时不拿它当功能通过依据。
+- **F4（info，实测正确）**：定神最易出错的边界（`fireCd > 0` 被挡下那一帧）**不会白吃**：M7 实测 `tryFire` 返回 false 时 `isSteadyArmed()` 仍为 true，冷却归零后那一枪仍是暴击。
+- **F5（流程，M1 已修）**：TASK-029 manifest 的 `allowed_paths` 只列三份 verify-report，漏了 R1/R3 明确要求的 `.task/TASK-029/evidence/` → gate 报越界 32 文件并 POLICY_CONFLICT 停下。M1 补 `.task/TASK-029/evidence/` 后通过。与 ROUND-010 的「manifest 漏 `verify` 字段」同类——**任务书要求与 allowed_paths 必须自洽**，brief 生成后 M1 要自查一遍。
+
+### 文档回写（M1）
+
+`游戏当前设计表.md`（新增 **§2.4c 激发力量**、文首摘要与对齐日期）、`docs/GAME-SPEC.md`（新增 **§4.1b**、头标）。
+
+**结论**：ROUND-011 **pass**，四任务 `done`，本轮闭环。**待用户拍板**：F1 的连射口径（当前实现＝整组副本）。
+
+---
+
 ## 2026-09-11 查收 — ROUND-010 · P42 批次 2（M6 / TASK-023 + M2 / TASK-024 + M3 / TASK-025）
 
 用户需求（`docs/P42-内容扩充提案.md` 第 2、3 节）：新增 `荆棘`、`滋补`，新增羁绊 `生生不息`（3/5），测试自选面板按角色过滤。

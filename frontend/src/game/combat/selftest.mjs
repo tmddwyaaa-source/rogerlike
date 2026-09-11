@@ -73,6 +73,10 @@ import {
   BASE_KNOCKBACK_BODIES,
   erseChance,
   erseChancePerPick,
+  RAPID_EXTRA_CD_SEC,
+  RAPID_UNCHARGED_CHANCE,
+  PIERCE_AMP_STEP,
+  SP_POWER_DMG,
 } from './index.js'
 
 let failed = 0
@@ -1165,6 +1169,155 @@ const setThornPicksOn = (c, n) => {
       !(tStatus.burnLeft > 0) &&
       !(tStatus.slowLeft > 0) &&
       tStatus.x === statusX,
+  )
+}
+
+// P42 批次3 R1/R2/R3：power「激发力量」战斗侧（连射 / 贯穿强化 / sp-power）
+// 断言统一用可选调用（applyPowerOn）——接口未实现时只 FAIL 这几条，不打断整个 selftest，便于自证伪。
+{
+  const powerCombat = (rng, upgrades = []) => {
+    const w = createBow()
+    const c = createCombat({ player: mkFireP(), targets: [], weapon: w, rng })
+    for (const id of upgrades) c.applyUpgrade(id)
+    return c
+  }
+  const applyPowerOn = (c, id) =>
+    typeof c?.applyPower === 'function' ? c.applyPower(id) : undefined
+  const extras = (c) => c.bullets.filter((b) => b.extra === true).length
+
+  // R1① applyPower 入口：rapid / pierce_amp / sp 归本模块处理；steady 及其它 id 返回 false。
+  const cApply = powerCombat(() => 0.9)
+  assert(
+    'power rapid apply',
+    typeof cApply.applyPower === 'function' &&
+      applyPowerOn(cApply, 'rapid') === true &&
+      applyPowerOn(cApply, 'rapid') === true &&
+      applyPowerOn(cApply, 'steady') === false &&
+      applyPowerOn(cApply, 'unknown_power') === false,
+  )
+
+  // R1② 不蓄力 50%：固定 rng 两侧各验一次（0.40 < 0.5 出额外发；0.60 不出）。
+  const cRapidLow = powerCombat(() => 0.4)
+  applyPowerOn(cRapidLow, 'rapid')
+  cRapidLow.tryFire(0)
+  const cRapidHigh = powerCombat(() => 0.6)
+  applyPowerOn(cRapidHigh, 'rapid')
+  cRapidHigh.tryFire(0)
+  assert(
+    'power rapid uncharged 50%',
+    RAPID_UNCHARGED_CHANCE === 0.5 &&
+      cRapidLow.bullets.length === 2 &&
+      extras(cRapidLow) === 1 &&
+      cRapidHigh.bullets.length === 1 &&
+      extras(cRapidHigh) === 0,
+  )
+
+  // R1② 蓄力 100%：即使 rng 落在不触发侧，也必出额外发；额外发排在主发之后。
+  const cRapidFull = powerCombat(() => 0.99)
+  applyPowerOn(cRapidFull, 'rapid')
+  cRapidFull.tryFire(1)
+  assert(
+    'power rapid charged 100%',
+    cRapidFull.bullets.length === 2 &&
+      extras(cRapidFull) === 1 &&
+      cRapidFull.bullets[0].extra !== true &&
+      cRapidFull.bullets[1].extra === true,
+  )
+
+  // R1③ 额外发自带 0.75s 冷却（独立于武器 0.48s 攻击间隔）：冷却中蓄力也不出，冷却到了才再出。
+  const cRapidCd = powerCombat(() => 0.99)
+  applyPowerOn(cRapidCd, 'rapid')
+  cRapidCd.tryFire(1)
+  const rapidFirst = extras(cRapidCd)
+  cRapidCd.weapon.fireCd = 0
+  cRapidCd.bullets.length = 0
+  cRapidCd.tryFire(1) // 攻击间隔已归零，但额外发冷却（0.75）未到
+  const rapidDuringCd = extras(cRapidCd)
+  cRapidCd.update(RAPID_EXTRA_CD_SEC)
+  cRapidCd.weapon.fireCd = 0
+  cRapidCd.bullets.length = 0
+  cRapidCd.tryFire(1) // 冷却已到
+  const rapidAfterCd = extras(cRapidCd)
+  assert(
+    'power rapid extra cd 0.75',
+    RAPID_EXTRA_CD_SEC === 0.75 &&
+      FIRE_INTERVAL === 0.48 &&
+      rapidFirst === 1 &&
+      rapidDuringCd === 0 &&
+      rapidAfterCd === 1,
+  )
+
+  // R1④ 额外发吃既有加成（散射 / 大娃 / 攻击加成），且不改变主发：主发 2 支 + 额外 2 支，参数一一对应。
+  const cBonus = powerCombat(() => 0.1, ['ammo_cap', 'giant'])
+  applyPowerOn(cBonus, 'rapid')
+  cBonus.tryFire(1)
+  const mainShots = cBonus.bullets.filter((b) => b.extra !== true)
+  const extraShots = cBonus.bullets.filter((b) => b.extra === true)
+  const mainAngs = mainShots.map((b) => b.ang).sort((x, y) => x - y)
+  const extraAngs = extraShots.map((b) => b.ang).sort((x, y) => x - y)
+  assert(
+    'power rapid extra eats existing bonuses',
+    mainShots.length === 2 &&
+      extraShots.length === 2 &&
+      extraShots.every((b) => b.damage === mainShots[0].damage) &&
+      extraShots.every((b) => Math.abs(b.sizeMul - mainShots[0].sizeMul) < 1e-9) &&
+      extraAngs.length === mainAngs.length &&
+      extraAngs.every((ang, i) => Math.abs(ang - mainAngs[i]) < 1e-9),
+  )
+
+  // R2① 贯穿强化：穿透 +1（唯一项，幂等），可与既有「穿透」升级叠加。
+  const ampW = createBow()
+  const cAmp = createCombat({ player: mkFireP(), targets: [], weapon: ampW })
+  const ampApplied = applyPowerOn(cAmp, 'pierce_amp')
+  const ampBonus1 = ampW.pierceBonus
+  applyPowerOn(cAmp, 'pierce_amp')
+  const ampBonus2 = ampW.pierceBonus
+  cAmp.tryFire(1)
+  const ampPierceLeft = cAmp.bullets[0]?.pierceLeft
+  cAmp.applyUpgrade('pierce')
+  assert(
+    'power pierce_amp +1 pierce',
+    ampApplied === true &&
+      ampBonus1 === 1 &&
+      ampBonus2 === 1 &&
+      ampPierceLeft === pierceForChar('ranger', 1, 1) &&
+      ampPierceLeft === 2 &&
+      ampW.pierceBonus === 2,
+  )
+
+  // R2② 每穿 1 敌本次伤害 +50%：0 穿 ×1、1 穿 ×1.5、2 穿 ×2（满蓄 40 → 40 / 60 / 80）。
+  const a1 = makeCreep(36, 500)
+  const a2 = makeCreep(90, 500)
+  const a3 = makeCreep(144, 500)
+  const cAmpHit = createCombat({ player: mkFireP(), targets: [a1, a2, a3], weapon: createBow() })
+  applyPowerOn(cAmpHit, 'pierce_amp')
+  cAmpHit.tryFire(1)
+  for (let i = 0; i < 60; i++) cAmpHit.update(0.016)
+  assert(
+    'power pierce_amp +50% per pierce',
+    PIERCE_AMP_STEP === 0.5 &&
+      a1.hp === 500 - DMG_MAX &&
+      a2.hp === 500 - DMG_MAX * 1.5 &&
+      a3.hp === 500 - DMG_MAX * 2,
+  )
+
+  // R3 sp-power：攻击 +20，可重复获得、可叠（两次 +40），走「力量 +10」同一条攻击加成通道。
+  const spP = mkFireP()
+  const spW = createBow()
+  const cSp = createCombat({ player: spP, targets: [], weapon: spW })
+  const spOnce = applyPowerOn(cSp, 'sp')
+  const spAtk1 = spW.attack
+  const spTwice = applyPowerOn(cSp, 'sp')
+  const spAtk2 = spW.attack
+  assert(
+    'power sp +20 stackable',
+    spOnce === true &&
+      spTwice === true &&
+      SP_POWER_DMG === 20 &&
+      spAtk1 === ATTACK_BASE + 20 &&
+      spAtk2 === ATTACK_BASE + 40 &&
+      spW.dmgBonus === 40 &&
+      spP.attack === ATTACK_BASE + 40,
   )
 }
 

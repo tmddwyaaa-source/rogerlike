@@ -6,6 +6,7 @@ import { getSharedSfx } from '../ui/sfx.js'
 import '../ui/pixel.css'
 import HudOverlay from './HudOverlay.vue'
 import MoreView from './MoreView.vue'
+import PowerView from './PowerView.vue'
 import QuickAudioControls from './QuickAudioControls.vue'
 import ResultView from './ResultView.vue'
 import SettingsView from './SettingsView.vue'
@@ -117,6 +118,7 @@ function onBack(step) {
 }
 
 function openSettings() {
+  if (powerChoosing()) return
   if (ui.session.phase === 'settings') return
   settingsDraftBoost.value = 0
   ui.session.pause(ui.session.phase)
@@ -125,6 +127,7 @@ function openSettings() {
 
 function openMore() {
   const from = ui.session.phase
+  if (powerChoosing()) return
   if (from === 'more' || from === 'settings') return
   ui.session.pause(from, 'more')
   syncHud()
@@ -140,7 +143,17 @@ function closeMore() {
 }
 
 function inLiveMatch(p) {
-  return p === 'playing' || p === 'upgrade' || p === 'levelup'
+  return p === 'playing' || p === 'upgrade' || p === 'levelup' || p === 'power'
+}
+
+/** P42 批次3：power 屏强制选择——ESC / 设置 / 更多入口一律屏蔽，只能选卡。 */
+function powerChoosing() {
+  return ui.session.phase === 'power' || hud.phase === 'power'
+}
+
+function onPowerChoose(id) {
+  ui.session.applyPowerChoice(id, bindCtx)
+  syncHud()
 }
 
 function openPauseSettings() {
@@ -263,6 +276,7 @@ function showingBonds() {
 function onEsc(e) {
   if (e.key !== 'Escape') return
   e.preventDefault()
+  if (powerChoosing()) return
   if (settingsRef.value?.isUpgradePickerOpen?.()) {
     settingsRef.value.closeUpgradePicker()
     return
@@ -368,6 +382,7 @@ defineExpose({
         @toggle-sfx="toggleSfx"
       />
       <button
+        v-if="!powerChoosing()"
         class="rl-gear"
         style="position: relative; top: auto; right: auto"
         type="button"
@@ -381,12 +396,13 @@ defineExpose({
 
     <button
       v-if="
-        inLiveMatch(hud.phase) ||
-        hud.phase === 'menu' ||
-        hud.phase === 'char' ||
-        hud.phase === 'difficulty' ||
-        hud.phase === 'result' ||
-        hud.phase === 'victory'
+        !powerChoosing() &&
+        (inLiveMatch(hud.phase) ||
+          hud.phase === 'menu' ||
+          hud.phase === 'char' ||
+          hud.phase === 'difficulty' ||
+          hud.phase === 'result' ||
+          hud.phase === 'victory')
       "
       class="rl-ellipsis"
       style="z-index: 120"
@@ -444,6 +460,12 @@ defineExpose({
         :choices="hud.choices"
         :char-id="hud.charId"
         @choose="onChoose"
+      />
+      <PowerView
+        v-if="hud.phase === 'power'"
+        :key="hud.powerOfferSeq"
+        :cards="hud.powerChoices"
+        @choose="onPowerChoose"
       />
       <ResultView
         v-if="hud.phase === 'result' || hud.phase === 'victory'"

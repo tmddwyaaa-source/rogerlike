@@ -75,6 +75,9 @@ import {
   BASE_KNOCKBACK_BODIES,
   erseChance,
   erseChancePerPick,
+  RAPID_EXTRA_CD_SEC,
+  RAPID_UNCHARGED_CHANCE,
+  PIERCE_AMP_STEP,
 } from '../weapons/index.js'
 
 export {
@@ -160,6 +163,10 @@ export {
   BASE_KNOCKBACK_BODIES,
   erseChance,
   erseChancePerPick,
+  RAPID_EXTRA_CD_SEC,
+  RAPID_UNCHARGED_CHANCE,
+  PIERCE_AMP_STEP,
+  SP_POWER_DMG,
 } from '../weapons/index.js'
 
 const STEP_PX = 4
@@ -337,6 +344,11 @@ export function createCombat(opts = {}) {
   let holding = false
   let pendingHold = false
   let slashSeq = 0
+  // P42 批次3 power「激发力量」（战斗侧）：rapid / pierce_amp / sp 三态 + 连射额外发的独立冷却。
+  // rng 可注入（opts.rng），便于用固定随机数断言连射的 50% 概率。
+  const rng = typeof opts.rng === 'function' ? opts.rng : Math.random
+  const powers = new Set()
+  let rapidCd = 0
   const imgs = {
     arrow: loadImg(ARROW_SRC, true),
     orb: loadImg(ORB_SRC, true),
@@ -414,6 +426,10 @@ export function createCombat(opts = {}) {
       expandT: 0,
       infinitePierce: Boolean(spec.infinitePierce),
       struck: false,
+      // P42 批次3 R2：贯穿强化标记 / 已穿敌数；P42 批次3 R1：本发是否「连射额外发」。
+      pierceAmp: Boolean(spec.pierceAmp),
+      pierceHits: 0,
+      extra: Boolean(spec.extra),
     }
     bullets.push(b)
     if (kind === 'slash') {
@@ -447,7 +463,13 @@ export function createCombat(opts = {}) {
     let damage = baseDamage
     let hitCrit = false
     let hitCritMul = 1
-    if (rollCrit(weapon.critRate ?? 0)) {
+    // P42 批次3（TASK-028 定神契约）：定神就绪时在暴击判定「之前」消费一次（只作用于本次攻击）；
+    // 玩家侧未启用/未实现该接口时返回 falsy，既有暴击逻辑完全不变。
+    const steadyCrit =
+      typeof player?.consumeSteadyCrit === 'function'
+        ? player.consumeSteadyCrit() === true
+        : false
+    if (steadyCrit || rollCrit(weapon.critRate ?? 0)) {
       hitCrit = true
       hitCritMul = critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0)
       damage *= hitCritMul
@@ -477,20 +499,34 @@ export function createCombat(opts = {}) {
       kind = 'empower'
       speed = EMPOWER_SPEED
     }
-    for (const ang of angles) {
-      spawnShot(ang, damage, knockback, pierceLeft, sizeMul, {
-        kind,
-        speed,
-        variant,
-        baseDamage,
-        crit: hitCrit,
-        critMul: hitCritMul,
-        overflowOn: empower,
-        expandOn: id === 'mage' && r > 0,
-        infinitePierce: id === 'warrior',
-        slashLen: id === 'warrior' ? slashLength(r, weapon.sizeMul ?? 1) : 0,
-        slashThick: id === 'warrior' ? slashThick(weapon.sizeMul ?? 1) : 0,
-      })
+    const spec = {
+      kind,
+      speed,
+      variant,
+      baseDamage,
+      crit: hitCrit,
+      critMul: hitCritMul,
+      overflowOn: empower,
+      expandOn: id === 'mage' && r > 0,
+      infinitePierce: id === 'warrior',
+      slashLen: id === 'warrior' ? slashLength(r, weapon.sizeMul ?? 1) : 0,
+      slashThick: id === 'warrior' ? slashThick(weapon.sizeMul ?? 1) : 0,
+      // P42 批次3 R2：贯穿强化只改「命中伤害」，不动既有穿透判定本身。
+      pierceAmp: powers.has('pierce_amp'),
+    }
+    // 主发：既有行为，一字不改。
+    for (const ang of angles) spawnShot(ang, damage, knockback, pierceLeft, sizeMul, spec)
+    // P42 批次3 R1②③④：连射 —— 额外发射一次与主发「同参数」的弹幕。
+    //   ② 蓄力（ratio >= 1）必然触发；未蓄力按 RAPID_UNCHARGED_CHANCE（50%）掷可注入 rng。
+    //   ③ 额外发自带 RAPID_EXTRA_CD_SEC（0.75s）冷却，与武器 fireInterval（0.48s）各算各的计时；
+    //      冷却未到时不出额外发（主发照常）。
+    //   ④ 因为复用同一份 damage / angles / sizeMul / spec（散射、开眼了、大娃、攻击加成都在其中），
+    //      额外发天然吃既有加成，且不回写 weapon.fireCd / charge / onFire，主发行为不变。
+    if (powers.has('rapid') && rapidCd <= 0 && (r >= 1 || rng() < RAPID_UNCHARGED_CHANCE)) {
+      rapidCd = RAPID_EXTRA_CD_SEC
+      for (const ang of angles) {
+        spawnShot(ang, damage, knockback, pierceLeft, sizeMul, { ...spec, extra: true })
+      }
     }
     hooks.onFire?.(fireKindForChar(id))
     weapon.fireCd = weapon.fireInterval ?? FIRE_INTERVAL
@@ -665,6 +701,17 @@ export function createCombat(opts = {}) {
     }
   }
 
+  /**
+   * P42 批次3 R2②：贯穿强化弹体的「本次命中伤害」= 基础 × (1 + PIERCE_AMP_STEP × 已穿敌数)。
+   * 已穿敌数 = 本弹体在此之前已经命中并穿过的敌人数量，所以 0 穿 ×1、1 穿 ×1.5、2 穿 ×2.0。
+   * 未启用贯穿强化时原样返回（不改既有穿透行为）。
+   */
+  function pierceAmpDamage(b) {
+    const base = b.payload ?? b.damage
+    if (!b.pierceAmp) return base
+    return base * (1 + PIERCE_AMP_STEP * (b.pierceHits ?? 0))
+  }
+
   function hitActors(b) {
     if (b.expanding) return false
     const deal0 = b.payload ?? b.damage
@@ -682,8 +729,11 @@ export function createCombat(opts = {}) {
         b.alive = false
         return true
       }
-      const deal = b.payload ?? deal0
+      const deal = pierceAmpDamage(b)
       const left = strike(ent, b, deal)
+      // 结算顺序：先按「已穿敌数」算本次伤害 → 本发确实命中后已穿数 +1 → 再走既有穿透判定
+      // （infinitePierce / pierceLeft 递减 / empower overflow）。两条通道互不覆盖。
+      if (b.pierceAmp) b.pierceHits = (b.pierceHits ?? 0) + 1
       if (b.infinitePierce) continue
       if (isCreep && b.pierceLeft > 0) {
         b.pierceLeft -= 1
@@ -783,6 +833,8 @@ export function createCombat(opts = {}) {
   function update(dt) {
     if (dt <= 0) return
     if (weapon.fireCd > 0) weapon.fireCd = Math.max(0, weapon.fireCd - dt)
+    // P42 批次3 R1③：连射额外发的自带冷却（独立计时，不受 fireInterval / 唯快不破影响）。
+    if (rapidCd > 0) rapidCd = Math.max(0, rapidCd - dt)
     if (pendingHold && holding && weapon.fireCd <= 0) beginCharge()
     if (weapon.charging) {
       const max = weapon.effectiveChargeMax()
@@ -1064,6 +1116,42 @@ export function createCombat(opts = {}) {
     setThornPicks,
     getThornPicks: () => thornPicks,
     thornBurst,
+    /**
+     * P42 批次3 power 战斗侧入口（对外契约，M6/M1 授予效果时调用）。
+     *   'rapid'      连射：额外一发（50% / 蓄力 100%）+ 0.75s 自带冷却 → true
+     *   'pierce_amp' 贯穿强化：穿透 +1（唯一，幂等） + 每穿 1 敌本次伤害 +50% → true
+     *   'sp'         sp-power：攻击 +20，可叠 → true
+     * 其它 id（'steady' 属玩家侧 M3、未知 id）一律返回 false，表示不由本模块处理。
+     */
+    applyPower: (id) => {
+      if (id === 'rapid') {
+        powers.add('rapid')
+        return true
+      }
+      if (id === 'pierce_amp') {
+        // 唯一项：重复授予不再 +1（与 M6 侧唯一性口径一致，这里做幂等兜底）。
+        if (!powers.has('pierce_amp')) {
+          powers.add('pierce_amp')
+          // 与既有「穿透」升级同一条通道：同一个 weapon.pierceBonus 字段，天然可叠加。
+          weapon.pierceBonus = Math.max(0, (weapon.pierceBonus | 0) + 1)
+        }
+        return true
+      }
+      if (id === 'sp') {
+        // 与既有「力量 +10」同一条攻击加成通道（weapon.applyUpgrade → bumpAttack），不另造一套；可叠。
+        const ok =
+          typeof weapon.applyUpgrade === 'function' ? weapon.applyUpgrade('sp') === true : false
+        if (ok) {
+          powers.add('sp')
+          if (player) player.attack = weapon.attack
+        }
+        return ok
+      }
+      return false
+    },
+    hasPower: (id) => powers.has(id),
+    getPowers: () => Array.from(powers),
+    getRapidCooldown: () => rapidCd,
     applyKnockback,
     getRecoil: () => 0,
     getSwing: () => 0,

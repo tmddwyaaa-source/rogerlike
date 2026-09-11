@@ -69,6 +69,12 @@ import {
   UPGRADE_THORN,
   UPGRADE_NOURISH,
   UPGRADES,
+  POWER_TITLE,
+  POWER_UNIQUE_IDS,
+  powerCandidatesFor,
+  powerDueCount,
+  powerEffectById,
+  powerMemoryId,
   descFor,
   expNeedForLevel,
   upgradeById,
@@ -556,6 +562,8 @@ export function createSession() {
     picked: [],
     offer: [],
     bonds: [],
+    powerChoices: [],
+    powerOfferSeq: 0,
     start,
     tick,
     addExp,
@@ -571,6 +579,9 @@ export function createSession() {
     setLevel,
     boostLevels,
     beginUpgradeOffer,
+    beginPowerOffer,
+    applyPowerChoice,
+    powerCandidates,
     pause,
     resume,
     recordMemory,
@@ -587,6 +598,9 @@ export function createSession() {
   let nourishKills = 0
   let shengTier = 0
   let shengHealT = 0
+  // P42 批次3：power（激发力量）——每 10 级欠一次；唯一项只拿一次，sp-power 可无限叠。
+  const powerTaken = []
+  let powerPending = 0
   // addKill / tick 拿不到 ctx（match.js 调的是 shell.ui.addKill()），
   // 用最近一次带 player 的调用（每帧的 snapshot 一定带）兜底。
   const lastCtx = { player: null, combat: null }
@@ -654,6 +668,10 @@ export function createSession() {
     nourishKills = 0
     shengTier = 0
     shengHealT = 0
+    powerTaken.length = 0
+    powerPending = 0
+    session.powerChoices = []
+    session.powerOfferSeq = 0
   }
 
   function reset() {
@@ -767,12 +785,14 @@ export function createSession() {
       session.phase === 'char' ||
       session.phase === 'difficulty' ||
       session.phase === 'levelup' ||
-      session.phase === 'upgrade'
+      session.phase === 'upgrade' ||
+      session.phase === 'power'
     ) {
       return 0
     }
     session.exp += n
     let gained = 0
+    const fromLevel = session.level
     while (true) {
       const need = expNeedForLevel(session.level)
       if (session.exp < need) break
@@ -782,6 +802,8 @@ export function createSession() {
       gained += 1
     }
     if (gained > 0) {
+      // P42 批次3（R1②）：每 10 级欠一次 power；等当次常规三选一走完再单独进 power 屏。
+      powerPending += powerDueCount(fromLevel, session.level)
       syncBonds(ctx)
       bumpSanwaLevel(ctx, gained)
     }
@@ -804,10 +826,12 @@ export function createSession() {
   function boostLevels(n, ctx = {}) {
     const k = Math.max(0, Math.min(LEVEL_BOOST_MAX, n | 0))
     if (k <= 0) return 0
+    const fromLevel = session.level
     session.level += k
     session.pending += k
     session.offer = []
     session.phase = 'levelup'
+    powerPending += powerDueCount(fromLevel, session.level)
     syncBonds(ctx)
     bumpSanwaLevel(ctx, k)
     return k
@@ -815,10 +839,63 @@ export function createSession() {
 
   /** M1 在 +1 播完后调用：进入 upgrade 并抽出 3 选项。 */
   function beginUpgradeOffer(ctx = {}) {
-    if (session.pending <= 0) return false
-    if (session.phase === 'upgrade' && session.offer.length) return true
-    session.phase = 'upgrade'
-    rollOffer(ctx)
+    if (session.pending > 0) {
+      if (session.phase === 'upgrade' && session.offer.length) return true
+      session.phase = 'upgrade'
+      rollOffer(ctx)
+      return true
+    }
+    // 没有常规升级但有欠 power（每 10 级）时直接进 power 屏，保证不漏触发。
+    return beginPowerOffer()
+  }
+
+  /** 当前 power 候选池（按角色 + 唯一性过滤）。 */
+  function powerCandidates() {
+    return powerCandidatesFor(session.charId, powerTaken)
+  }
+
+  /** 进入 power 屏：关掉常规三选一、铺开候选池；没有跳过接口（R1④ 强制选择）。 */
+  function enterPower() {
+    if (powerPending <= 0) return false
+    session.phase = 'power'
+    session.offer = []
+    session.powerChoices = powerCandidates()
+    session.powerOfferSeq += 1
+    return true
+  }
+
+  /** 常规升级收尾后调用：还欠 power 就进 power 屏，否则交回对局。 */
+  function beginPowerOffer() {
+    if (session.phase === 'power' && session.powerChoices.length) return true
+    if (session.pending > 0) return false
+    return enterPower()
+  }
+
+  function applyPowerChoice(id, ctx = {}) {
+    if (session.phase !== 'power') return false
+    const pool = session.powerChoices.length ? session.powerChoices : powerCandidates()
+    const effect = pool.find((e) => e.id === id) ?? null
+    if (!effect) return false
+    rememberCtx(ctx)
+    // 契约（R1⑤）：同一 id 交给战斗侧与玩家侧；本模块只调用、不实现这两个接口。
+    if (typeof ctx?.combat?.applyPower === 'function') ctx.combat.applyPower(effect.id)
+    if (typeof ctx?.player?.applyPower === 'function') ctx.player.applyPower(effect.id)
+    if (POWER_UNIQUE_IDS.includes(effect.id) && !powerTaken.includes(effect.id)) {
+      powerTaken.push(effect.id)
+    }
+    // 回忆（R3②）：每次 power 记一条 —— 空白图标 + 名称「激发力量」，悬停看本次效果名。
+    session.picked.push({
+      id: powerMemoryId(effect.id),
+      title: POWER_TITLE,
+      desc: effect.name,
+    })
+    powerPending = Math.max(0, powerPending - 1)
+    if (powerPending > 0) {
+      enterPower()
+    } else {
+      session.powerChoices = []
+      session.phase = 'playing'
+    }
     return true
   }
 
@@ -932,7 +1009,7 @@ export function createSession() {
     if (session.pending > 0) {
       session.phase = 'upgrade'
       rollOffer(ctx)
-    } else {
+    } else if (!beginPowerOffer()) {
       session.phase = 'playing'
       session.offer = []
     }
@@ -1028,6 +1105,9 @@ export function createSession() {
             ? session.offer
             : pickUpgradeChoices(combat, UPGRADE_CHOICE_COUNT, Math.random, { charId: session.charId, level: session.level }),
       picked: session.picked.slice(),
+      powerChoices: session.phase === 'power' ? session.powerChoices.slice() : [],
+      powerOfferSeq: session.powerOfferSeq,
+      powerTaken: powerTaken.slice(),
       result: session.result,
       win: session.win,
       paused:

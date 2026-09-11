@@ -53,6 +53,7 @@ import {
   formatTime,
   pickUpgradeChoices,
   levelGrowthSteps,
+  listActiveBonds,
   uniqueBondCount,
 } from './session.js'
 import { createMatchUi } from './index.js'
@@ -718,6 +719,204 @@ const mems = loadMemories()
 assert('memory saved', mems.length >= 1 && mems[0].upgrades[0]?.title === '敏捷')
 assert('memory 存 charId', typeof mems[0]?.charId === 'string')
 assert('memory cap', MEMORY_CAP === 10)
+
+/* ---- P42 批次3（TASK-026 / M6）：power「激发力量」 R1 主体 / R2 卡牌屏 / R3 边界 ---- */
+
+const powerViewUrl = new URL('../views/PowerView.vue', import.meta.url)
+const powerViewSrc = existsSync(powerViewUrl) ? readFileSync(powerViewUrl, 'utf8') : ''
+const powerShellSrc = readFileSync(new URL('../views/GameShell.vue', import.meta.url), 'utf8')
+
+/* R1① 池按角色：显示名「激发力量」、四个效果名、游侠 4 个 / 战士与法师只有 sp-power。 */
+assert(
+  'power 池按角色',
+  C42.POWER_TITLE === '激发力量' &&
+    C42.POWER_EVERY === 10 &&
+    C42.POWER_EFFECTS?.map((e) => e.id).join() === 'rapid,pierce_amp,steady,sp' &&
+    C42.POWER_EFFECTS?.map((e) => e.name).join() === '连射,贯穿强化,定神,sp-power' &&
+    C42.POWER_UNIQUE_IDS?.join() === 'rapid,pierce_amp,steady' &&
+    C42.powerPoolFor?.('ranger')?.join() === 'rapid,pierce_amp,steady,sp' &&
+    C42.powerPoolFor?.('warrior')?.join() === 'sp' &&
+    C42.powerPoolFor?.('mage')?.join() === 'sp' &&
+    C42.powerCandidatesFor?.('ranger')?.length === 4 &&
+    C42.powerCandidatesFor?.('warrior')?.map?.((e) => e.id).join() === 'sp' &&
+    C42.powerCandidatesFor?.('mage')?.map?.((e) => e.id).join() === 'sp' &&
+    C42.powerCandidatesFor?.('ranger', ['rapid', 'pierce_amp', 'steady'])?.map?.((e) => e.id).join() === 'sp' &&
+    C42.powerEffectById?.('steady')?.name === '定神' &&
+    C42.powerEffectById?.('nope') === null,
+)
+
+/* R1② 触发：每 10 级欠一次；先走完当次常规三选一，再单独进 power 屏（power 不占常规槽位）。 */
+const pwCalls = []
+const pwCtx = {
+  player: { applyPower: (id) => { pwCalls.push(`player:${id}`); return true } },
+  combat: { applyPower: (id) => { pwCalls.push(`combat:${id}`); return true } },
+}
+const pwS = createSession()
+pwS.start('1')
+pwS.setLevel(9)
+const pwGained = pwS.addExp(expNeedForLevel(9), pwCtx)
+const pwAt10 = pwS.level === 10 && pwGained === 1 && pwS.phase === 'levelup'
+pwS.beginUpgradeOffer(pwCtx)
+const pwUpgradeFirst = pwS.phase === 'upgrade' && pwS.pending === 1
+const pwChoicesBefore = pwS.choices?.length ?? pwS.offer.length
+const pwNormal = pwS.applyChoice('move_speed', pwCtx)
+const pwEntered = pwS.phase === 'power'
+const pwPool = (pwS.powerChoices ?? []).map((e) => e.id).join()
+const pwTaken = pwS.applyPowerChoice?.('rapid', pwCtx)
+const pwBack = pwS.phase === 'playing' && (pwS.powerChoices ?? []).length === 0
+assert(
+  'power 每10级触发',
+  pwAt10 &&
+    pwUpgradeFirst &&
+    pwChoicesBefore === 3 &&
+    pwNormal === true &&
+    pwEntered &&
+    pwPool === 'rapid,pierce_amp,steady,sp' &&
+    pwTaken === true &&
+    pwBack &&
+    pwCalls.join() === 'combat:rapid,player:rapid' &&
+    C42.powerDueAt?.(10) === true &&
+    C42.powerDueAt?.(20) === true &&
+    C42.powerDueAt?.(9) === false &&
+    C42.powerDueAt?.(0) === false &&
+    C42.powerDueCount?.(9, 10) === 1 &&
+    C42.powerDueCount?.(9, 21) === 2 &&
+    C42.powerDueCount?.(10, 19) === 0 &&
+    C42.powerDueCount?.(10, 20) === 1,
+)
+
+/* R1③ 唯一性与可叠：三个唯一项各只一次，sp-power 可重复；拿满唯一项后池里只剩 sp。 */
+const pwCalls3 = []
+const pwCtx3 = {
+  player: { applyPower: (id) => { pwCalls3.push(`player:${id}`); return true } },
+  combat: { applyPower: (id) => { pwCalls3.push(`combat:${id}`); return true } },
+}
+const pwS3 = createSession()
+pwS3.start('1')
+const pwPools = []
+/** 推进到下一个 power 屏（补经验 → 走完常规三选一），返回选卡结果。 */
+function pwNext(id) {
+  const target = (Math.floor(pwS3.level / 10) + 1) * 10
+  pwS3.setLevel(target - 1)
+  pwS3.addExp(expNeedForLevel(target - 1), pwCtx3)
+  pwS3.beginUpgradeOffer(pwCtx3)
+  pwS3.applyChoice('move_speed', pwCtx3)
+  pwPools.push((pwS3.powerChoices ?? []).map((e) => e.id).join())
+  return pwS3.applyPowerChoice?.(id, pwCtx3)
+}
+const pwR1 = pwNext('rapid')
+const pwR2 = pwNext('pierce_amp')
+const pwR3 = pwNext('steady')
+const pwR4 = pwNext('sp')
+const pwR5 = pwNext('sp')
+assert(
+  'power 唯一性与可叠',
+  pwR1 === true &&
+    pwR2 === true &&
+    pwR3 === true &&
+    pwR4 === true &&
+    pwR5 === true &&
+    pwPools.join(' | ') === 'rapid,pierce_amp,steady,sp | pierce_amp,steady,sp | steady,sp | sp | sp' &&
+    pwS3.picked.filter((p) => p.id === 'power_rapid').length === 1 &&
+    pwS3.picked.filter((p) => p.id === 'power_pierce_amp').length === 1 &&
+    pwS3.picked.filter((p) => p.id === 'power_steady').length === 1 &&
+    pwS3.picked.filter((p) => p.id === 'power_sp').length === 2 &&
+    pwCalls3.join() ===
+      'combat:rapid,player:rapid,combat:pierce_amp,player:pierce_amp,combat:steady,player:steady,combat:sp,player:sp,combat:sp,player:sp',
+)
+
+/* R1④ 强制选择：power 相位只能选池内卡；没有跳过/关闭接口；ESC / 设置 / 更多被屏蔽。 */
+const pwForce = createSession()
+pwForce.start('1')
+pwForce.setLevel(9)
+pwForce.addExp(expNeedForLevel(9), pwCtx3)
+pwForce.beginUpgradeOffer(pwCtx3)
+pwForce.applyChoice('move_speed', pwCtx3)
+const pwForceHeld =
+  pwForce.phase === 'power' &&
+  (pwForce.powerChoices ?? []).length === 4 &&
+  pwForce.applyChoice('move_speed', pwCtx3) === false &&
+  pwForce.tick(5) === false &&
+  pwForce.beginUpgradeOffer(pwCtx3) === true &&
+  pwForce.applyPowerChoice?.('nope', pwCtx3) === false &&
+  pwForce.phase === 'power' &&
+  (pwForce.powerChoices ?? []).length === 4
+assert(
+  'power 强制选择',
+  pwForceHeld &&
+    pwS3.applyPowerChoice?.('sp', pwCtx3) === false &&
+    pwS3.phase === 'playing' &&
+    typeof pwS3.skipPower === 'undefined' &&
+    typeof pwS3.closePower === 'undefined' &&
+    typeof pwS3.dismissPower === 'undefined' &&
+    powerShellSrc.includes('function powerChoosing') &&
+    /if \(powerChoosing\(\)\) return/.test(powerShellSrc) &&
+    powerShellSrc.includes('v-if="!powerChoosing()"') &&
+    /!powerChoosing\(\) &&/.test(powerShellSrc) &&
+    /hud\.phase === 'power'/.test(powerShellSrc),
+)
+
+/* R2 卡牌屏：PowerView.vue 存在、卡牌循环漂移 + scaleX 两段 steps() 翻转、底部「选一张」、无 png。 */
+assert(
+  'power 卡牌界面结构',
+  existsSync(powerViewUrl) &&
+    powerShellSrc.includes('PowerView') &&
+    powerShellSrc.includes("hud.phase === 'power'") &&
+    powerShellSrc.includes('applyPowerChoice') &&
+    powerViewSrc.includes("import PixelIcon from './PixelIcon.vue'") &&
+    powerViewSrc.includes('powerMemoryId') &&
+    powerViewSrc.includes('rl-frame') &&
+    powerViewSrc.includes('requestAnimationFrame') &&
+    powerViewSrc.includes('scaleX') &&
+    powerViewSrc.includes('steps(') &&
+    /@keyframes rl-power-flip/.test(powerViewSrc) &&
+    /c\.x -= span/.test(powerViewSrc) &&
+    /const SPEED = 115/.test(powerViewSrc) &&
+    /BOB_MIN = 6/.test(powerViewSrc) &&
+    /BOB_MAX = 10/.test(powerViewSrc) &&
+    /GAP = CARD_W \* 2/.test(powerViewSrc) &&
+    powerViewSrc.includes('选一张') &&
+    /\.rl-power-hint\s*\{[^}]*text-shadow/.test(powerViewSrc) &&
+    !/\.rl-power-hint\s*\{[^}]*background/.test(powerViewSrc) &&
+    !/\.rl-power-hint\s*\{[^}]*border/.test(powerViewSrc) &&
+    !/\.png/.test(powerViewSrc) &&
+    !powerViewSrc.includes('skipPower'),
+)
+
+/* R3① 不计入羁绊：power 回忆 id 不进 UPGRADES，任何羁绊计数都是 0。 */
+const pwMemIds = ['power_rapid', 'power_pierce_amp', 'power_steady', 'power_sp']
+assert(
+  'power 不计入羁绊',
+  pwMemIds.every((id) => C42.upgradeById?.(id) === null) &&
+    pwMemIds.every((id) => C42.belongsToBond?.(C42.upgradeById(id), BOND_QIAN) === false) &&
+    [BOND_QIAN, BOND_UNITY, BOND_VAJRA, 'sheng'].every(
+      (bond) => uniqueBondCount(pwMemIds.map((id) => ({ id })), bond) === 0,
+    ) &&
+    listActiveBonds(pwMemIds.map((id) => ({ id }))).length === 0 &&
+    listActiveBonds(pwS3.picked).length === 0 &&
+    pwS3.bonds.length === 0,
+)
+
+/* R3② 回忆记录：每次 power 一条（空白图标 +「激发力量」，悬停看本次效果名）。 */
+const pwMemRec = pwS3.recordMemory(pwCtx3)
+const pwMemUps = pwMemRec.upgrades.filter((u) => String(u.id).startsWith('power_'))
+assert(
+  'power 回忆记录',
+  pwMemUps.length === 5 &&
+    pwMemUps.every((u) => u.title === '激发力量') &&
+    pwMemUps.map((u) => u.id).join() ===
+      'power_rapid,power_pierce_amp,power_steady,power_sp,power_sp' &&
+    pwMemUps.map((u) => u.desc).join() === '连射,贯穿强化,定神,sp-power,sp-power' &&
+    C42.powerMemoryId?.('rapid') === 'power_rapid' &&
+    C42.powerEffectFromMemoryId?.('power_rapid')?.name === '连射' &&
+    C42.powerEffectFromMemoryId?.('power') === null &&
+    resolveUpgradeIcon('power_rapid', false).kind === 'blank' &&
+    !existsSync(new URL('../../public/assets/upgrades/power_rapid.png', import.meta.url)) &&
+    descFor('power_rapid').includes('激发力量') &&
+    descFor('power_rapid').includes('连射') &&
+    descFor('power') === '伤害 +10' &&
+    summarizePicked(pwMemRec.upgrades).find((u) => u.id === 'power_sp')?.count === 2,
+)
 
 const zeroBow = createPistol()
 zeroBow.chargeMax = 0

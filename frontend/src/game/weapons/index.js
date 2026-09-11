@@ -106,6 +106,15 @@ export const PULSE_DMG_MUL = 1.3
 export const PULSE_SLOW = 0.3
 export const PULSE_SLOW_SEC = 0.4
 
+/** P42 批次3 power（M2 战斗侧）：连射「额外一发」自带的冷却（秒），与 FIRE_INTERVAL 各算各的。 */
+export const RAPID_EXTRA_CD_SEC = 0.75
+/** P42 批次3 power：连射「不蓄力」时的触发概率（0~1）；蓄力（ratio >= 1）为 100%。 */
+export const RAPID_UNCHARGED_CHANCE = 0.5
+/** P42 批次3 power：贯穿强化每穿透 1 个敌人的本次伤害增幅（累加：1 穿 ×1.5、2 穿 ×2.0）。 */
+export const PIERCE_AMP_STEP = 0.5
+/** P42 批次3 power：sp-power 每次授予的攻击加成（与既有「力量 +10」同一条攻击加成通道，可叠）。 */
+export const SP_POWER_DMG = 20
+
 export function chargeRatio(charge, chargeMax) {
   if (!(chargeMax > 0)) return 1
   return Math.max(0, Math.min(1, charge / chargeMax))
@@ -361,6 +370,11 @@ export function createBow(opts = {}) {
     }
     if (id === 'power') {
       bumpAttack(POWER_DMG)
+      return true
+    }
+    // P42 批次3 power：sp-power（战斗侧 M2）—— 复用「力量 +10」同一条攻击加成通道（bumpAttack），可叠。
+    if (id === 'sp') {
+      bumpAttack(SP_POWER_DMG)
       return true
     }
     if (id === 'giant') {

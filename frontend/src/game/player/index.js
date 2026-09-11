@@ -8,6 +8,7 @@
  * P15：局内不再画开局目标字。
  * P25：三娃护甲（armor / addArmor / getArmor）、六娃失锁脉冲（unlockLevel / applyUnlockPulse / unlockDurationFor）。
  * P42：受击后限时移速加成 applyHurtSpeedBuff（增量法，不改 speedUnits；计时走 update；死亡不再生效）。
+ * P42：power「定神」applyPower('steady') / consumeSteadyCrit（静止 0.3s 就绪；只提供状态与消费接口，暴击判定在战斗侧）。
  */
 import {
   BODY,
@@ -109,6 +110,13 @@ export const WALK_FPS = 10
  */
 export const HURT_SPEED_BUFF_UNITS = 0.2
 export const HURT_SPEED_BUFF_SEC = 1.5
+
+/**
+ * P42 power「定神」：连续静止 0.3s 进入就绪 → 下一次攻击必暴。
+ * 本模块只维护「静止计时 + 就绪状态 + 消费接口」；暴击本身由战斗侧（TASK-027）在暴击判定前调
+ * `consumeSteadyCrit()` 决定，玩家侧不实现暴击。
+ */
+export const STEADY_STILL_SEC = 0.3
 
 /** P25 三娃护甲：整数层，可无限叠，抵挡一次完整伤害。 */
 export const ARMOR_OUTLINE = '#e0b84a'
@@ -275,6 +283,13 @@ export function createPlayer(opts = {}) {
     /** P42 受击限时移速加成剩余秒数 / 本次已加上的 px/s 增量（到期原样减回）。 */
     hurtSpeedT: 0,
     hurtSpeedDelta: 0,
+    /**
+     * P42 power「定神」：是否已获得 / 连续静止秒数 / 是否已就绪（下次攻击必暴）。
+     * 与 invuln / hurtT / hurtSpeedT 各自独立计时，互不影响。
+     */
+    steadyEnabled: false,
+    steadyT: 0,
+    steadyArmed: false,
     deathT: 0,
     animTime: 0,
     anim: 'Idle',
@@ -295,6 +310,10 @@ export function createPlayer(opts = {}) {
     takeDamage,
     heal,
     applyHurtSpeedBuff,
+    /** P42 power：本模块只认 `'steady'`，其它 id 返回 false（由战斗侧处理）。 */
+    applyPower,
+    consumeSteadyCrit,
+    isSteadyArmed: () => player.steadyEnabled && player.steadyArmed,
     addVitality,
     addEmptyHpMax,
     lookAt,
@@ -360,6 +379,7 @@ export function createPlayer(opts = {}) {
       player.armor -= 1
       player.invuln = IFRAME_SEC
       player.hurtT = HURT_SEC
+      resetSteady()
       spawnScatter(player, random)
       return false
     }
@@ -369,6 +389,7 @@ export function createPlayer(opts = {}) {
     player.hp = Math.max(0, next)
     player.invuln = IFRAME_SEC
     player.hurtT = HURT_SEC
+    resetSteady()
     spawnScatter(player, random)
     onHurt?.()
     return true
@@ -410,6 +431,66 @@ export function createPlayer(opts = {}) {
     player.speed += delta
     player.hurtSpeedT = s
     return true
+  }
+
+  /** P42 定神：清空静止计时与就绪状态（移动 / 攻击 / 受伤 / 死亡时调用）。 */
+  function resetSteady() {
+    player.steadyT = 0
+    player.steadyArmed = false
+  }
+
+  /**
+   * P42 power「定神」（玩家侧）：只维护静止计时与就绪状态，**不实现暴击**。
+   *
+   * - UI/M6 授予 power 时把同一 id 交给战斗侧与本模块（契约 `ctx.player.applyPower(id)`）；
+   *   本模块只认 `'steady'` → 启用并返回 true；其它 id（`'rapid'` / `'pierce_amp'` / `'sp'`）返回 false。
+   * - 重复调用同一个 id 幂等（UI 侧保证唯一性，这里不重置已累计的静止计时）。
+   *
+   * @param {string} id
+   * @returns {boolean} 是否由本模块处理
+   */
+  function applyPower(id) {
+    if (id !== 'steady') return false
+    if (!player.steadyEnabled) {
+      player.steadyEnabled = true
+      resetSteady()
+    }
+    return true
+  }
+
+  /**
+   * P42 定神消费接口：就绪时返回 true 并**立即清零**（只作用于下一次攻击，不能连吃）；
+   * 未就绪 / 未获得 / 已死亡返回 false。战斗侧（TASK-027）在暴击判定前调用。
+   */
+  function consumeSteadyCrit() {
+    if (!player.steadyEnabled || player.hp <= 0 || !player.steadyArmed) return false
+    resetSteady()
+    return true
+  }
+
+  /**
+   * P42 定神计时：连续 `STEADY_STILL_SEC`（0.3s）没有位移输入才就绪；
+   * 期间一旦移动 / 攻击（charging 或 attackT>0）/ 受伤，计时与就绪状态立即重置。
+   *
+   * 用本帧输入与攻击状态判定，放在 update 的计时递减**之前**调用：
+   * 这样本帧刚打完的那一下（attackT 还没被递减掉）也能正确打断静止计时。
+   * 与 invuln / hurtT / hurtSpeedT 各自独立，互不影响；死亡后不再就绪。
+   */
+  function stepSteady(dt) {
+    if (!player.steadyEnabled) return
+    if (player.hp <= 0) {
+      resetSteady()
+      return
+    }
+    const movingInput = Boolean(keys.w || keys.a || keys.s || keys.d)
+    if (movingInput || player.charging || player.attackT > 0) {
+      resetSteady()
+      return
+    }
+    player.steadyT += dt
+    if (player.steadyT >= STEADY_STILL_SEC - 1e-9) {
+      player.steadyArmed = true
+    }
   }
 
   function addVitality() {
@@ -507,6 +588,8 @@ export function createPlayer(opts = {}) {
     player.animTime += dt
     stepLevelUpFx(player, dt)
     stepObjectiveFx(player, dt)
+    // P42 定神：在攻击/无敌计时递减之前判定本帧的移动/攻击/受伤，避免本帧刚打完的那一下被提前抹掉。
+    stepSteady(dt)
     if (player.invuln > 0) {
       player.invuln = Math.max(0, player.invuln - dt)
     }

@@ -29,6 +29,20 @@
 
 ---
 
+## P42 批次 3（2026-09-12 M1 已查收 pass）
+
+`激发力量`（power）子系统：等级每 10 级一次、卡牌屏强制选 1 张（游侠 4 池，战士/法师仅 sp-power）。任务与状态以 `.task/` 为准；规格见 `游戏当前设计表.md` §2.4c 与 `docs/GAME-SPEC.md` §4.1b；派工见 `docs/派工-当前轮.md`。
+
+| 窗口 | P42 批次 3 内容 | 状态 |
+|------|----------------|------|
+| M6 | `ui/constants.js` + `ui/session.js` 的 power 池/相位/回忆，`views/PowerView.vue` 卡牌屏，`views/GameShell.vue` 接线 | ✅ done |
+| M2 | combat 侧 `applyPower`：连射 / 贯穿强化 / sp-power（含 weapons 侧） | ✅ done |
+| M3 | player 侧 `applyPower('steady')` / `consumeSteadyCrit()` | ✅ done |
+| M7 | TASK-026/027/028 的**独立验收方**（三份 verify-report + 自写探针 28/28） | ✅ done |
+| M1 | 查收、本窗复跑、文档回写、commit、（仅 M1）开游戏 | ✅ done |
+
+---
+
 ## P25 派工（2026-08-24 M1 已查收 pass）
 
 七兄弟 / 小金刚羁绊 / 毒刺怪 / 高级结晶 / 怪物体验。任务书：`docs/HANDOFF-P25.md`；开窗粘贴块：`docs/WINDOW-ASSIGNMENTS.md` Phase 25。

@@ -298,6 +298,79 @@ export const UPGRADES = [
 
 
 
+/* ---- P42 批次3（TASK-026）：power「激发力量」子系统（UI / 会话侧） ---- */
+
+/** 统一显示名：卡牌屏与回忆条目都用它；素材未过审 → 局内空白方块。 */
+export const POWER_TITLE = '激发力量'
+
+/** 触发节奏：每 10 级（Lv.10/20/30…）一次；走完当次常规升级后才单独进 power 屏。 */
+export const POWER_EVERY = 10
+
+export const POWER_RAPID = 'rapid'
+
+export const POWER_PIERCE_AMP = 'pierce_amp'
+
+export const POWER_STEADY = 'steady'
+
+export const POWER_SP = 'sp'
+
+/** 只能获得一次的效果 id；`sp`（sp-power）不在其中 → 可无限叠。 */
+export const POWER_UNIQUE_IDS = [POWER_RAPID, POWER_PIERCE_AMP, POWER_STEADY]
+
+export const POWER_EFFECTS = [
+  { id: POWER_RAPID, name: '连射', desc: '不蓄力 50% / 蓄力 100% 额外射出一箭（0.75s 冷却）' },
+  { id: POWER_PIERCE_AMP, name: '贯穿强化', desc: '穿透 +1；每穿过 1 个敌人本次伤害 +50%' },
+  { id: POWER_STEADY, name: '定神', desc: '静止 0.3s 后下一次攻击必定暴击' },
+  { id: POWER_SP, name: 'sp-power', desc: '伤害 +20，可无限叠加' },
+]
+
+export function powerEffectById(id) {
+  return POWER_EFFECTS.find((e) => e.id === id) ?? null
+}
+
+/** 候选池按角色：游侠 4 个；战士 / 法师只有 sp-power。 */
+export function powerPoolFor(charId) {
+  if (charId === CHAR_WARRIOR || charId === CHAR_MAGE) return [POWER_SP]
+  return POWER_EFFECTS.map((e) => e.id)
+}
+
+/** 唯一性过滤：已拿过的唯一项移出候选池；sp 永远保留。 */
+export function powerCandidatesFor(charId, taken = []) {
+  const got = new Set(Array.isArray(taken) ? taken : [])
+  return powerPoolFor(charId)
+    .filter((id) => !POWER_UNIQUE_IDS.includes(id) || !got.has(id))
+    .map((id) => powerEffectById(id))
+    .filter(Boolean)
+}
+
+/**
+ * 回忆条目 id 前缀。不能直接复用 `'power'`：那是常规升级「力量」的 id，
+ * 会被 uniqueBondCount 计进天行健（R3① 禁止把 power 算进羁绊）。
+ */
+export const POWER_MEMORY_PREFIX = 'power_'
+
+export function powerMemoryId(effectId) {
+  return `${POWER_MEMORY_PREFIX}${effectId}`
+}
+
+export function powerEffectFromMemoryId(id) {
+  const s = String(id ?? '')
+  if (!s.startsWith(POWER_MEMORY_PREFIX)) return null
+  return powerEffectById(s.slice(POWER_MEMORY_PREFIX.length))
+}
+
+/** 从 fromLevel 升到 toLevel 跨过几个 10 级倍数 = 欠几次 power。 */
+export function powerDueCount(fromLevel, toLevel) {
+  const a = Math.max(0, fromLevel | 0)
+  const b = Math.max(a, toLevel | 0)
+  return Math.floor(b / POWER_EVERY) - Math.floor(a / POWER_EVERY)
+}
+
+export function powerDueAt(level) {
+  const lv = level | 0
+  return lv > 0 && lv % POWER_EVERY === 0
+}
+
 export const API_BASE = 'http://localhost:8080/api'
 
 export const BGM_URL = assetUrl('assets/游戏音乐/music.ogg')
@@ -402,7 +475,11 @@ export function upgradeById(id) {
 /** 升级介绍：desc 为字符串（descFor 仍兼容按角色函数写法）；charId 以当前 session 为准。 */
 export function descFor(idOrUpgrade, charId) {
   const u = typeof idOrUpgrade === 'string' ? upgradeById(idOrUpgrade) : idOrUpgrade
-  if (!u) return ''
+  if (!u) {
+    // P42 批次3：power 回忆条目（power_rapid…）——悬停显示「激发力量 · 本次效果名」。
+    const pe = typeof idOrUpgrade === 'string' ? powerEffectFromMemoryId(idOrUpgrade) : null
+    return pe ? `${POWER_TITLE} · ${pe.name}` : ''
+  }
   return typeof u.desc === 'function' ? u.desc(charId) : u.desc
 }
 

@@ -11,6 +11,7 @@ import {
   LEVELUP_STAGGER,
   PLAYER_SPEED,
   PLAYER_SPEED_UNITS,
+  STEADY_STILL_SEC,
   UNLOCK_BASE_SEC,
   UNLOCK_PER_LAYER_SEC,
   UNLOCK_PULSE_INTERVAL_SEC,
@@ -242,6 +243,115 @@ assert(
   typeof deadBuff.applyHurtSpeedBuff === 'function' &&
     deadBuff.speed === deadSpeed0 &&
     deadBuff.hurtSpeedT === 0,
+)
+
+// —— P42 批次 3 · power「定神」（玩家侧，M3） ——
+// 连续静止 0.3s → 就绪（armed）→ 下一次攻击必暴；移动 / 攻击 / 受伤立即重置，死亡不再就绪。
+// 本模块只提供状态与消费接口，**不实现暴击**（战斗侧 TASK-027 在暴击判定前调 consumeSteadyCrit）。
+assert('steady still sec 0.3', STEADY_STILL_SEC === 0.3)
+
+const steadyP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+assert(
+  'power steady apply',
+  typeof steadyP.applyPower === 'function' &&
+    steadyP.applyPower('steady') === true &&
+    steadyP.applyPower('rapid') === false &&
+    steadyP.applyPower('pierce_amp') === false &&
+    steadyP.applyPower('sp') === false,
+)
+
+const armP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+armP.applyPower?.('steady')
+armP.update(0.29)
+const armTooEarly = armP.steadyArmed === true
+armP.update(0.01)
+assert(
+  'steady arms after 0.3s still',
+  armTooEarly === false && armP.steadyArmed === true && armP.isSteadyArmed?.() === true,
+)
+
+const consumeP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+consumeP.applyPower?.('steady')
+consumeP.update(0.3)
+const consumeFirst = consumeP.consumeSteadyCrit?.() === true
+const consumeSecond = consumeP.consumeSteadyCrit?.() === false
+// 站着不动也要重新计满 0.3s，不能连吃。
+consumeP.update(0.1)
+const consumeThird = consumeP.consumeSteadyCrit?.() === false
+assert('steady consumed once', consumeFirst && consumeSecond && consumeThird)
+
+const moveKeys = { w: false, a: false, s: false, d: false }
+const moveP = createPlayer({ keys: moveKeys, random: () => 0.5 })
+moveP.applyPower?.('steady')
+moveP.update(0.29)
+const moveArmedBefore = moveP.steadyArmed === true
+moveKeys.w = true
+moveP.update(0.01)
+moveKeys.w = false
+moveP.update(0.1)
+assert(
+  'steady reset on move',
+  moveArmedBefore === false &&
+    moveP.steadyArmed === false &&
+    // steadyT > 0 是防「恒真空壳」的前置条件：没实现时 steadyT 恒为 0，这条必须 FAIL。
+    moveP.steadyT > 0 &&
+    moveP.steadyT <= 0.1 + 1e-9 &&
+    moveP.consumeSteadyCrit?.() === false,
+)
+
+// 攻击（蓄力 / 攻击动作）同样打断静止计时。
+const atkP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+atkP.applyPower?.('steady')
+atkP.update(0.2)
+atkP.setCharging(true)
+atkP.update(0.2)
+atkP.setCharging(false)
+const chargeReset = atkP.steadyArmed === false && atkP.steadyT === 0
+atkP.attackT = 0.2
+atkP.update(0.4)
+const attackAnimReset = atkP.steadyArmed === false
+atkP.update(0.3)
+assert('steady reset on attack', chargeReset && attackAnimReset && atkP.steadyArmed === true)
+
+// 受伤打断；且与 invuln / hurtT / hurtSpeedT 各自独立、互不影响。
+const hurtP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+hurtP.applyPower?.('steady')
+hurtP.update(0.3)
+const hurtArmedBefore = hurtP.steadyArmed === true
+hurtP.invuln = 0
+hurtP.takeDamage(1)
+assert(
+  'steady reset on hurt',
+  hurtArmedBefore &&
+    hurtP.steadyArmed === false &&
+    hurtP.steadyT === 0 &&
+    hurtP.invuln > 0 &&
+    hurtP.hurtT > 0,
+)
+
+const coP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+coP.applyPower?.('steady')
+coP.applyHurtSpeedBuff?.(HURT_BUFF_UNITS, HURT_BUFF_SEC)
+const coSpeed = coP.speed
+coP.update(0.3)
+assert(
+  'steady coexist with timers',
+  coP.steadyArmed === true &&
+    coP.invuln === 0 &&
+    coP.hurtT === 0 &&
+    coP.hurtSpeedT > 0 &&
+    coP.speed === coSpeed,
+)
+
+const deadSteady = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+deadSteady.applyPower?.('steady')
+deadSteady.update(0.3)
+const deadArmedBefore = deadSteady.steadyArmed === true
+deadSteady.hp = 0
+deadSteady.update(0.01)
+assert(
+  'steady dead not armed',
+  deadArmedBefore && deadSteady.steadyArmed === false && deadSteady.consumeSteadyCrit?.() === false,
 )
 
 // —— P25 三娃护甲 ——
