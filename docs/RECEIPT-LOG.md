@@ -37,6 +37,13 @@
 
 **结论**：ROUND-013 **pass**，五任务 `done`，本轮闭环。
 
+### 发布（M1，同日）与一次「差点打死线上」的教训
+
+- `main` = **6615197**；`gh-pages` = **832d6f2**；热更新实测：线上 `index.html` 指向 **`/rogerlike/assets/index-DvolVoi5.js`**（200），上一版 JS **404**。
+- ⚠️ **事故（约 1 分钟，已修复）**：第一次部署推上去的是 **base=`/`** 的构建（`src="/assets/index-Da4lAf_z.js"`），GitHub Pages 上该路径 **404**，线上会白屏。
+  **根因**：M1 先用 `GITHUB_PAGES=true` 构建 → 之后 `transition` 触发门禁**重跑了 TASK-034 `worker-report.tests[]` 里的 `npm run build`**（不带环境变量）→ `dist/` 被覆盖成 base=`/` 的版本 → M1 直接把这个 dist 部署了。
+  **教训（已写进纪律）**：① `worker-report.tests[]` **不要写 `npm run build`**（它不是 manifest 的验收命令）；② M1 **部署前必须紧挨着重新跑一次 `GITHUB_PAGES=true npm run build`**，中间不要夹任何门禁/其它构建。
+
 ---
 
 ## 2026-09-12 用户拍板（两条遗留问题结案）
