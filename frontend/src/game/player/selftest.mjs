@@ -57,6 +57,8 @@ import {
   spawnHealNum as spawnHealFromRender,
   updateDamageNums,
 } from '../render/dmgnum.js'
+// 只读引用武器攻击间隔，用于断言「0.15s 静止阈值 < 0.48s 攻击间隔」（P42 批次 5 / TASK-034 R1②）。
+import { FIRE_INTERVAL } from '../weapons/index.js'
 
 let failed = 0
 function assert(name, cond) {
@@ -245,10 +247,10 @@ assert(
     deadBuff.hurtSpeedT === 0,
 )
 
-// —— P42 批次 3 · power「定神」（玩家侧，M3） ——
-// 连续静止 0.3s → 就绪（armed）→ 下一次攻击必暴；移动 / 攻击 / 受伤立即重置，死亡不再就绪。
-// 本模块只提供状态与消费接口，**不实现暴击**（战斗侧 TASK-027 在暴击判定前调 consumeSteadyCrit）。
-assert('steady still sec 0.3', STEADY_STILL_SEC === 0.3)
+// —— P42 批次 3 · power「定神」（玩家侧，M3）；批次 5：静止阈值 0.3s → 0.15s ——
+// 连续静止 0.15s → 就绪（armed）→ 下一次攻击必暴；移动 / 攻击 / 受伤立即重置，死亡不再就绪。
+// 本模块只提供状态与消费接口，**不实现暴击**（战斗侧 TASK-033 在暴击判定前调 consumeSteadyCrit）。
+assert('steady still sec 0.15', STEADY_STILL_SEC === 0.15)
 
 const steadyP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
 assert(
@@ -262,28 +264,42 @@ assert(
 
 const armP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
 armP.applyPower?.('steady')
-armP.update(0.29)
+armP.update(0.14)
 const armTooEarly = armP.steadyArmed === true
 armP.update(0.01)
 assert(
-  'steady arms after 0.3s still',
+  'steady arms after 0.15s still',
   armTooEarly === false && armP.steadyArmed === true && armP.isSteadyArmed?.() === true,
 )
 
 const consumeP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
 consumeP.applyPower?.('steady')
-consumeP.update(0.3)
+consumeP.update(0.15)
 const consumeFirst = consumeP.consumeSteadyCrit?.() === true
 const consumeSecond = consumeP.consumeSteadyCrit?.() === false
-// 站着不动也要重新计满 0.3s，不能连吃。
+// 站着不动也要重新计满 0.15s，不能连吃。
 consumeP.update(0.1)
 const consumeThird = consumeP.consumeSteadyCrit?.() === false
 assert('steady consumed once', consumeFirst && consumeSecond && consumeThird)
 
+// R1②：0.15s < 武器攻击间隔 0.48s ⇒ 一直站着不动时，每次攻击消费掉就绪后，
+// 到下一次攻击（0.48s）之前早已重新站满 0.15s —— 连打 3 次每次都能触发。
+const repeatP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+repeatP.applyPower?.('steady')
+const repeatHits = []
+for (let i = 0; i < 3; i++) {
+  repeatP.update(FIRE_INTERVAL)
+  repeatHits.push(repeatP.consumeSteadyCrit?.() === true)
+}
+assert(
+  'steady re-arms between attacks while standing still',
+  STEADY_STILL_SEC < FIRE_INTERVAL && repeatHits.every(Boolean),
+)
+
 const moveKeys = { w: false, a: false, s: false, d: false }
 const moveP = createPlayer({ keys: moveKeys, random: () => 0.5 })
 moveP.applyPower?.('steady')
-moveP.update(0.29)
+moveP.update(0.14)
 const moveArmedBefore = moveP.steadyArmed === true
 moveKeys.w = true
 moveP.update(0.01)

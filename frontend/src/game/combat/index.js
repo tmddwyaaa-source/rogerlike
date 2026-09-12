@@ -77,6 +77,8 @@ import {
   erseChancePerPick,
   RAPID_EXTRA_CD_SEC,
   RAPID_UNCHARGED_CHANCE,
+  RAPID_EXTRA_DELAY_SEC,
+  STEADY_CRIT_RATE_BONUS,
   PIERCE_AMP_STEP,
 } from '../weapons/index.js'
 
@@ -116,8 +118,11 @@ export {
   ONLY_FAST_MUL,
   ORB_DRAW,
   POWER_DMG,
-  REFINE_CRIT_DMG,
   REFINE_CRIT_STEP,
+  REFINE_CRIT_RATE_PER_PICK,
+  REFINE_CRIT_DMG_PER_STEP,
+  RAPID_EXTRA_DELAY_SEC,
+  STEADY_CRIT_RATE_BONUS,
   RELOAD_FACTOR,
   RELOAD_SEC,
   rollCrit,
@@ -349,6 +354,8 @@ export function createCombat(opts = {}) {
   const rng = typeof opts.rng === 'function' ? opts.rng : Math.random
   const powers = new Set()
   let rapidCd = 0
+  // P42 批次5 R3：连射「额外那一发」的延迟队列——主发当帧只排定，0.2s 后由 update(dt) 真正生成。
+  const pendingRapidExtras = []
   const imgs = {
     arrow: loadImg(ARROW_SRC, true),
     orb: loadImg(ORB_SRC, true),
@@ -469,9 +476,13 @@ export function createCombat(opts = {}) {
       typeof player?.consumeSteadyCrit === 'function'
         ? player.consumeSteadyCrit() === true
         : false
-    if (steadyCrit || rollCrit(weapon.critRate ?? 0)) {
+    // P42 批次5 R4：定神由「强制暴击」改为「本发暴击率临时 +100」——
+    // 这 100 点同时参与暴击判定（≥100 必暴）与 critDamageMul 的档位计算（所以能吃精益求精）；
+    // 它只存在于本发局部的 critRate 里，不回写 weapon.critRate，下一发立即回到原暴击率。
+    const critRate = Math.max(0, Number(weapon.critRate) || 0) + (steadyCrit ? STEADY_CRIT_RATE_BONUS : 0)
+    if (rollCrit(critRate)) {
       hitCrit = true
-      hitCritMul = critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0)
+      hitCritMul = critDamageMul(critRate, weapon.refinePicks ?? 0)
       damage *= hitCritMul
     }
     const knockback = (id === 'warrior'
@@ -516,17 +527,25 @@ export function createCombat(opts = {}) {
     }
     // 主发：既有行为，一字不改。
     for (const ang of angles) spawnShot(ang, damage, knockback, pierceLeft, sizeMul, spec)
-    // P42 批次3 R1②③④：连射 —— 额外发射一次与主发「同参数」的弹幕。
+    // P42 批次3 R1②③④ + 批次5 R3：连射 —— 额外发射一次与主发「同参数」的弹幕，但**晚 0.2s**。
     //   ② 蓄力（ratio >= 1）必然触发；未蓄力按 RAPID_UNCHARGED_CHANCE（50%）掷可注入 rng。
     //   ③ 额外发自带 RAPID_EXTRA_CD_SEC（0.75s）冷却，与武器 fireInterval（0.48s）各算各的计时；
-    //      冷却未到时不出额外发（主发照常）。
+    //      冷却未到时连「排定」都不做（主发照常）。
     //   ④ 因为复用同一份 damage / angles / sizeMul / spec（散射、开眼了、大娃、攻击加成都在其中），
     //      额外发天然吃既有加成，且不回写 weapon.fireCd / charge / onFire，主发行为不变。
+    //   批次5 R3：这里只把这一发**排进延迟队列**，0.2s 后由 update(dt) 补发（不用 setTimeout；
+    //   非 playing 时游戏循环不调 update，队列自然一并冻结）。
     if (powers.has('rapid') && rapidCd <= 0 && (r >= 1 || rng() < RAPID_UNCHARGED_CHANCE)) {
       rapidCd = RAPID_EXTRA_CD_SEC
-      for (const ang of angles) {
-        spawnShot(ang, damage, knockback, pierceLeft, sizeMul, { ...spec, extra: true })
-      }
+      pendingRapidExtras.push({
+        t: RAPID_EXTRA_DELAY_SEC,
+        angles,
+        damage,
+        knockback,
+        pierceLeft,
+        sizeMul,
+        spec: { ...spec, extra: true },
+      })
     }
     hooks.onFire?.(fireKindForChar(id))
     weapon.fireCd = weapon.fireInterval ?? FIRE_INTERVAL
@@ -621,10 +640,12 @@ export function createCombat(opts = {}) {
     pulses.push({ x: player.x, y: player.y, r: R, t: 0, life: 0.9 })
   }
 
-  // P42 批次2 R1：荆棘（受击时对 4 身位内活敌结算一次伤害）。
-  // 口径：伤害 = 攻击 × (1.5 + 0.5 × (层数 − 1))；掷暴击复用武器同一套 rollCrit；
+  // P42 批次2 R1 + 批次5 R1：荆棘（受击时对半径内活敌结算一次伤害）。
+  // 口径：半径 = BODY × (2 + 0.5 × (层数 − 1))（批次5 由固定 4 身位改成 2 身位起、每层 +0.5 身位）；
+  // 伤害 = 攻击 × (1.5 + 0.5 × (层数 − 1))（**倍率不变**）；掷暴击复用武器同一套 rollCrit；
   // 走 dealDamage + notifyDamage 统一通道；不触发点燃/减速/击退/穿透衰减。
-  const THORN_RANGE_BODIES = 4
+  const THORN_RANGE_BASE_BODIES = 2
+  const THORN_RANGE_STEP_BODIES = 0.5
   const THORN_DMG_BASE_MUL = 1.5
   const THORN_DMG_STEP_MUL = 0.5
   let thornPicks = 0
@@ -634,8 +655,13 @@ export function createCombat(opts = {}) {
     return thornPicks
   }
 
+  /** P42 批次5 R1：当前荆棘半径（世界像素）。 */
+  function thornRadius() {
+    return BODY * (THORN_RANGE_BASE_BODIES + THORN_RANGE_STEP_BODIES * (thornPicks - 1))
+  }
+
   /**
-   * 荆棘爆刺：以 origin（默认玩家）为中心，对 4 × BODY 内（按敌人中心距）
+   * 荆棘爆刺：以 origin（默认玩家）为中心，对 `thornRadius()` 内（按敌人中心距）
    * 所有活敌结算一次伤害。层数 0 直接返回、不产生任何伤害。
    * @returns {number} 命中敌数
    */
@@ -647,7 +673,7 @@ export function createCombat(opts = {}) {
     const crit = rollCrit(weapon.critRate ?? 0)
     const critMul = crit ? critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0) : 1
     const dmg = atk * mul * critMul
-    const R = BODY * THORN_RANGE_BODIES
+    const R = thornRadius()
     const R2 = R * R
     let hits = 0
     for (const ent of targets) {
@@ -835,6 +861,16 @@ export function createCombat(opts = {}) {
     if (weapon.fireCd > 0) weapon.fireCd = Math.max(0, weapon.fireCd - dt)
     // P42 批次3 R1③：连射额外发的自带冷却（独立计时，不受 fireInterval / 唯快不破影响）。
     if (rapidCd > 0) rapidCd = Math.max(0, rapidCd - dt)
+    // P42 批次5 R3：连射延迟队列 —— 用 update 的真实 dt 计时（不用 setTimeout），到点补发那一次弹幕。
+    for (let i = pendingRapidExtras.length - 1; i >= 0; i--) {
+      const job = pendingRapidExtras[i]
+      job.t -= dt
+      if (job.t > 0) continue
+      pendingRapidExtras.splice(i, 1)
+      for (const ang of job.angles) {
+        spawnShot(ang, job.damage, job.knockback, job.pierceLeft, job.sizeMul, job.spec)
+      }
+    }
     if (pendingHold && holding && weapon.fireCd <= 0) beginCharge()
     if (weapon.charging) {
       const max = weapon.effectiveChargeMax()
@@ -1152,6 +1188,10 @@ export function createCombat(opts = {}) {
     hasPower: (id) => powers.has(id),
     getPowers: () => Array.from(powers),
     getRapidCooldown: () => rapidCd,
+    /** P42 批次5 R3：还在 0.2s 延迟队列里、尚未生成的连射额外发数量。 */
+    getPendingRapidExtras: () => pendingRapidExtras.length,
+    /** P42 批次5 R1：当前荆棘半径（世界像素，随层数增长）。 */
+    getThornRadius: () => (thornPicks > 0 ? thornRadius() : 0),
     applyKnockback,
     getRecoil: () => 0,
     getSwing: () => 0,

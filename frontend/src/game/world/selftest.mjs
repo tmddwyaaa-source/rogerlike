@@ -20,10 +20,15 @@ import {
   MAGNET_BONUS_STEP,
   MAGNET_RANGE,
   PICKUP_SPEED,
+  TREE_CRYSTAL_EARTH_STEP,
+  TREE_DROP_CRYSTALS_MAX,
   TREE_DROP_CRYSTALS_MIN,
   TREE_HP_BASE,
   TREE_HP_PER_TIER,
+  earthPicksFromExtraTrees,
+  rollTreeCrystals,
   treeCrystalMax,
+  treeDropElapsed,
   treeHpForTier,
 } from './constants.js'
 import { createEnvironment } from './index.js'
@@ -68,6 +73,81 @@ assert(
   'min still 3 at 180s',
   pkMin.items.filter((i) => i.type === 'crystal').length === TREE_DROP_CRYSTALS_MIN &&
     pkMin.items.some((i) => i.type === 'fruit'),
+)
+
+// P42 批次5（TASK-035 / M5）：大地啊新增「普通树结晶掉落上限 +2/层（可叠）」。
+// 端到端走 createEnvironment：earth 计数沿用 mods.extraTrees，掉落只吃 elapsedSec。
+const earthMaxEnv = createEnvironment({ random: alwaysMax })
+earthMaxEnv.addEarth()
+earthMaxEnv.addEarth()
+earthMaxEnv.spawnTreeDrops(0, 0, 0)
+const earthMaxCrystals = earthMaxEnv.pickups.filter((i) => i.type === 'crystal').length
+const earthMaxFruits = earthMaxEnv.pickups.filter((i) => i.type === 'fruit').length
+
+const earthMinEnv = createEnvironment({ random: () => 0 })
+earthMinEnv.addEarth()
+earthMinEnv.addEarth()
+earthMinEnv.spawnTreeDrops(0, 0, 0)
+const earthMinCrystals = earthMinEnv.pickups.filter((i) => i.type === 'crystal').length
+const earthMinFruits = earthMinEnv.pickups.filter((i) => i.type === 'fruit').length
+
+assert(
+  'earth crystal max step 2 per pick',
+  TREE_CRYSTAL_EARTH_STEP === 2 &&
+    treeCrystalMax(0, 1) === TREE_DROP_CRYSTALS_MAX + 2 &&
+    treeCrystalMax(59, 1) === 8 &&
+    treeCrystalMax(60, 1) === 10 &&
+    rollTreeCrystals(alwaysMax, 0, 1) === 8,
+)
+assert(
+  'earth crystal max stacks',
+  treeCrystalMax(0, 2) === 10 &&
+    treeCrystalMax(0, 3) === 12 &&
+    treeCrystalMax(120, 2) === 14 &&
+    earthMaxCrystals === 10 &&
+    earthMaxFruits === 0 &&
+    earthPicksFromExtraTrees(earthMaxEnv.mods.extraTrees) === 2,
+)
+assert(
+  'earth crystal min unchanged 3',
+  TREE_DROP_CRYSTALS_MIN === 3 &&
+    treeCrystalMax(0, 0) === TREE_DROP_CRYSTALS_MAX &&
+    treeCrystalMax(0, 5) === TREE_DROP_CRYSTALS_MAX + 10 &&
+    rollTreeCrystals(() => 0, 0, 2) === 3 &&
+    rollTreeCrystals(() => 0, 600, 5) === 3 &&
+    earthMinCrystals === 3 &&
+    earthMinFruits === 1,
+)
+assert(
+  'earth picks reuse extraTrees counter (no parallel state)',
+  earthPicksFromExtraTrees(0) === 0 &&
+    earthPicksFromExtraTrees(2) === 1 &&
+    earthPicksFromExtraTrees(4) === 2 &&
+    earthMinEnv.mods.extraTrees === 4 &&
+    Math.abs(earthMinEnv.mods.fruitBonus - 0.2) < 1e-9,
+)
+assert(
+  'earth drop elapsed equals picks param',
+  treeCrystalMax(treeDropElapsed(0, 2), 0) === treeCrystalMax(0, 2) &&
+    treeCrystalMax(treeDropElapsed(119, 3), 0) === treeCrystalMax(119, 3) &&
+    treeDropElapsed(0, 2) === 120,
+)
+
+// 死亡路径（真实接线）：砍倒树 → onDestroyed → 掉落；earth 2 层时应为 6+4=10。
+const earthDeathEnv = createEnvironment({ random: alwaysMax })
+earthDeathEnv.update(0, { x: 100, y: 100 }, { x: 0, y: 0 }, 0)
+earthDeathEnv.addEarth()
+earthDeathEnv.addEarth()
+const earthDeathTree = earthDeathEnv.trees[0]
+if (earthDeathTree) {
+  for (let i = 0; i < 12 && earthDeathEnv.trees.includes(earthDeathTree); i++) {
+    earthDeathEnv.hitAt(earthDeathTree.x, earthDeathTree.y, 50)
+  }
+}
+assert(
+  'earth raises crystal max on tree death path',
+  !!earthDeathTree &&
+    earthDeathEnv.pickups.filter((i) => i.type === 'crystal').length === 10,
 )
 
 let exp = 0

@@ -1,11 +1,22 @@
 <script setup>
 /**
  * P42 批次3（TASK-026 / M6）：power「激发力量」卡牌屏（像素风）。
+ * P42 批次5（TASK-036 / M6）：卡牌放大到 120×160、左右两侧同时漂入、出牌提速到 180 px/s。
  * 只做表现与选择：效果本体由 combat / player 侧的 `applyPower(id)` 提供（TASK-027 / TASK-028）。
  * 强制选择：没有跳过/关闭接口，ESC 与设置入口由 GameShell 在本相位屏蔽。
  */
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { powerMemoryId } from '../ui/constants.js'
+import {
+  POWER_CARD_BOB_MAX,
+  POWER_CARD_BOB_MIN,
+  POWER_CARD_GAP,
+  POWER_CARD_H,
+  POWER_CARD_SPEED,
+  POWER_CARD_W,
+  powerCardSide,
+  powerCardStartX,
+  powerMemoryId,
+} from '../ui/constants.js'
 import PixelIcon from './PixelIcon.vue'
 
 const props = defineProps({
@@ -14,13 +25,13 @@ const props = defineProps({
 
 const emit = defineEmits(['choose'])
 
-/** 像素卡尺寸与漂移参数（R2①：90–140 px/s、正弦 6–10px、卡间 ≥ 一张卡宽）。 */
-const CARD_W = 96
-const CARD_H = 132
-const GAP = CARD_W * 2
-const SPEED = 115
-const BOB_MIN = 6
-const BOB_MAX = 10
+/** 尺寸 / 漂速 / 卡距都取 ui/constants.js（R3：放大、提速、卡间 ≥ 一张卡宽、正弦 6–10px）。 */
+const CARD_W = POWER_CARD_W
+const CARD_H = POWER_CARD_H
+const GAP = POWER_CARD_GAP
+const SPEED = POWER_CARD_SPEED
+const BOB_MIN = POWER_CARD_BOB_MIN
+const BOB_MAX = POWER_CARD_BOB_MAX
 const FLIP_SEG_MS = 120
 const HOLD_MS = 600
 const LEAVE_MS = 220
@@ -55,21 +66,27 @@ function measure() {
 }
 
 function build() {
+  // 先量屏幕（入场 x 依赖 width），再铺牌，最后算 span / baseY。
+  const el = stageRef.value
+  width = el?.clientWidth || window.innerWidth || 960
+  height = el?.clientHeight || window.innerHeight || 540
   cards.splice(0, cards.length)
   const n = Math.max(1, props.cards.length)
   props.cards.forEach((c, i) => {
+    // R3②：偶数张左右各一半、奇数张左侧多一张；两侧各自按名次错开一个卡距。
+    const fromLeft = powerCardSide(i, n) === 'left'
     cards.push({
       id: c.id,
       name: c.name,
       desc: c.desc,
-      x: -(CARD_W * 1.5) - i * GAP, // 屏幕左缘外侧，逐张漂入
+      x: powerCardStartX(i, n, width),
       y: 0,
       baseY: 0,
       alpha: 1,
       scaleX: 1,
       cx: 0,
       cy: 0,
-      dir: i % 2 === 0 ? -1 : 1,
+      dir: fromLeft ? 1 : -1,
       flipping: false,
       atCenter: false,
       gone: false,
@@ -82,11 +99,9 @@ function build() {
   for (const c of cards) c.y = c.baseY
 }
 
-/** 非选中的卡：向左右边缘加速飘走并淡出，不再可选。 */
+/** 非选中的卡：沿各自方向加速飘向最近一侧边缘并淡出，不再可选。 */
 function flyAway(c, dt) {
-  const dir = c.x + CARD_W / 2 < width / 2 ? -1 : 1
-  c.dir = dir
-  c.x += dir * 460 * dt
+  c.x += c.dir * 460 * dt
   c.alpha = Math.max(0, c.alpha - dt * 2.4)
   if (c.alpha <= 0) c.gone = true
 }
@@ -143,8 +158,10 @@ function step(ts) {
   for (const c of cards) {
     if (c.gone) continue
     if (phase.value === 'drift') {
-      c.x += SPEED * dt
-      if (c.x > width + CARD_W / 2) c.x -= span // 右缘外侧回到左侧继续，无限循环
+      // 左右两侧各按自身方向漂移，出屏后从另一侧回来继续，无限循环。
+      c.x += c.dir * SPEED * dt
+      if (c.dir > 0 && c.x > width + CARD_W / 2) c.x -= span
+      else if (c.dir < 0 && c.x < -(CARD_W * 1.5)) c.x += span
     } else if (c.id !== picked.value) {
       flyAway(c, dt)
       continue
@@ -189,6 +206,12 @@ function step(ts) {
   }
 }
 
+/** 卡尺寸从常量下发到 scoped CSS（单一来源）。 */
+const stageStyle = {
+  '--rl-power-card-w': `${CARD_W}px`,
+  '--rl-power-card-h': `${CARD_H}px`,
+}
+
 function cardStyle(c) {
   const style = {
     transform: `translate3d(${c.x}px, ${c.y}px, 0) scaleX(${c.scaleX})`,
@@ -221,6 +244,7 @@ onBeforeUnmount(() => {
     ref="stageRef"
     class="rl-power"
     :class="{ 'is-leaving': leaving }"
+    :style="stageStyle"
     @click="onStageClick"
   >
     <button
@@ -269,10 +293,11 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 0;
   top: 0;
-  width: 96px;
-  height: 132px;
+  /* R3①：尺寸唯一来源是 ui/constants.js 的 POWER_CARD_W/H（不在这里写死第二份数字）。 */
+  width: var(--rl-power-card-w);
+  height: var(--rl-power-card-h);
   margin: 0;
-  padding: var(--rl-s3) var(--rl-s2);
+  padding: var(--rl-s2);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -311,11 +336,15 @@ onBeforeUnmount(() => {
   letter-spacing: 2px;
 }
 
+/* R3④：靠缩短文案让文字完整落在卡内，不缩字号硬塞。 */
 .rl-power-desc {
   margin: 0;
   color: var(--rl-paper);
   font-size: var(--rl-f1);
   line-height: 1.4;
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* 底部纯像素文字、无文字框：像素字体 + 1px 深色描边。 */

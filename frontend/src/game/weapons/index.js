@@ -35,8 +35,16 @@ export const WARRIOR_CHARGE_DMG = 0.6
 export const CRIT_CHANCE_PER_PICK = 10
 export const CRIT_DAMAGE_MUL = 1.5
 export const ONLY_FAST_MUL = 1.2
-export const REFINE_CRIT_DMG = 0.2
-export const REFINE_CRIT_STEP = 30
+/** P42 批次5 R2②：暴击伤害倍率的粒度——每 3 点暴击率算 1 档（**向上取整**）。 */
+export const REFINE_CRIT_STEP = 3
+/** P42 批次5 R2①：精益求精每层再 +5 暴击率（可叠；暴击率不设上限，超过 100 的部分照常计入倍率档位）。 */
+export const REFINE_CRIT_RATE_PER_PICK = 5
+/** P42 批次5 R2②：暴击伤害倍率 = 1.5 + 0.02 × ceil(暴击率 / 3) × 精益求精层数。 */
+export const REFINE_CRIT_DMG_PER_STEP = 0.02
+/** P42 批次5 R3：连射「额外那一发」比主发晚 0.2s 射出（update(dt) 真实计时，不用 setTimeout）。 */
+export const RAPID_EXTRA_DELAY_SEC = 0.2
+/** P42 批次5 R4：定神把「本次攻击」的暴击率临时 +100（同时参与暴击判定与倍率档位，只作用一次）。 */
+export const STEADY_CRIT_RATE_BONUS = 100
 export const ORB_SRC_SIZE = 4
 export const ORB_DRAW = 8
 export const SLASH_FRAME = 96
@@ -169,10 +177,16 @@ export function critChanceForRoll(rate = 0) {
   return Math.min(100, Math.max(0, Number(rate) || 0))
 }
 
+/**
+ * P42 批次5 R2②：暴击伤害倍率 = 1.5 + 0.02 × ceil(暴击率 / 3) × 精益求精层数。
+ * - 粒度 3 点、**向上取整**、**按层数相乘**；精益求精 0 层恒为 1.5。
+ * - 暴击率**不设上限**：> 100 的部分照常进档位（概率侧由 critChanceForRoll 封顶 100）。
+ */
 export function critDamageMul(rate = 0, refinePicks = 0) {
-  const steps = Math.floor(Math.max(0, Number(rate) || 0) / REFINE_CRIT_STEP)
   const n = Math.max(0, refinePicks | 0)
-  return CRIT_DAMAGE_MUL + REFINE_CRIT_DMG * steps * n
+  if (n <= 0) return CRIT_DAMAGE_MUL
+  const steps = Math.ceil(Math.max(0, Number(rate) || 0) / REFINE_CRIT_STEP)
+  return CRIT_DAMAGE_MUL + REFINE_CRIT_DMG_PER_STEP * steps * n
 }
 
 export function rollCrit(rate = 0, rng = Math.random) {
@@ -411,6 +425,8 @@ export function createBow(opts = {}) {
     }
     if (id === 'refine') {
       weapon.refinePicks = (weapon.refinePicks || 0) + 1
+      // P42 批次5 R2①：每次再 +5 暴击率（可叠、不设上限），与层数各自累计。
+      weapon.critRate = (weapon.critRate || 0) + REFINE_CRIT_RATE_PER_PICK
       return true
     }
     if (id === 'only_fast') {

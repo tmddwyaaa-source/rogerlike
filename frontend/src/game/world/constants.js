@@ -22,6 +22,10 @@ export const TREE_DROP_CRYSTALS_MIN = 3
 export const TREE_DROP_CRYSTALS_MAX = 6
 export const TREE_CRYSTAL_MAX_STEP = 2
 export const TREE_CRYSTAL_MAX_PERIOD = 60
+/** P42 批次5：大地啊（earth）每层把普通树掉落的结晶**上限**再抬 +2（可叠）；下限与每分钟 +2 的节奏不变。 */
+export const TREE_CRYSTAL_EARTH_STEP = 2
+/** 大地啊每层同时 +2 棵普通树（既有行为）。抽成常量，供 earthPicks 反推，避免出现第二份 earth 计数。 */
+export const TREE_EXTRA_PER_EARTH = 2
 /** @deprecated 区间掉落，保留下限兼容 */
 export const TREE_DROP_CRYSTALS = TREE_DROP_CRYSTALS_MIN
 export const FRUIT_CHANCE = 0.3
@@ -74,14 +78,46 @@ export function treeSpawnInterval(t) {
   )
 }
 
-export function treeCrystalMax(elapsedSec = 0) {
+/**
+ * 普通树掉落的结晶数量**上限**：`TREE_DROP_CRYSTALS_MAX + 2×floor(秒/60) + 2×earthPicks`。
+ * 下限恒为 `TREE_DROP_CRYSTALS_MIN`；`earthPicks` 缺省 0 ⇒ 与旧口径逐值相同（每分钟 +2 不变）。
+ */
+export function treeCrystalMax(elapsedSec = 0, earthPicks = 0) {
   const minutes = Math.floor(Math.max(0, elapsedSec) / TREE_CRYSTAL_MAX_PERIOD)
-  return TREE_DROP_CRYSTALS_MAX + TREE_CRYSTAL_MAX_STEP * minutes
+  const picks = Math.floor(Math.max(0, Number.isFinite(earthPicks) ? earthPicks : 0))
+  return (
+    TREE_DROP_CRYSTALS_MAX +
+    TREE_CRYSTAL_MAX_STEP * minutes +
+    TREE_CRYSTAL_EARTH_STEP * picks
+  )
 }
 
-export function rollTreeCrystals(random = Math.random, elapsedSec = 0) {
+/** 区间掉落：3 ～ treeCrystalMax(秒, earth 层数)，均匀取整。 */
+export function rollTreeCrystals(random = Math.random, elapsedSec = 0, earthPicks = 0) {
   const min = TREE_DROP_CRYSTALS_MIN
-  const max = treeCrystalMax(elapsedSec)
+  const max = treeCrystalMax(elapsedSec, earthPicks)
   const span = max - min + 1
   return min + Math.floor(random() * span)
+}
+
+/**
+ * P42 批次5（TASK-035）：大地啊已选层数。
+ * **沿用本模块既有的 earth 计数来源**（`mods.extraTrees` 每层 +TREE_EXTRA_PER_EARTH 棵），
+ * 不新起一份平行状态；因此这里是「除以每层增量」的反推，而不是另存一个计数器。
+ */
+export function earthPicksFromExtraTrees(extraTrees = 0) {
+  const n = Number.isFinite(extraTrees) ? extraTrees : 0
+  return Math.floor(Math.max(0, n) / TREE_EXTRA_PER_EARTH)
+}
+
+/**
+ * P42 批次5：把「大地啊层数」折算成掉落用的时间轴偏移。
+ * 每层等价于提前一个 TREE_CRYSTAL_MAX_PERIOD（整数层 ⇒ 恰好 +TREE_CRYSTAL_EARTH_STEP 上限），
+ * 即 `treeCrystalMax(sec + 60×picks, 0) === treeCrystalMax(sec, picks)`。
+ * 掉落模块只吃 elapsedSec，故用这个等价折算把 earth 加成喂进去，而不去动掉落模块本身。
+ */
+export function treeDropElapsed(elapsedSec = 0, earthPicks = 0) {
+  const sec = Number.isFinite(elapsedSec) ? elapsedSec : 0
+  const picks = Math.floor(Math.max(0, Number.isFinite(earthPicks) ? earthPicks : 0))
+  return Math.max(0, sec) + TREE_CRYSTAL_MAX_PERIOD * picks
 }

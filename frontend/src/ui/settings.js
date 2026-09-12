@@ -1,11 +1,12 @@
 /**
  * 全局设置 + 测试模式（localStorage 持久化音量/开关）。
  */
-import { LEVEL_BOOST_MAX, SURVIVE_WIN_SEC } from './constants.js'
+import { LEVEL_BOOST_MAX, SURVIVE_WIN_SEC, SURVIVE_WIN_SEC_DIFF2 } from './constants.js'
 
 const KEY = 'rogerlike.settings.v1'
 
-export const TEST_ELAPSED_MAX = SURVIVE_WIN_SEC
+/** P42 批次5（R1③）：测试时间滑条上限跟最长的通关门槛走（难度二 720s），否则拖不到通关时刻。 */
+export const TEST_ELAPSED_MAX = Math.max(SURVIVE_WIN_SEC, SURVIVE_WIN_SEC_DIFF2)
 export const TEST_ELAPSED_STEP = 5
 
 export function defaultSettings() {
@@ -20,7 +21,7 @@ export function defaultSettings() {
     infiniteAmmo: false,
     /** 刷怪速度倍率：0.25 … 2，步进 0.25，默认 1 */
     spawnRate: 1,
-    /** 测试时间 0～10 分钟（秒） */
+    /** 测试时间 0～12 分钟（秒；上限 = 最长通关门槛） */
     testElapsedSec: 0,
     /** 测试火柴人木桩 */
     testDummy: false,

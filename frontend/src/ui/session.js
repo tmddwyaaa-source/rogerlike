@@ -33,7 +33,7 @@ import {
   LEVEL_GROWTH_EVERY,
   LEVEL_GROWTH_SPEED,
   MOVE_SPEED_BONUS,
-  SURVIVE_WIN_SEC,
+  surviveWinSecFor,
   UPGRADE_AMMO,
   UPGRADE_BLACKHOLE,
   UPGRADE_CHOICE_COUNT,
@@ -733,7 +733,8 @@ export function createSession() {
   }
 
   function meetsWin() {
-    if (session.elapsedSec < SURVIVE_WIN_SEC) return false
+    // P42 批次5（R1①）：难度一 600s；难度二 720s 且 Boss ≥ 2（Boss 条件不变）。
+    if (session.elapsedSec < surviveWinSecFor(session.difficulty)) return false
     if (isDiffTwo()) return session.bossKills >= 2
     return true
   }

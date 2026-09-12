@@ -14,12 +14,14 @@
  *   env.spawnCrystalBurst(x, y, n) // 冰人等大量结晶，BODY 内抖动
  *   env.pullAllCrystals()          // 黑洞：结晶飞向角色
  *   env.addMagnet()                // 磁铁：吸取范围 +1 身位
+ *   env.addEarth()                 // 大地啊：普通树每波 +2 棵、果实概率 +10%/层、结晶掉落上限 +2/层（可叠）
+ *   env.earthPicks()               // 大地啊已选层数（= mods.extraTrees ÷ TREE_EXTRA_PER_EARTH）
  *   env.updatePickups(dt, player)  // 暂停时仍让结晶飞
  *   env.updatePickups(dt, player, { collect: false })  // 升级停顿：只飞不拾取
  */
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../constants.js'
 import { drawGrass } from '../render/grass.js'
-import { FRUIT_CHANCE, MAGNET_BONUS_STEP, TREE_SEED_COUNT, TREE_SPAWN_COUNT, TREE_SRC } from './constants.js'
+import { FRUIT_CHANCE, MAGNET_BONUS_STEP, TREE_EXTRA_PER_EARTH, TREE_SEED_COUNT, TREE_SPAWN_COUNT, TREE_SRC, earthPicksFromExtraTrees, treeDropElapsed } from './constants.js'
 import { createPickupField } from '../pickups/pickups.js'
 import { createTreeField } from './trees.js'
 import { createDecorationField } from './decorations.js'
@@ -46,6 +48,10 @@ export {
   DECOR_STICK_SOURCES,
   DECOR_STONE_SOURCES,
   DECOR_PADDING,
+  TREE_CRYSTAL_EARTH_STEP,
+  TREE_EXTRA_PER_EARTH,
+  earthPicksFromExtraTrees,
+  treeDropElapsed,
   treeCrystalMax,
   treeHpForTier,
   treeSpawnInterval,
@@ -61,6 +67,19 @@ export function createEnvironment(opts = {}) {
   let elapsed = 0
   let seeded = false
 
+  /**
+   * P42 批次5（TASK-035）：大地啊已选层数。
+   * 沿用 `mods.extraTrees`（每层 +TREE_EXTRA_PER_EARTH 棵）反推，不新起平行计数。
+   */
+  function earthPicks() {
+    return earthPicksFromExtraTrees(mods.extraTrees)
+  }
+
+  /** 掉落用的时间轴：把 earth 层数折算进去（等价于上限 +2/层），掉落模块本身不用改。 */
+  function dropElapsed(sec) {
+    return treeDropElapsed(sec, earthPicks())
+  }
+
   const pickups = createPickupField({
     ...opts,
     getFruitChance: () => Math.min(1, FRUIT_CHANCE + mods.fruitBonus),
@@ -68,7 +87,7 @@ export function createEnvironment(opts = {}) {
   })
   const trees = createTreeField({
     random: opts.random,
-    onDestroyed: (tree) => pickups.spawnTreeDrops(tree.x, tree.y, elapsed),
+    onDestroyed: (tree) => pickups.spawnTreeDrops(tree.x, tree.y, dropElapsed(elapsed)),
     getWaveCount: () => TREE_SPAWN_COUNT + mods.extraTrees,
     getHpGrowthAdd: opts.getHpGrowthAdd,
   })
@@ -128,7 +147,7 @@ export function createEnvironment(opts = {}) {
     spawnCrystalAt: pickups.spawnCrystalAt,
     spawnCrystalBurst: pickups.spawnCrystalBurst,
     spawnTreeDrops(x, y, elapsedSec) {
-      return pickups.spawnTreeDrops(x, y, elapsedSec ?? elapsed)
+      return pickups.spawnTreeDrops(x, y, dropElapsed(elapsedSec ?? elapsed))
     },
     seedAround: trees.seedAround,
     hpForTier: trees.hpForTier,
@@ -140,8 +159,10 @@ export function createEnvironment(opts = {}) {
     },
     magnetRange: pickups.crystalMagnetRange,
     mods,
+    /** P42 批次5：大地啊层数（= mods.extraTrees ÷ TREE_EXTRA_PER_EARTH），供查收/断言读取。 */
+    earthPicks,
     addEarth() {
-      mods.extraTrees += 2
+      mods.extraTrees += TREE_EXTRA_PER_EARTH
       mods.fruitBonus += 0.1
     },
     addMagnet() {

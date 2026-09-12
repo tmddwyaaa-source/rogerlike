@@ -75,8 +75,13 @@ import {
   erseChancePerPick,
   RAPID_EXTRA_CD_SEC,
   RAPID_UNCHARGED_CHANCE,
+  RAPID_EXTRA_DELAY_SEC,
   PIERCE_AMP_STEP,
   SP_POWER_DMG,
+  REFINE_CRIT_RATE_PER_PICK,
+  REFINE_CRIT_DMG_PER_STEP,
+  REFINE_CRIT_STEP,
+  STEADY_CRIT_RATE_BONUS,
 } from './index.js'
 
 let failed = 0
@@ -1110,8 +1115,9 @@ const setThornPicksOn = (c, n) => {
   const thornP = mkFireP()
   const thornW = createBow()
   const tIn = makeCreep(BODY, 400)
-  const tEdge = makeCreep(BODY * 4, 400)
-  const tOut = makeCreep(BODY * 4 + 1, 400)
+  // P42 批次5 R1：半径改为「2 身位起、每多 1 层 +0.5 身位」，1 层边界就是 2 身位。
+  const tEdge = makeCreep(BODY * 2, 400)
+  const tOut = makeCreep(BODY * 2 + 1, 400)
   const cThorn = createCombat({ player: thornP, targets: [tIn, tEdge, tOut], weapon: thornW })
   setThornPicksOn(cThorn, 1)
   assert('thorn picks setter', thornPicksOf(cThorn) === 1)
@@ -1120,7 +1126,7 @@ const setThornPicksOn = (c, n) => {
     'thorn burst 1 pick dmg 150%',
     tIn.hp === 400 - ATTACK_BASE * 1.5 && tEdge.hp === 400 - ATTACK_BASE * 1.5,
   )
-  assert('thorn range 4 body', BODY * 4 === 88 && tEdge.hp < 400 && tOut.hp === 400)
+  assert('thorn range base 2 body', BODY * 2 === 44 && tEdge.hp < 400 && tOut.hp === 400)
 
   const t2 = makeCreep(BODY, 400)
   const cThorn2 = createCombat({ player: mkFireP(), targets: [t2], weapon: createBow() })
@@ -1170,6 +1176,42 @@ const setThornPicksOn = (c, n) => {
       !(tStatus.slowLeft > 0) &&
       tStatus.x === statusX,
   )
+
+  // P42 批次5 R1：半径 = BODY × (2 + 0.5 × (层数 − 1))；伤害倍率不变（1.5 + 0.5 × (层数 − 1)）；0 层零伤害。
+  const grow2In = makeCreep(BODY * 2.5, 400)
+  const grow2Out = makeCreep(BODY * 2.5 + 1, 400)
+  const cGrow2 = createCombat({ player: mkFireP(), targets: [grow2In, grow2Out], weapon: createBow() })
+  setThornPicksOn(cGrow2, 2)
+  thornBurstOf(cGrow2)
+  const grow3In = makeCreep(BODY * 3, 400)
+  const grow3Out = makeCreep(BODY * 3 + 1, 400)
+  const cGrow3 = createCombat({ player: mkFireP(), targets: [grow3In, grow3Out], weapon: createBow() })
+  setThornPicksOn(cGrow3, 3)
+  thornBurstOf(cGrow3)
+  assert(
+    'thorn range grows 0.5 per pick',
+    grow2In.hp === 400 - ATTACK_BASE * 2 && // 2 层：2.5 身位内命中（伤害倍率 ×2 不变）
+      grow2Out.hp === 400 &&
+      grow3In.hp === 400 - ATTACK_BASE * 2.5 && // 3 层：3 身位内命中（×2.5）
+      grow3Out.hp === 400,
+  )
+  // 旧口径「固定 4 身位」在 1 层时已作废：4 身位处的敌人必须吃不到（标题保留旧子串，避免历史 grep 断链）。
+  const far4 = makeCreep(BODY * 4, 400)
+  const cFar4 = createCombat({ player: mkFireP(), targets: [far4], weapon: createBow() })
+  setThornPicksOn(cFar4, 1)
+  thornBurstOf(cFar4)
+  assert('thorn range 4 body no longer hits', far4.hp === 400)
+  const mul3 = makeCreep(BODY, 400)
+  const cMul3 = createCombat({ player: mkFireP(), targets: [mul3], weapon: createBow() })
+  setThornPicksOn(cMul3, 3)
+  thornBurstOf(cMul3)
+  assert(
+    'thorn dmg mul unchanged',
+    tIn.hp === 400 - ATTACK_BASE * 1.5 && // 1 层 ×1.5
+      t2.hp === 400 - ATTACK_BASE * 2 && // 2 层 ×2.0
+      mul3.hp === 400 - ATTACK_BASE * 2.5 && // 3 层 ×2.5
+      t0.hp === 400, // 0 层零伤害
+  )
 }
 
 // P42 批次3 R1/R2/R3：power「激发力量」战斗侧（连射 / 贯穿强化 / sp-power）
@@ -1184,6 +1226,10 @@ const setThornPicksOn = (c, n) => {
   const applyPowerOn = (c, id) =>
     typeof c?.applyPower === 'function' ? c.applyPower(id) : undefined
   const extras = (c) => c.bullets.filter((b) => b.extra === true).length
+  // P42 批次5 R3：额外发比主发晚 0.2s，靠 update(dt) 真实计时推进（13 帧 ≈ 0.2167s > 0.2s）。
+  const advance = (c, frames = 13) => {
+    for (let i = 0; i < frames; i++) c.update(1 / 60)
+  }
 
   // R1① applyPower 入口：rapid / pierce_amp / sp 归本模块处理；steady 及其它 id 返回 false。
   const cApply = powerCombat(() => 0.9)
@@ -1196,7 +1242,7 @@ const setThornPicksOn = (c, n) => {
       applyPowerOn(cApply, 'unknown_power') === false,
   )
 
-  // R1② 不蓄力 50%：固定 rng 两侧各验一次（0.40 < 0.5 出额外发；0.60 不出）。
+  // R1② 不蓄力 50%：固定 rng 两侧各验一次（0.40 < 0.5 排定额外发；0.60 不排定）；额外发晚 0.2s 落地。
   const cRapidLow = powerCombat(() => 0.4)
   applyPowerOn(cRapidLow, 'rapid')
   cRapidLow.tryFire(0)
@@ -1206,37 +1252,43 @@ const setThornPicksOn = (c, n) => {
   assert(
     'power rapid uncharged 50%',
     RAPID_UNCHARGED_CHANCE === 0.5 &&
-      cRapidLow.bullets.length === 2 &&
-      extras(cRapidLow) === 1 &&
-      cRapidHigh.bullets.length === 1 &&
-      extras(cRapidHigh) === 0,
+      extras(cRapidLow) === 0 &&
+      extras(cRapidHigh) === 0 &&
+      (advance(cRapidLow), cRapidLow.bullets.length === 2 && extras(cRapidLow) === 1) &&
+      (advance(cRapidHigh), cRapidHigh.bullets.length === 1 && extras(cRapidHigh) === 0),
   )
 
-  // R1② 蓄力 100%：即使 rng 落在不触发侧，也必出额外发；额外发排在主发之后。
+  // R1② 蓄力 100%：即使 rng 落在不触发侧，也排定额外发；额外发排在主发之后、晚 0.2s 落地。
   const cRapidFull = powerCombat(() => 0.99)
   applyPowerOn(cRapidFull, 'rapid')
   cRapidFull.tryFire(1)
+  const fullSameFrame = cRapidFull.bullets.length
+  advance(cRapidFull)
   assert(
     'power rapid charged 100%',
-    cRapidFull.bullets.length === 2 &&
+    fullSameFrame === 1 &&
+      cRapidFull.bullets.length === 2 &&
       extras(cRapidFull) === 1 &&
       cRapidFull.bullets[0].extra !== true &&
       cRapidFull.bullets[1].extra === true,
   )
 
-  // R1③ 额外发自带 0.75s 冷却（独立于武器 0.48s 攻击间隔）：冷却中蓄力也不出，冷却到了才再出。
+  // R1③ 额外发自带 0.75s 冷却（独立于武器 0.48s 攻击间隔）：冷却中蓄力也不排定，冷却到了才再排定。
   const cRapidCd = powerCombat(() => 0.99)
   applyPowerOn(cRapidCd, 'rapid')
   cRapidCd.tryFire(1)
+  advance(cRapidCd)
   const rapidFirst = extras(cRapidCd)
   cRapidCd.weapon.fireCd = 0
   cRapidCd.bullets.length = 0
   cRapidCd.tryFire(1) // 攻击间隔已归零，但额外发冷却（0.75）未到
+  advance(cRapidCd)
   const rapidDuringCd = extras(cRapidCd)
   cRapidCd.update(RAPID_EXTRA_CD_SEC)
   cRapidCd.weapon.fireCd = 0
   cRapidCd.bullets.length = 0
   cRapidCd.tryFire(1) // 冷却已到
+  advance(cRapidCd)
   const rapidAfterCd = extras(cRapidCd)
   assert(
     'power rapid extra cd 0.75',
@@ -1252,6 +1304,7 @@ const setThornPicksOn = (c, n) => {
   applyPowerOn(cBonus, 'rapid')
   cBonus.tryFire(1)
   const mainShots = cBonus.bullets.filter((b) => b.extra !== true)
+  advance(cBonus)
   const extraShots = cBonus.bullets.filter((b) => b.extra === true)
   const mainAngs = mainShots.map((b) => b.ang).sort((x, y) => x - y)
   const extraAngs = extraShots.map((b) => b.ang).sort((x, y) => x - y)
@@ -1318,6 +1371,239 @@ const setThornPicksOn = (c, n) => {
       spAtk2 === ATTACK_BASE + 40 &&
       spW.dmgBonus === 40 &&
       spP.attack === ATTACK_BASE + 40,
+  )
+}
+
+// P42 批次5 R2/R3/R4：精益求精新公式 / 连射 0.2s 延迟 / 定神临时 +100 暴击率
+{
+  const mkRapidC = (rng) => createCombat({ player: mkFireP(), targets: [], weapon: createBow(), rng })
+  const applyPower2 = (c, id) =>
+    typeof c?.applyPower === 'function' ? c.applyPower(id) : undefined
+  const extras2 = (c) => c.bullets.filter((b) => b.extra === true).length
+  const advance2 = (c, frames = 13) => {
+    for (let i = 0; i < frames; i++) c.update(1 / 60)
+  }
+
+  // R2① 每次「精益求精」+5 暴击率（可叠），层数照旧 +1。
+  const refineW = createBow()
+  const refineC = createCombat({ player: mkFireP(), targets: [], weapon: refineW })
+  const critBefore = refineW.critRate
+  const refineOnce = refineC.applyUpgrade('refine')
+  const critAfter1 = refineW.critRate
+  const refineTwice = refineC.applyUpgrade('refine')
+  const critAfter2 = refineW.critRate
+  assert(
+    'refine adds 5 crit rate',
+    REFINE_CRIT_RATE_PER_PICK === 5 &&
+      critBefore === 0 &&
+      refineOnce === true &&
+      critAfter1 === 5 &&
+      refineTwice === true &&
+      critAfter2 === 10 &&
+      refineW.refinePicks === 2 &&
+      refineW.dmgBonus === 0,
+  )
+
+  // R2② 倍率 = 1.5 + 0.02 × ceil(暴击率 / 3) × 层数；层数 0 恒为 1.5。
+  assert(
+    'refine crit dmg per 3 rate',
+    REFINE_CRIT_STEP === 3 &&
+      REFINE_CRIT_DMG_PER_STEP === 0.02 &&
+      Math.abs(critDamageMul(0, 1) - 1.5) < 1e-9 &&
+      Math.abs(critDamageMul(3, 1) - 1.52) < 1e-9 &&
+      Math.abs(critDamageMul(9, 1) - 1.56) < 1e-9 &&
+      Math.abs(critDamageMul(30, 1) - 1.7) < 1e-9 &&
+      critDamageMul(9, 0) === 1.5,
+  )
+
+  // R2② 向上取整：ceil 而不是 floor（4/3 → 2 档；7/3 → 3 档；100/3 → 34 档）。
+  assert(
+    'refine ceil rounding',
+    Math.abs(critDamageMul(1, 1) - 1.52) < 1e-9 && // ceil(1/3)=1
+      Math.abs(critDamageMul(4, 1) - 1.54) < 1e-9 && // ceil(4/3)=2
+      Math.abs(critDamageMul(6, 1) - 1.54) < 1e-9 && // 正好 2 档
+      Math.abs(critDamageMul(7, 1) - 1.56) < 1e-9 && // ceil(7/3)=3（floor 只会给 2 档）
+      Math.abs(critDamageMul(100, 1) - 2.18) < 1e-9, // ceil(100/3)=34
+  )
+
+  // R2② 按层数相乘（不是相加）。
+  assert(
+    'refine stacks by picks',
+    Math.abs(critDamageMul(9, 2) - 1.62) < 1e-9 && // 1.5 + 0.02×3×2
+      Math.abs(critDamageMul(9, 3) - 1.68) < 1e-9 && // 1.5 + 0.02×3×3
+      Math.abs(critDamageMul(9, 1) - 1.56) < 1e-9 &&
+      refineW.refinePicks === 2,
+  )
+
+  // R2③ 暴击率不设上限：超过 100 的部分照常进倍率档位（概率侧仍封顶 100）。
+  assert(
+    'refine counts over 100 rate',
+    critChanceForRoll(120) === 100 &&
+      Math.abs(critDamageMul(120, 1) - 2.3) < 1e-9 && // ceil(120/3)=40
+      Math.abs(critDamageMul(150, 1) - 2.5) < 1e-9 && // ceil(150/3)=50
+      Math.abs(critDamageMul(120, 2) - 3.1) < 1e-9, // ×2 层
+  )
+
+  // R2①+② 端到端：暴击率 100（暴击 ×10）+ 精益求精 ×1 → 105 → 35 档 → ×2.2 实战生效。
+  const liveRefineW = createBow()
+  const liveRefineP = mkFireP()
+  const liveRefineHit = makeCreep(40, 400)
+  const liveRefineC = createCombat({
+    player: liveRefineP,
+    targets: [liveRefineHit],
+    weapon: liveRefineW,
+  })
+  for (let i = 0; i < 10; i++) liveRefineC.applyUpgrade('crit')
+  liveRefineC.applyUpgrade('refine')
+  liveRefineC.tryFire(1)
+  for (let i = 0; i < 30; i++) liveRefineC.update(0.016)
+  assert(
+    'refine live crit dmg',
+    liveRefineW.critRate === 105 &&
+      liveRefineW.refinePicks === 1 &&
+      Math.abs(liveRefineHit.hp - (400 - DMG_MAX * 2.2)) < 1e-9,
+  )
+
+  // R3 常量与计时：额外发晚 0.2s、不在同一帧生成、用 update(dt) 推进（12~14 帧 ≈ 0.2s）。
+  const delayC = mkRapidC(() => 0.99)
+  applyPower2(delayC, 'rapid')
+  delayC.tryFire(1)
+  const delaySameFrame = extras2(delayC)
+  let framesToExtra = -1
+  for (let i = 1; i <= 20; i++) {
+    delayC.update(1 / 60)
+    if (extras2(delayC) > 0) {
+      framesToExtra = i
+      break
+    }
+  }
+  assert(
+    'rapid extra delay 0.2',
+    RAPID_EXTRA_DELAY_SEC === 0.2 &&
+      delaySameFrame === 0 &&
+      framesToExtra >= 12 &&
+      framesToExtra <= 14,
+  )
+
+  // R3 不在同一帧：主发那一帧只有主发；推进一帧仍未出；0.2s 后才出。
+  const nsfC = mkRapidC(() => 0.99)
+  applyPower2(nsfC, 'rapid')
+  nsfC.tryFire(1)
+  const nsfFrame0 = { total: nsfC.bullets.length, extra: extras2(nsfC) }
+  nsfC.update(1 / 60)
+  const nsfFrame1 = { total: nsfC.bullets.length, extra: extras2(nsfC) }
+  for (let i = 0; i < 20; i++) nsfC.update(1 / 60)
+  assert(
+    'rapid extra not same frame',
+    nsfFrame0.total === 1 &&
+      nsfFrame0.extra === 0 &&
+      nsfFrame1.total === 1 &&
+      nsfFrame1.extra === 0 &&
+      extras2(nsfC) === 1,
+  )
+
+  // R3 额外冷却仍是 0.75s、主发间隔 0.48s 不受影响（延迟只是把落点推后 0.2s）。
+  const cdKeepC = mkRapidC(() => 0.99)
+  applyPower2(cdKeepC, 'rapid')
+  cdKeepC.tryFire(1)
+  const cdAfterSchedule = cdKeepC.getRapidCooldown()
+  const mainFireCd = cdKeepC.weapon.fireCd
+  advance2(cdKeepC)
+  const cdExtra1 = extras2(cdKeepC)
+  cdKeepC.weapon.fireCd = 0
+  cdKeepC.bullets.length = 0
+  cdKeepC.tryFire(1) // 额外冷却未到 → 不排定
+  advance2(cdKeepC)
+  const cdExtraBlocked = extras2(cdKeepC)
+  cdKeepC.update(RAPID_EXTRA_CD_SEC)
+  cdKeepC.weapon.fireCd = 0
+  cdKeepC.bullets.length = 0
+  cdKeepC.tryFire(1) // 冷却已到 → 再排定
+  advance2(cdKeepC)
+  const cdExtra2 = extras2(cdKeepC)
+  assert(
+    'rapid extra cd unchanged 0.75',
+    RAPID_EXTRA_CD_SEC === 0.75 &&
+      FIRE_INTERVAL === 0.48 &&
+      Math.abs(cdAfterSchedule - RAPID_EXTRA_CD_SEC) < 1e-9 &&
+      Math.abs(mainFireCd - FIRE_INTERVAL) < 1e-9 &&
+      cdExtra1 === 1 &&
+      cdExtraBlocked === 0 &&
+      cdExtra2 === 1,
+  )
+
+  // R4 定神：本发暴击率临时 +100（只作用一次），基础 0 时必暴、下一发立刻回到原暴击率。
+  const mkSteadyP = () => {
+    const p = { ...mkFireP(), steadyArmed: true, steadyCalls: 0 }
+    p.consumeSteadyCrit = function () {
+      this.steadyCalls += 1
+      if (!this.steadyArmed) return false
+      this.steadyArmed = false
+      return true
+    }
+    return p
+  }
+  const steadyP1 = mkSteadyP()
+  const steadyW1 = createBow()
+  const steadyC1 = createCombat({ player: steadyP1, targets: [], weapon: steadyW1 })
+  steadyC1.tryFire(1)
+  const steadyShot = steadyC1.bullets[0]
+  steadyC1.weapon.fireCd = 0
+  steadyC1.bullets.length = 0
+  steadyC1.tryFire(1)
+  const afterSteadyShot = steadyC1.bullets[0]
+  assert(
+    'steady adds 100 crit rate',
+    STEADY_CRIT_RATE_BONUS === 100 &&
+      steadyShot.crit === true &&
+      Math.abs(steadyShot.damage - DMG_MAX * 1.5) < 1e-9 &&
+      afterSteadyShot.crit === false &&
+      Math.abs(afterSteadyShot.damage - DMG_MAX) < 1e-9,
+  )
+
+  // R4 那 100 点同时进 critDamageMul 档位，所以能吃精益求精（基础 30 + 100 = 130 → 44 档 × 2 层）。
+  const steadyP2 = mkSteadyP()
+  const steadyW2 = createBow()
+  const steadyC2 = createCombat({ player: steadyP2, targets: [], weapon: steadyW2 })
+  steadyC2.applyUpgrade('crit')
+  steadyC2.applyUpgrade('crit')
+  steadyC2.applyUpgrade('refine')
+  steadyC2.applyUpgrade('refine')
+  steadyC2.tryFire(1)
+  const steadyFed = steadyC2.bullets[0]
+  assert(
+    'steady feeds refine',
+    steadyW2.critRate === 30 &&
+      steadyW2.refinePicks === 2 &&
+      Math.abs(critDamageMul(130, 2) - 3.26) < 1e-9 &&
+      steadyFed.crit === true &&
+      Math.abs(steadyFed.damage - DMG_MAX * 3.26) < 1e-9,
+  )
+
+  // R4 只作用一次：连续三次攻击，只有第一发暴击，且之后暴击率立刻回原值。
+  const steadyP3 = mkSteadyP()
+  const steadyW3 = createBow()
+  const steadyC3 = createCombat({ player: steadyP3, targets: [], weapon: steadyW3 })
+  const steadyShots = []
+  for (let i = 0; i < 3; i++) {
+    steadyC3.weapon.fireCd = 0
+    steadyC3.bullets.length = 0
+    steadyC3.tryFire(1)
+    steadyShots.push({
+      crit: steadyC3.bullets[0].crit,
+      damage: steadyC3.bullets[0].damage,
+      calls: steadyP3.steadyCalls,
+    })
+  }
+  assert(
+    'steady only once',
+    steadyShots[0].crit === true &&
+      steadyShots[0].calls === 1 &&
+      steadyShots[1].crit === false &&
+      steadyShots[2].crit === false &&
+      steadyShots[1].calls === 2 &&
+      steadyShots[1].damage === DMG_MAX &&
+      steadyShots[2].damage === DMG_MAX,
   )
 }
 

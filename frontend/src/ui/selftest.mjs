@@ -95,7 +95,7 @@ assert('upgrade 精益求精', UPGRADES.find((u) => u.id === 'refine')?.title ==
 assert('upgrade 奇怪的蛋', UPGRADES.at(-1)?.id === 'strange_egg' && UPGRADES.find((u) => u.id === 'strange_egg')?.title === '奇怪的蛋')
 assert('穿透文案 无括注', UPGRADES.find((u) => u.id === 'pierce')?.desc === '穿透 +1')
 assert('OBJECTIVE_TEXT', OBJECTIVE_TEXT === '目标：活够10分钟')
-assert('OBJECTIVE_TEXT_TWO', OBJECTIVE_TEXT_TWO === '目标：击败Boss 2次，并活够10分钟')
+assert('OBJECTIVE_TEXT_TWO', OBJECTIVE_TEXT_TWO === '目标：击败Boss 2次，并活够12分钟')
 assert('DIFFICULTY_TWO', DIFFICULTY_TWO.id === '2' && DIFFICULTY_TWO.name === '难度二')
 assert('bondRank qian', bondRank(BOND_QIAN, 1) === 0 && bondRank(BOND_QIAN, 2) === 2 && bondRank(BOND_QIAN, 5) === 4 && bondRank(BOND_QIAN, 8) === 8)
 assert('bondRank unity', bondRank(BOND_UNITY, 1) === 0 && bondRank(BOND_UNITY, 2) === 2 && bondRank(BOND_UNITY, 5) === 4 && bondRank(BOND_UNITY, 8) === 8)
@@ -213,10 +213,10 @@ assert('survive win 600', SURVIVE_WIN_SEC === 600)
 assert('testElapsed default 0', defaultSettings().testElapsedSec === 0)
 assert('testDummy default false', defaultSettings().testDummy === false)
 assert(
-  'clamp elapsed 0～600',
+  'clamp elapsed 0～720',
   clampTestElapsedSec(-9) === 0 &&
     clampTestElapsedSec(999) === TEST_ELAPSED_MAX &&
-    TEST_ELAPSED_MAX === 600,
+    TEST_ELAPSED_MAX === 720,
 )
 assert('clamp elapsed step 5', clampTestElapsedSec(7) === 5)
 
@@ -505,7 +505,7 @@ assert(
   C42.UPGRADE_THORN === 'thorn' &&
     thornDef?.id === C42.UPGRADE_THORN &&
     thornDef?.title === '荆棘' &&
-    thornDef?.desc === '受击时对 4 身位内敌人造成 攻击×150%（每层 +50%）' &&
+    thornDef?.desc === '受击时对 2 身位内敌人造成 攻击×150%（每层 +50%，范围 +0.5 身位）' &&
     thornDef?.bond === C42.BOND_SHENG &&
     thornDef?.tier !== 'advanced' &&
     applyUpgrade('thorn', { combat: thornHost }) === true &&
@@ -871,10 +871,12 @@ assert(
     powerViewSrc.includes('steps(') &&
     /@keyframes rl-power-flip/.test(powerViewSrc) &&
     /c\.x -= span/.test(powerViewSrc) &&
-    /const SPEED = 115/.test(powerViewSrc) &&
-    /BOB_MIN = 6/.test(powerViewSrc) &&
-    /BOB_MAX = 10/.test(powerViewSrc) &&
-    /GAP = CARD_W \* 2/.test(powerViewSrc) &&
+    /c\.x \+= span/.test(powerViewSrc) &&
+    /SPEED = POWER_CARD_SPEED/.test(powerViewSrc) &&
+    /BOB_MIN = POWER_CARD_BOB_MIN/.test(powerViewSrc) &&
+    /BOB_MAX = POWER_CARD_BOB_MAX/.test(powerViewSrc) &&
+    /GAP = POWER_CARD_GAP/.test(powerViewSrc) &&
+    /width: var\(--rl-power-card-w\)/.test(powerViewSrc) &&
     powerViewSrc.includes('选一张') &&
     /\.rl-power-hint\s*\{[^}]*text-shadow/.test(powerViewSrc) &&
     !/\.rl-power-hint\s*\{[^}]*background/.test(powerViewSrc) &&
@@ -931,20 +933,31 @@ const s3 = createSession()
 s3.start('1')
 s3.tick(SURVIVE_WIN_SEC)
 assert('auto win', s3.phase === 'victory' && s3.win === true)
+/* P42 批次5：难度二门槛 720s（用命名空间取，缺实现时断言 FAIL 而不是链接期崩）。 */
+const diff2Sec = C42.SURVIVE_WIN_SEC_DIFF2 ?? 999
 const sDiff2 = createSession()
 sDiff2.start('2')
 sDiff2.tick(SURVIVE_WIN_SEC)
 assert(
-  '难度二不满 2 杀不胜',
+  '难度二 600s 不胜（门槛 720s）',
   sDiff2.phase === 'playing' && sDiff2.win === false && sDiff2.bossKills === 0 && sDiff2.elapsedSec >= SURVIVE_WIN_SEC,
 )
 assert('addBossKill 1 仍继续', sDiff2.addBossKill() === 1 && sDiff2.phase === 'playing' && sDiff2.win === false)
-assert('addBossKill 2 才胜', sDiff2.addBossKill() === 2 && sDiff2.phase === 'victory' && sDiff2.win === true)
+assert(
+  '难度二 2 杀但不满 720s 仍不胜',
+  sDiff2.addBossKill() === 2 && sDiff2.phase === 'playing' && sDiff2.win === false,
+)
+sDiff2.tick(diff2Sec - SURVIVE_WIN_SEC)
+assert('难度二补满 720s 才通关', sDiff2.phase === 'victory' && sDiff2.win === true)
 const sDiff2t = createSession()
 sDiff2t.start('2')
 assert(
   '难度二拨满时间不胜',
   sDiff2t.setElapsedSec(600) === 600 && sDiff2t.phase === 'playing',
+)
+assert(
+  '难度二拨到 720 仍缺 Boss 不胜',
+  sDiff2t.setElapsedSec(diff2Sec) === diff2Sec && sDiff2t.phase === 'playing',
 )
 sDiff2t.addBossKill()
 sDiff2t.addBossKill()
@@ -1817,6 +1830,167 @@ assert('首页横条装饰已删（模板+样式）', !/rl-ribbon/.test(startSrc
 assert(
   '结算三按钮文案',
   resultSrc.includes('再玩一把') && resultSrc.includes('退出到主页') && resultSrc.includes('重试上报'),
+)
+
+/* ---- P42 批次5（TASK-036 / M6）：难度二 12 分钟 / 生生不息文案 / 卡牌屏放大·双向·加速 / 升级文案 ---- */
+
+/* R1① 难度门槛：难度一 600s；难度二 720s 且 Boss ≥ 2（Boss 条件不变）。 */
+const winSec2 = C42.SURVIVE_WIN_SEC_DIFF2 ?? 999
+const sWin1 = createSession()
+sWin1.start('1')
+sWin1.tick(SURVIVE_WIN_SEC - 1)
+const win1Hold = sWin1.phase === 'playing'
+sWin1.tick(1)
+const win1Win = sWin1.phase === 'victory' && sWin1.win === true
+const sWin2 = createSession()
+sWin2.start('2')
+sWin2.addBossKill()
+sWin2.addBossKill()
+sWin2.tick(SURVIVE_WIN_SEC)
+const win2Hold = sWin2.phase === 'playing' && sWin2.win === false
+sWin2.tick(winSec2 - SURVIVE_WIN_SEC)
+const win2Win = sWin2.phase === 'victory' && sWin2.win === true
+assert(
+  'diff1 win sec 600',
+  SURVIVE_WIN_SEC === 600 &&
+    C42.surviveWinSecFor?.('1') === 600 &&
+    C42.surviveWinSecFor?.(DIFFICULTY_TWO.id) === 720 &&
+    win1Hold &&
+    win1Win,
+)
+assert(
+  'diff2 win sec 720',
+  C42.SURVIVE_WIN_SEC_DIFF2 === 720 &&
+    C42.surviveWinSecFor?.('2') === 720 &&
+    C42.surviveWinSecFor?.('2') > C42.surviveWinSecFor?.('1') &&
+    win2Hold &&
+    win2Win &&
+    Math.abs(sWin2.elapsedSec - C42.SURVIVE_WIN_SEC_DIFF2) < 1e-9,
+)
+
+/* R1② 选难度文案：难度二写 12 分钟，难度一不动。 */
+assert(
+  'objective two 12 min',
+  OBJECTIVE_TEXT_TWO === '目标：击败Boss 2次，并活够12分钟' &&
+    OBJECTIVE_TEXT_TWO.includes('12分钟') &&
+    OBJECTIVE_TEXT === '目标：活够10分钟' &&
+    C42.objectiveForDifficulty?.(DIFFICULTY_TWO.id) === OBJECTIVE_TEXT_TWO &&
+    C42.objectiveForDifficulty?.('1') === OBJECTIVE_TEXT &&
+    startSrc.includes('OBJECTIVE_TEXT_TWO') &&
+    !startSrc.includes('并活够10分钟'),
+)
+
+/* R1③ 测试模式时间滑条上限跟最长的通关门槛（720s）走。 */
+assert(
+  'test elapsed max 12 min',
+  TEST_ELAPSED_MAX === 720 &&
+    TEST_ELAPSED_MAX === C42.SURVIVE_WIN_SEC_DIFF2 &&
+    TEST_ELAPSED_MAX > SURVIVE_WIN_SEC &&
+    clampTestElapsedSec(720) === 720 &&
+    clampTestElapsedSec(721) === 720 &&
+    formatTime(TEST_ELAPSED_MAX) === '12:00' &&
+    settingsSrc.includes('TEST_ELAPSED_MAX') &&
+    settingsSrc.includes(':max="TEST_ELAPSED_MAX"') &&
+    !settingsSrc.includes('10 分钟'),
+)
+
+/* R2 生生不息文案与天行健同款抽象说法，且任何位置都不列计入项。 */
+const shengOptionWords = ['生存', '恢复', '三娃', '滋补', '荆棘']
+assert(
+  'sheng desc aligns qian',
+  BOND_DESC.sheng === '不同种类升级集齐解锁档位' &&
+    BOND_DESC[BOND_QIAN].startsWith('不同种类升级集齐解锁档位') &&
+    !shengOptionWords.some((w) => BOND_DESC.sheng.includes(w)) &&
+    BOND_TIERS.sheng.map((t) => t.rank).join() === '3,5',
+)
+assert(
+  'sheng desc hides options',
+  !shengOptionWords.some((w) => BOND_DESC.sheng.includes(w)) &&
+    bondTiers('sheng').every((t) => !shengOptionWords.some((w) => t.text.includes(w))) &&
+    /* 渲染羁绊的视图：连单个计入项名字都不许出现 */
+    [moreSrc, shellSrc].every((src) => !shengOptionWords.some((w) => src.includes(w))) &&
+    /* 其余视图 / 样式：不许出现「列清单」式连写（≥2 个计入项同屏） */
+    [startSrc, settingsSrc, pixelCss].every(
+      (src) => shengOptionWords.filter((w) => src.includes(w)).length < 2,
+    ) &&
+    /BOND_DESC\[b\.id\]/.test(shellSrc) &&
+    /BOND_DESC\[b\.id\]/.test(moreSrc),
+)
+
+/* R3 卡牌屏：放大 120×160、左右两侧同时漂入、提速 180 px/s、文案不靠缩字号硬塞。 */
+assert(
+  'power card size bigger',
+  C42.POWER_CARD_W === 120 &&
+    C42.POWER_CARD_H === 160 &&
+    C42.POWER_CARD_W > 96 &&
+    C42.POWER_CARD_H > 132 &&
+    C42.POWER_CARD_GAP === C42.POWER_CARD_W * 2 &&
+    C42.POWER_CARD_GAP === 240 &&
+    powerViewSrc.includes('POWER_CARD_W') &&
+    /width:\s*var\(--rl-power-card-w\)/.test(powerViewSrc),
+)
+assert(
+  'power cards enter both sides',
+  C42.powerCardSide?.(0, 4) === 'left' &&
+    C42.powerCardSide?.(1, 4) === 'left' &&
+    C42.powerCardSide?.(2, 4) === 'right' &&
+    C42.powerCardSide?.(3, 4) === 'right' &&
+    C42.powerCardSide?.(0, 2) === 'left' &&
+    C42.powerCardSide?.(1, 2) === 'right' &&
+    C42.powerCardSide?.(0, 3) === 'left' &&
+    C42.powerCardSide?.(1, 3) === 'left' &&
+    C42.powerCardSide?.(2, 3) === 'right' &&
+    C42.powerCardSide?.(0, 1) === 'left' &&
+    [0, 1].every((i) => C42.powerCardStartX?.(i, 4, 1280) < 0) &&
+    [2, 3].every((i) => C42.powerCardStartX?.(i, 4, 1280) > 1280) &&
+    (C42.powerCardStartX?.(1, 4, 1280) ?? 0) - (C42.powerCardStartX?.(0, 4, 1280) ?? 0) === -240 &&
+    (C42.powerCardStartX?.(3, 4, 1280) ?? 0) - (C42.powerCardStartX?.(2, 4, 1280) ?? 0) === 240 &&
+    powerViewSrc.includes('powerCardStartX') &&
+    /c\.x -= span/.test(powerViewSrc) &&
+    /c\.x \+= span/.test(powerViewSrc),
+)
+assert(
+  'power card speed faster',
+  C42.POWER_CARD_SPEED === 180 &&
+    C42.POWER_CARD_SPEED > 115 &&
+    C42.POWER_CARD_BOB_MIN === 6 &&
+    C42.POWER_CARD_BOB_MAX === 10 &&
+    powerViewSrc.includes('SPEED = POWER_CARD_SPEED') &&
+    /c\.x \+= c\.dir \* SPEED \* dt/.test(powerViewSrc),
+)
+
+/* R4 升级 / 激发力量文案同步（只改文案，不改判定）。 */
+assert(
+  'thorn desc 2 body 0.5 step',
+  UPGRADES.find((u) => u.id === 'thorn')?.desc ===
+    '受击时对 2 身位内敌人造成 攻击×150%（每层 +50%，范围 +0.5 身位）' &&
+    UPGRADES.find((u) => u.id === 'thorn')?.desc.includes('2 身位') &&
+    UPGRADES.find((u) => u.id === 'thorn')?.desc.includes('+0.5 身位') &&
+    descFor('thorn') === UPGRADES.find((u) => u.id === 'thorn')?.desc,
+)
+assert(
+  'refine desc 5 crit 3 rate',
+  UPGRADES.find((u) => u.id === 'refine')?.desc ===
+    '暴击率 +5（可叠）；每 3 点暴击使暴击伤害 +0.02 倍率（向上取整）' &&
+    descFor('refine').includes('暴击率 +5') &&
+    descFor('refine').includes('每 3 点') &&
+    descFor('refine').includes('+0.02'),
+)
+assert(
+  'earth desc crystal max 2',
+  UPGRADES.find((u) => u.id === 'earth')?.desc ===
+    '普通树每波 +2、果实概率 +10%；结晶掉落上限 +2（可叠）' &&
+    descFor('earth').includes('结晶掉落上限 +2') &&
+    descFor('earth').includes('果实概率 +10%'),
+)
+assert(
+  'power desc concise',
+  C42.POWER_EFFECTS.map((e) => e.desc).join(' | ') ===
+    '额外射出一发 | 穿透 +1，每穿 1 敌伤害 +50% | 静止 0.15s → 下次攻击必暴 | 伤害 +20，可叠加' &&
+    C42.POWER_EFFECTS.every((e) => e.desc.length <= 20) &&
+    powerViewSrc.includes('{{ c.desc }}') &&
+    /\.rl-power-desc\s*\{[^}]*font-size:\s*var\(--rl-f1\)/.test(powerViewSrc) &&
+    /font-size:\s*var\(--rl-f1\)/.test(powerViewSrc),
 )
 
 const vol = defaultSettings()

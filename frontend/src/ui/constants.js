@@ -110,7 +110,16 @@ export const LEVEL_PIERCE_EVERY = 15
 
 export const CHARGE_MAX_SEC = 0.75
 
+/** 难度一：活够 10 分钟（600s）即通关。 */
 export const SURVIVE_WIN_SEC = 600
+
+/** P42 批次5：难度二存活门槛 12 分钟（720s）；Boss 2 次条件不变。 */
+export const SURVIVE_WIN_SEC_DIFF2 = 720
+
+/** 按难度取存活门槛：难度一 600s、难度二 720s（唯一判定入口，session.meetsWin 用）。 */
+export function surviveWinSecFor(difficultyId) {
+  return String(difficultyId) === DIFFICULTY_TWO.id ? SURVIVE_WIN_SEC_DIFF2 : SURVIVE_WIN_SEC
+}
 
 
 
@@ -242,7 +251,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_RECOVER, title: '恢复', desc: '回复 2 滴血', bond: BOND_SHENG },
 
-  { id: UPGRADE_EARTH, title: '大地啊', desc: '普通树 +2，果实概率 +10%' },
+  { id: UPGRADE_EARTH, title: '大地啊', desc: '普通树每波 +2、果实概率 +10%；结晶掉落上限 +2（可叠）' },
 
   { id: UPGRADE_PIERCE, title: '穿透', desc: '穿透 +1', bond: BOND_QIAN },
 
@@ -276,7 +285,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_ONLY_FAST, title: '唯快不破', desc: '攻击速度 +20%（不改变蓄力时间）；可叠', bond: BOND_QIAN },
 
-  { id: UPGRADE_REFINE, title: '精益求精', desc: '暴击率每 30% 使暴击伤害 +0.2；可叠', tier: 'advanced', bond: BOND_QIAN },
+  { id: UPGRADE_REFINE, title: '精益求精', desc: '暴击率 +5（可叠）；每 3 点暴击使暴击伤害 +0.02 倍率（向上取整）', tier: 'advanced', bond: BOND_QIAN },
 
   { id: UPGRADE_KNOCKBACK, title: '击退', desc: '命中击退 +1 身位', tier: 'advanced' },
 
@@ -288,7 +297,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_COMPANIONSHIP, title: '伴我同行', desc: '角色每击杀 100 怪物，跟班伤害 +1（+0.5/层）', bond: BOND_UNITY },
 
-  { id: UPGRADE_THORN, title: '荆棘', desc: '受击时对 4 身位内敌人造成 攻击×150%（每层 +50%）', bond: BOND_SHENG },
+  { id: UPGRADE_THORN, title: '荆棘', desc: '受击时对 2 身位内敌人造成 攻击×150%（每层 +50%，范围 +0.5 身位）', bond: BOND_SHENG },
 
   { id: UPGRADE_NOURISH, title: '滋补', desc: '每击杀 1000 个敌人回复 1 滴血（每层 −100）', bond: BOND_SHENG },
 
@@ -317,11 +326,12 @@ export const POWER_SP = 'sp'
 /** 只能获得一次的效果 id；`sp`（sp-power）不在其中 → 可无限叠。 */
 export const POWER_UNIQUE_IDS = [POWER_RAPID, POWER_PIERCE_AMP, POWER_STEADY]
 
+/** P42 批次5（R4④）：卡面文案精简成一句关键能力，保证落在卡内不溢出。 */
 export const POWER_EFFECTS = [
-  { id: POWER_RAPID, name: '连射', desc: '不蓄力 50% / 蓄力 100% 额外射出一箭（0.75s 冷却）' },
-  { id: POWER_PIERCE_AMP, name: '贯穿强化', desc: '穿透 +1；每穿过 1 个敌人本次伤害 +50%' },
-  { id: POWER_STEADY, name: '定神', desc: '静止 0.3s 后下一次攻击必定暴击' },
-  { id: POWER_SP, name: 'sp-power', desc: '伤害 +20，可无限叠加' },
+  { id: POWER_RAPID, name: '连射', desc: '额外射出一发' },
+  { id: POWER_PIERCE_AMP, name: '贯穿强化', desc: '穿透 +1，每穿 1 敌伤害 +50%' },
+  { id: POWER_STEADY, name: '定神', desc: '静止 0.15s → 下次攻击必暴' },
+  { id: POWER_SP, name: 'sp-power', desc: '伤害 +20，可叠加' },
 ]
 
 export function powerEffectById(id) {
@@ -357,6 +367,40 @@ export function powerEffectFromMemoryId(id) {
   const s = String(id ?? '')
   if (!s.startsWith(POWER_MEMORY_PREFIX)) return null
   return powerEffectById(s.slice(POWER_MEMORY_PREFIX.length))
+}
+
+/* P42 批次5（R3）：卡牌屏尺寸 / 速度 / 入场侧（views/PowerView.vue 消费，数值可被自测直接断言）。 */
+
+/** 卡牌放大：96×132 → 120×160（卡面文案要完整落在卡内）。 */
+export const POWER_CARD_W = 120
+export const POWER_CARD_H = 160
+
+/** 卡间至少留一张卡宽。 */
+export const POWER_CARD_GAP = POWER_CARD_W * 2
+
+/** 漂速 115 → 180 px/s（出牌更快）。 */
+export const POWER_CARD_SPEED = 180
+
+export const POWER_CARD_BOB_MIN = 6
+export const POWER_CARD_BOB_MAX = 10
+
+/** R3② 入场侧：偶数张左右各一半，奇数张左侧多一张。 */
+export function powerCardSide(index, count) {
+  const n = Math.max(1, count | 0)
+  const leftCount = Math.ceil(n / 2)
+  return (index | 0) < leftCount ? 'left' : 'right'
+}
+
+/** R3② 入场初始 x：左侧从屏幕左缘外侧、右侧从右缘外侧，各自按名次错开一个 GAP。 */
+export function powerCardStartX(index, count, width) {
+  const n = Math.max(1, count | 0)
+  const side = powerCardSide(index, n)
+  const leftCount = Math.ceil(n / 2)
+  const rank = side === 'left' ? (index | 0) : (index | 0) - leftCount
+  const w = Number(width) || 0
+  return side === 'left'
+    ? -(POWER_CARD_W * 1.5) - rank * POWER_CARD_GAP
+    : w + POWER_CARD_W * 1.5 + rank * POWER_CARD_GAP
 }
 
 /** 从 fromLevel 升到 toLevel 跨过几个 10 级倍数 = 欠几次 power。 */
@@ -431,7 +475,7 @@ export const RANGER_FRAME = 32
 /** 选难度悬停；局内不再绘制。 */
 export const OBJECTIVE_TEXT = '目标：活够10分钟'
 
-export const OBJECTIVE_TEXT_TWO = '目标：击败Boss 2次，并活够10分钟'
+export const OBJECTIVE_TEXT_TWO = '目标：击败Boss 2次，并活够12分钟'
 
 export function objectiveForDifficulty(id) {
   return String(id) === DIFFICULTY_TWO.id ? OBJECTIVE_TEXT_TWO : OBJECTIVE_TEXT
@@ -483,12 +527,13 @@ export function descFor(idOrUpgrade, charId) {
   return typeof u.desc === 'function' ? u.desc(charId) : u.desc
 }
 
-/** 羁绊档位展示（只读，不改档位判定逻辑）。 */
+/** 羁绊档位展示（只读，不改档位判定逻辑）。
+ *  P42 批次5（R2）：羁绊说明一律只讲抽象条件，不列出计入的升级选项（生生不息与天行健同款说法）。 */
 export const BOND_DESC = {
   [BOND_QIAN]: '不同种类升级集齐解锁档位，按角色等级补发',
   [BOND_UNITY]: '不同跟班集齐解锁档位',
   [BOND_VAJRA]: '集齐七兄弟解锁',
-  [BOND_SHENG]: '生存 / 恢复 / 三娃 / 滋补 / 荆棘 集齐解锁档位',
+  [BOND_SHENG]: '不同种类升级集齐解锁档位',
 }
 
 export const BOND_TIERS = {

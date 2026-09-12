@@ -112,11 +112,16 @@ export const HURT_SPEED_BUFF_UNITS = 0.2
 export const HURT_SPEED_BUFF_SEC = 1.5
 
 /**
- * P42 power「定神」：连续静止 0.3s 进入就绪 → 下一次攻击必暴。
- * 本模块只维护「静止计时 + 就绪状态 + 消费接口」；暴击本身由战斗侧（TASK-027）在暴击判定前调
+ * P42 power「定神」：连续静止 0.15s 进入就绪 → 下一次攻击必暴。
+ *
+ * 0.15s **短于武器攻击间隔 FIRE_INTERVAL（0.48s）**：站着不动时，每次攻击消费掉就绪后，
+ * 到下一次攻击前早已重新站满 0.15s —— 所以「一直站着 = 每次攻击都能触发」是计时自然覆盖的结果，
+ * 本模块不需要额外实现。一旦移动 / 攻击 / 受伤就清零重算。
+ *
+ * 本模块只维护「静止计时 + 就绪状态 + 消费接口」；暴击本身由战斗侧（TASK-033）在暴击判定前调
  * `consumeSteadyCrit()` 决定，玩家侧不实现暴击。
  */
-export const STEADY_STILL_SEC = 0.3
+export const STEADY_STILL_SEC = 0.15
 
 /** P25 三娃护甲：整数层，可无限叠，抵挡一次完整伤害。 */
 export const ARMOR_OUTLINE = '#e0b84a'
@@ -469,7 +474,7 @@ export function createPlayer(opts = {}) {
   }
 
   /**
-   * P42 定神计时：连续 `STEADY_STILL_SEC`（0.3s）没有位移输入才就绪；
+   * P42 定神计时：连续 `STEADY_STILL_SEC`（0.15s）没有位移输入才就绪；
    * 期间一旦移动 / 攻击（charging 或 attackT>0）/ 受伤，计时与就绪状态立即重置。
    *
    * 用本帧输入与攻击状态判定，放在 update 的计时递减**之前**调用：
