@@ -224,9 +224,14 @@ export function dmgDisplayValue(it) {
   return Math.round((it.base ?? 0) + ((it.amount ?? 0) - (it.base ?? 0)) * u)
 }
 
+/**
+ * 暴击「×倍率」标签的显示文本：**固定两位小数**（TASK-043 R2 / 2026-09-12）。
+ * 1.5 → '1.50'、1.5667 → '1.57'、2.1667 → '2.17'、3.5 → '3.50'。
+ * 只影响这个标签的文本，不改任何伤害数值与其它飘字。
+ */
 function formatMul(m) {
   const v = Number(m) || 1
-  return Math.round(v * 100) / 100
+  return v.toFixed(2)
 }
 
 function paintFallbackDigit(ctx, d, x, y, kind) {

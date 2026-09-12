@@ -181,6 +181,18 @@ function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n))
 }
 
+/**
+ * P42 批次6 修补 R2：最终伤害值向上取整成整数（飘字与扣血一致、不再出现小数伤害）。
+ * - 本来就是整数的输入幂等（ceilDamage(40) === 40），不得改变既有整数伤害；
+ * - 纯 Math.ceil，不做 epsilon 兜底：数学上 88 但浮点表示成 88.00000000000001 时按 89 走（口径即「向上取整」）；
+ * - 只作用于伤害数值，不动血量、击退、穿透、掉落等其它数值。
+ */
+export function ceilDamage(damage) {
+  const n = Number(damage)
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.ceil(n))
+}
+
 function aabbOf(ent) {
   const w = ent.w ?? BODY_W
   const h = ent.h ?? BODY
@@ -273,10 +285,13 @@ function hurt(target, damage) {
 
 /** 返回 { dealt(血量封顶), applied(实际造成、不按余血截断) }，供伤害数字显示。 */
 function dealDamage(target, damage) {
+  // P42 批次6 R2：统一结算通道先把最终伤害向上取整成整数（飘字与扣血一致），
+  // 覆盖武器命中 / 荆棘 / 七色脉冲 / 点燃跳伤；整数输入幂等。
+  const dmg = ceilDamage(damage)
   const beforeHp = target.hp ?? 0
-  const dealt = hurt(target, damage)
+  const dealt = hurt(target, dmg)
   const afterHp = target.hp ?? beforeHp
-  const applied = Math.max(0, damage)
+  const applied = Math.max(0, dmg)
   return { dealt, applied }
 }
 
@@ -485,6 +500,8 @@ export function createCombat(opts = {}) {
       hitCritMul = critDamageMul(critRate, weapon.refinePicks ?? 0)
       damage *= hitCritMul
     }
+    // P42 批次6 R2：打出去之前把最终伤害向上取整（暴击 ×1.5667 这类也变整数；整数幂等）。
+    damage = ceilDamage(damage)
     const knockback = (id === 'warrior'
       ? warriorKnockback(weapon.pierceBonus ?? 0)
       : knockbackForCharge(r)) + BASE_KNOCKBACK_BODIES * BODY + knockbackBonusForPicks(weapon.knockbackPicks ?? 0)
@@ -624,6 +641,8 @@ export function createCombat(opts = {}) {
       critMul = critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0)
       dmg *= critMul
     }
+    // P42 批次6 R2：七色脉冲与其它伤害共用「打出去前向上取整」口径。
+    dmg = ceilDamage(dmg)
     const R = BODY * PULSE_RADIUS_MUL
     for (const ent of targets) {
       if (!ent || ent.hp <= 0) continue
@@ -672,7 +691,8 @@ export function createCombat(opts = {}) {
     const mul = THORN_DMG_BASE_MUL + THORN_DMG_STEP_MUL * (picks - 1)
     const crit = rollCrit(weapon.critRate ?? 0)
     const critMul = crit ? critDamageMul(weapon.critRate ?? 0, weapon.refinePicks ?? 0) : 1
-    const dmg = atk * mul * critMul
+    // P42 批次6 R2：荆棘反弹与其它伤害共用「打出去前向上取整」口径（倍率 1.5+0.5×层数 不变）。
+    const dmg = ceilDamage(atk * mul * critMul)
     const R = thornRadius()
     const R2 = R * R
     let hits = 0
@@ -779,7 +799,8 @@ export function createCombat(opts = {}) {
   function applyWorldHit(b, res) {
     if (!res || !res.hit) return false
     spawnHitFx(b.x, b.y, b.ang)
-    const display = b.damage
+    // P42 批次6 R2：世界/树木命中的飘字同样用取整后的伤害值。
+    const display = ceilDamage(b.damage)
     if (display > 0) {
       const crit = Boolean(b.crit)
       const critMul = b.critMul ?? 1
@@ -793,6 +814,7 @@ export function createCombat(opts = {}) {
   }
 
   function hitWorld(b) {
+    // P42 批次6 R2：交给 env 结算的伤害（树/世界）也用取整后的值，保证树掉的也是整数伤害。
     if (b.kind === 'slash' && typeof hooks.hitSlashAt === 'function') {
       return applyWorldHit(
         b,
@@ -802,7 +824,7 @@ export function createCombat(opts = {}) {
           ang: b.ang,
           length: b.slashLen ?? b.drawW,
           thick: b.slashThick ?? b.drawH,
-          damage: b.payload ?? b.damage,
+          damage: ceilDamage(b.payload ?? b.damage),
         }),
       )
     }
@@ -811,7 +833,7 @@ export function createCombat(opts = {}) {
     const rad = b.kind === 'slash'
       ? (b.slashThick ?? SLASH_THICK) / 2
       : (b.radius ?? HIT_RADIUS)
-    return applyWorldHit(b, fn(b.x, b.y, b.damage, rad))
+    return applyWorldHit(b, fn(b.x, b.y, ceilDamage(b.damage), rad))
   }
 
   function stepBullet(b, dt) {

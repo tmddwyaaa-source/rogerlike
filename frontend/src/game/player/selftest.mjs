@@ -315,35 +315,77 @@ assert(
     moveP.consumeSteadyCrit?.() === false,
 )
 
-// 攻击（蓄力 / 攻击动作）同样打断静止计时。
+// 2026-09-12 修补（TASK-043 R1）：**只有 WASD 位移输入打断**。
+// 蓄力（按住左键，combat 每帧 setCharging(true)）与开火后摇（attackT>0）都**不再**打断 ——
+// 之前把这两者算打断，而本作开火必须按住蓄力，于是按左键第一帧就清空就绪（实机：站着也吃不到定神）。
+const chargeP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+chargeP.applyPower?.('steady')
+chargeP.update(0.1)
+chargeP.setCharging(true)
+chargeP.update(0.1)
+assert(
+  'steady not broken by charging',
+  chargeP.charging === true && chargeP.steadyArmed === true && chargeP.isSteadyArmed?.() === true,
+)
+
 const atkP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
 atkP.applyPower?.('steady')
+atkP.attackT = 0.5
 atkP.update(0.2)
-atkP.setCharging(true)
-atkP.update(0.2)
-atkP.setCharging(false)
-const chargeReset = atkP.steadyArmed === false && atkP.steadyT === 0
-atkP.attackT = 0.2
-atkP.update(0.4)
-const attackAnimReset = atkP.steadyArmed === false
-atkP.update(0.3)
-assert('steady reset on attack', chargeReset && attackAnimReset && atkP.steadyArmed === true)
+assert('steady not broken by attack', atkP.attackT > 0 && atkP.steadyArmed === true)
 
-// 受伤打断；且与 invuln / hurtT / hurtSpeedT 各自独立、互不影响。
+// 受击不打断（仍保留原有 invuln / hurtT 逻辑）。
 const hurtP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
 hurtP.applyPower?.('steady')
-hurtP.update(0.3)
+hurtP.update(0.15)
 const hurtArmedBefore = hurtP.steadyArmed === true
 hurtP.invuln = 0
 hurtP.takeDamage(1)
 assert(
-  'steady reset on hurt',
+  'steady not broken by hurt',
   hurtArmedBefore &&
-    hurtP.steadyArmed === false &&
-    hurtP.steadyT === 0 &&
+    hurtP.hp === 2 &&
     hurtP.invuln > 0 &&
-    hurtP.hurtT > 0,
+    hurtP.hurtT > 0 &&
+    hurtP.steadyArmed === true &&
+    hurtP.consumeSteadyCrit?.() === true,
 )
+
+// 打断条件只剩位移输入：按 WASD 立即清零，且必须重新站满 0.15s 才再次就绪。
+const breakKeys = { w: false, a: false, s: false, d: false }
+const breakP = createPlayer({ keys: breakKeys, random: () => 0.5 })
+breakP.applyPower?.('steady')
+breakP.update(0.15)
+const breakArmed = breakP.steadyArmed === true
+breakKeys.d = true
+breakP.update(0.01)
+const breakCleared =
+  breakP.steadyArmed === false && breakP.steadyT === 0 && breakP.consumeSteadyCrit?.() === false
+breakKeys.d = false
+breakP.update(0.14)
+const breakStillNotArmed = breakP.steadyArmed === false
+breakP.update(0.01)
+assert(
+  'steady broken by move',
+  breakArmed && breakCleared && breakStillNotArmed && breakP.steadyArmed === true,
+)
+
+// R1⑥ 真实输入路径（上一版盲区：只测了直接调 API）：不按 WASD、按住左键蓄力 0.5s
+// （combat 每帧 setCharging(true)，期间鼠标瞄准改变朝向）→ 仍就绪 → 松手开火那一帧
+// consumeSteadyCrit() 返回 true（此时 attackT 已被写入后摇，也不得影响消费）。
+const realP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+realP.applyPower?.('steady')
+let armedWhileCharging = false
+for (let i = 0; i < 25; i++) {
+  realP.setCharging(true)
+  realP.lookAt(realP.x + 40, realP.y)
+  realP.update(0.02)
+  if (realP.steadyArmed === true) armedWhileCharging = true
+}
+realP.setCharging(false)
+realP.attackT = 0.2
+const realInputCrit = realP.consumeSteadyCrit?.() === true
+assert('steady real input path fires crit', armedWhileCharging && realInputCrit)
 
 const coP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
 coP.applyPower?.('steady')
@@ -604,6 +646,32 @@ const drawnCrit = drawDamageNums({
   textBaseline: '',
 })
 assert('crit tag ×倍率 rendered', drawnCrit > 0 && tagTexts.some((t) => t.includes('1.5')))
+resetDamageNums()
+
+// TASK-043 R2：暴击「×倍率」标签固定两位小数（1.5 → ×1.50、1.5667 → ×1.57、2.1667 → ×2.17、3.5 → ×3.50）。
+const mulTexts = []
+spawnDamageNum(0, 0, 30, 'm1', { base: 20, crit: true, critMul: 1.5, damage: 30 })
+spawnDamageNum(0, 0, 47, 'm2', { base: 30, crit: true, critMul: 1.5667, damage: 47 })
+spawnDamageNum(0, 0, 65, 'm3', { base: 30, crit: true, critMul: 2.1667, damage: 65 })
+spawnDamageNum(0, 0, 105, 'm4', { base: 30, crit: true, critMul: 3.5, damage: 105 })
+drawDamageNums({
+  drawImage() {},
+  fillRect() {},
+  fillStyle: '',
+  globalAlpha: 1,
+  fillText(t) { mulTexts.push(t) },
+  font: '',
+  textAlign: '',
+  textBaseline: '',
+})
+assert(
+  'crit tag two decimals',
+  mulTexts.includes('\u00d71.50') &&
+    mulTexts.includes('\u00d71.57') &&
+    mulTexts.includes('\u00d72.17') &&
+    mulTexts.includes('\u00d73.50') &&
+    mulTexts.every((t) => /^\u00d7\d+\.\d{2}$/.test(t)),
+)
 resetDamageNums()
 
 assert('OBJECTIVE_TEXT kept', OBJECTIVE_LIFE === 5 && OBJECTIVE_TEXT === '目标：活够10分钟')

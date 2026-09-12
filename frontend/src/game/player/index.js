@@ -8,7 +8,7 @@
  * P15：局内不再画开局目标字。
  * P25：三娃护甲（armor / addArmor / getArmor）、六娃失锁脉冲（unlockLevel / applyUnlockPulse / unlockDurationFor）。
  * P42：受击后限时移速加成 applyHurtSpeedBuff（增量法，不改 speedUnits；计时走 update；死亡不再生效）。
- * P42：power「定神」applyPower('steady') / consumeSteadyCrit（静止 0.3s 就绪；只提供状态与消费接口，暴击判定在战斗侧）。
+ * P42：power「定神」applyPower('steady') / consumeSteadyCrit（静止 0.15s 就绪；只有 WASD 移动会打断，瞄准/蓄力/攻击后摇/受击都不打断；暴击判定在战斗侧）。
  */
 import {
   BODY,
@@ -116,9 +116,14 @@ export const HURT_SPEED_BUFF_SEC = 1.5
  *
  * 0.15s **短于武器攻击间隔 FIRE_INTERVAL（0.48s）**：站着不动时，每次攻击消费掉就绪后，
  * 到下一次攻击前早已重新站满 0.15s —— 所以「一直站着 = 每次攻击都能触发」是计时自然覆盖的结果，
- * 本模块不需要额外实现。一旦移动 / 攻击 / 受伤就清零重算。
+ * 本模块不需要额外实现。
  *
- * 本模块只维护「静止计时 + 就绪状态 + 消费接口」；暴击本身由战斗侧（TASK-033）在暴击判定前调
+ * 2026-09-12 修补（用户实机反馈「站着完全吃不到定神」）：**只有 WASD 位移输入会清零重算**。
+ * 本作开火是「按住左键蓄力 → 松手射出」，之前把 charging / attackT 也算打断，导致按左键第一帧
+ * 就清空就绪；受击同理。现在瞄准（mousemove 改 facing）、蓄力、攻击后摇、受击都不打断，
+ * 死亡（hp<=0）仍清零。
+ *
+ * 本模块只维护「静止计时 + 就绪状态 + 消费接口」；暴击本身由战斗侧（TASK-042/033）在暴击判定前调
  * `consumeSteadyCrit()` 决定，玩家侧不实现暴击。
  */
 export const STEADY_STILL_SEC = 0.15
@@ -384,7 +389,6 @@ export function createPlayer(opts = {}) {
       player.armor -= 1
       player.invuln = IFRAME_SEC
       player.hurtT = HURT_SEC
-      resetSteady()
       spawnScatter(player, random)
       return false
     }
@@ -394,7 +398,6 @@ export function createPlayer(opts = {}) {
     player.hp = Math.max(0, next)
     player.invuln = IFRAME_SEC
     player.hurtT = HURT_SEC
-    resetSteady()
     spawnScatter(player, random)
     onHurt?.()
     return true
@@ -474,12 +477,13 @@ export function createPlayer(opts = {}) {
   }
 
   /**
-   * P42 定神计时：连续 `STEADY_STILL_SEC`（0.15s）没有位移输入才就绪；
-   * 期间一旦移动 / 攻击（charging 或 attackT>0）/ 受伤，计时与就绪状态立即重置。
+   * P42 定神计时：连续 `STEADY_STILL_SEC`（0.15s）**没有 WASD 位移输入**才就绪。
    *
-   * 用本帧输入与攻击状态判定，放在 update 的计时递减**之前**调用：
-   * 这样本帧刚打完的那一下（attackT 还没被递减掉）也能正确打断静止计时。
-   * 与 invuln / hurtT / hurtSpeedT 各自独立，互不影响；死亡后不再就绪。
+   * 2026-09-12 修补：打断条件**只保留位移输入**。`charging`（按住左键蓄力）与 `attackT>0`
+   * （开火后摇）都**不再**打断 —— 否则「按住蓄力」这一必要操作会让定神永远来不及就绪
+   * （实机表现为「站着也吃不到 +100 暴击」）；受击同样不打断（见 takeDamage）。
+   * 用本帧输入判定，不依赖 update 内部对 player.moving 的赋值顺序。
+   * 与 invuln / hurtT / hurtSpeedT 各自独立，互不影响；死亡（hp<=0）仍清零、不再就绪。
    */
   function stepSteady(dt) {
     if (!player.steadyEnabled) return
@@ -488,7 +492,7 @@ export function createPlayer(opts = {}) {
       return
     }
     const movingInput = Boolean(keys.w || keys.a || keys.s || keys.d)
-    if (movingInput || player.charging || player.attackT > 0) {
+    if (movingInput) {
       resetSteady()
       return
     }
@@ -593,7 +597,7 @@ export function createPlayer(opts = {}) {
     player.animTime += dt
     stepLevelUpFx(player, dt)
     stepObjectiveFx(player, dt)
-    // P42 定神：在攻击/无敌计时递减之前判定本帧的移动/攻击/受伤，避免本帧刚打完的那一下被提前抹掉。
+    // P42 定神：只按本帧 WASD 位移输入判定（蓄力 / 攻击后摇 / 受击不打断）。
     stepSteady(dt)
     if (player.invuln > 0) {
       player.invuln = Math.max(0, player.invuln - dt)

@@ -82,6 +82,7 @@ import {
   REFINE_CRIT_DMG_PER_STEP,
   REFINE_CRIT_STEP,
   STEADY_CRIT_RATE_BONUS,
+  ceilDamage,
 } from './index.js'
 
 let failed = 0
@@ -455,7 +456,7 @@ assert('warrior attack 22', cWar.weapon.attack === WARRIOR_ATTACK && WARRIOR_ATT
 cWar.tryFire(1)
 const slash = cWar.bullets[0]
 assert('warrior slash', slash.kind === 'slash' && slash.vx === 0 && slash.vy === 0)
-assert('warrior full dmg ×1.6 live', Math.abs(slash.damage - WARRIOR_ATTACK * 1.6) < 1e-9)
+assert('warrior full dmg ×1.6 live (35.2 ceil → 36)', Math.abs(slash.damage - 36) < 1e-9)
 assert('warrior full sizeMul 1.6 live', Math.abs(slash.sizeMul - WARRIOR_FULL_SIZE) < 1e-9)
 assert('warrior full kb 0.5 BODY', Math.abs(slash.knockback - BODY * 0.5) < 1e-9)
 {
@@ -492,7 +493,7 @@ assert(
 cWar.weapon.fireCd = 0
 cWar.bullets.length = 0
 cWar.tryFire(0.5)
-assert('warrior mid live dmg', Math.abs(cWar.bullets[0].damage - 28.6) < 1e-9)
+assert('warrior mid live dmg (28.6 ceil → 29)', Math.abs(cWar.bullets[0].damage - 29) < 1e-9)
 assert('warrior mid live len', Math.abs(cWar.bullets[0].drawW - BODY * 1.3) < 1e-9)
 assert('warrior mid thick no charge', Math.abs(cWar.bullets[0].drawH - SLASH_THICK) < 1e-9)
 
@@ -616,12 +617,12 @@ cMage.tryFire(1)
 assert('mage orb', cMage.bullets[0].kind === 'orb')
 assert('mage flies', Math.hypot(cMage.bullets[0].vx, cMage.bullets[0].vy) > 100)
 assert('mage full sizeMul 3', Math.abs(cMage.bullets[0].sizeMul - MAGE_FULL_SIZE) < 1e-9)
-assert('mage full dmg live 37.5', cMage.bullets[0].damage === 37.5)
+assert('mage full dmg live 38 (37.5 ceil)', cMage.bullets[0].damage === 38)
 cMage.applyUpgrade('pierce')
 cMage.weapon.fireCd = 0
 cMage.bullets.length = 0
 cMage.tryFire(1)
-assert('mage pierce1 full live 42.5', cMage.bullets[0].damage === 42.5)
+assert('mage pierce1 full live 43 (42.5 ceil)', cMage.bullets[0].damage === 43)
 cMage.weapon.fireCd = 0
 cMage.bullets.length = 0
 cMage.tryFire(0)
@@ -1404,7 +1405,7 @@ const setThornPicksOn = (c, n) => {
       refineW.dmgBonus === 0,
   )
 
-  // R2② 倍率 = 1.5 + 0.02 × ceil(暴击率 / 3) × 层数；层数 0 恒为 1.5。
+  // P42 批次6 R1：倍率 = 1.5 + 0.02 × (暴击率 / 3) × 层数（**连续算式**，不对 rate/3 取整）；层数 0 恒为 1.5。
   assert(
     'refine crit dmg per 3 rate',
     REFINE_CRIT_STEP === 3 &&
@@ -1416,17 +1417,18 @@ const setThornPicksOn = (c, n) => {
       critDamageMul(9, 0) === 1.5,
   )
 
-  // R2② 向上取整：ceil 而不是 floor（4/3 → 2 档；7/3 → 3 档；100/3 → 34 档）。
+  // P42 批次6 R1①：旧版 ceil(rate/3) 档位已作废（标题保留旧子串，避免 TASK-033 的历史 grep 断链）——
+  // 现在 4 → 1.526…、7 → 1.546…、100 → 2.166…，既不是 ceil 档（1.54/1.56/2.18）也不是 floor 档。
   assert(
-    'refine ceil rounding',
-    Math.abs(critDamageMul(1, 1) - 1.52) < 1e-9 && // ceil(1/3)=1
-      Math.abs(critDamageMul(4, 1) - 1.54) < 1e-9 && // ceil(4/3)=2
-      Math.abs(critDamageMul(6, 1) - 1.54) < 1e-9 && // 正好 2 档
-      Math.abs(critDamageMul(7, 1) - 1.56) < 1e-9 && // ceil(7/3)=3（floor 只会给 2 档）
-      Math.abs(critDamageMul(100, 1) - 2.18) < 1e-9, // ceil(100/3)=34
+    'refine ceil rounding no longer applied',
+    Math.abs(critDamageMul(4, 1) - 1.5266666666666666) < 1e-9 &&
+      Math.abs(critDamageMul(7, 1) - 1.5466666666666666) < 1e-9 &&
+      Math.abs(critDamageMul(100, 1) - 2.166666666666667) < 1e-9 &&
+      Math.abs(critDamageMul(100, 1) - 2.18) > 1e-6 && // 不是 ceil 版
+      Math.abs(critDamageMul(100, 1) - 2.16) > 1e-6, // 也不是 floor 版
   )
 
-  // R2② 按层数相乘（不是相加）。
+  // 按层数相乘（不是相加）。
   assert(
     'refine stacks by picks',
     Math.abs(critDamageMul(9, 2) - 1.62) < 1e-9 && // 1.5 + 0.02×3×2
@@ -1435,16 +1437,16 @@ const setThornPicksOn = (c, n) => {
       refineW.refinePicks === 2,
   )
 
-  // R2③ 暴击率不设上限：超过 100 的部分照常进倍率档位（概率侧仍封顶 100）。
+  // 暴击率不设上限：超过 100 的部分照常进倍率（概率侧仍封顶 100）。
   assert(
     'refine counts over 100 rate',
     critChanceForRoll(120) === 100 &&
-      Math.abs(critDamageMul(120, 1) - 2.3) < 1e-9 && // ceil(120/3)=40
-      Math.abs(critDamageMul(150, 1) - 2.5) < 1e-9 && // ceil(150/3)=50
+      Math.abs(critDamageMul(120, 1) - 2.3) < 1e-9 && // 1.5 + 0.02×40
+      Math.abs(critDamageMul(150, 1) - 2.5) < 1e-9 && // 1.5 + 0.02×50
       Math.abs(critDamageMul(120, 2) - 3.1) < 1e-9, // ×2 层
   )
 
-  // R2①+② 端到端：暴击率 100（暴击 ×10）+ 精益求精 ×1 → 105 → 35 档 → ×2.2 实战生效。
+  // 端到端：暴击率 100（暴击 ×10）+ 精益求精 ×1 → 105 → 连续倍率 ×2.2 → 88（整数）实战生效。
   const liveRefineW = createBow()
   const liveRefineP = mkFireP()
   const liveRefineHit = makeCreep(40, 400)
@@ -1461,7 +1463,8 @@ const setThornPicksOn = (c, n) => {
     'refine live crit dmg',
     liveRefineW.critRate === 105 &&
       liveRefineW.refinePicks === 1 &&
-      Math.abs(liveRefineHit.hp - (400 - DMG_MAX * 2.2)) < 1e-9,
+      Math.abs(critDamageMul(105, 1) - 2.2) < 1e-9 &&
+      liveRefineHit.hp === 400 - 88,
   )
 
   // R3 常量与计时：额外发晚 0.2s、不在同一帧生成、用 update(dt) 推进（12~14 帧 ≈ 0.2s）。
@@ -1575,9 +1578,10 @@ const setThornPicksOn = (c, n) => {
     'steady feeds refine',
     steadyW2.critRate === 30 &&
       steadyW2.refinePicks === 2 &&
-      Math.abs(critDamageMul(130, 2) - 3.26) < 1e-9 &&
+      // 批次6：连续算式（不再 ceil 档位）→ 1.5 + 0.02 × (130/3) × 2 = 3.2333…，伤害 ceil 后 130
+      Math.abs(critDamageMul(130, 2) - 3.2333333333333334) < 1e-9 &&
       steadyFed.crit === true &&
-      Math.abs(steadyFed.damage - DMG_MAX * 3.26) < 1e-9,
+      steadyFed.damage === 130,
   )
 
   // R4 只作用一次：连续三次攻击，只有第一发暴击，且之后暴击率立刻回原值。
@@ -1605,6 +1609,120 @@ const setThornPicksOn = (c, n) => {
       steadyShots[1].damage === DMG_MAX &&
       steadyShots[2].damage === DMG_MAX,
   )
+}
+
+// P42 批次6 修补（ROUND-014 TASK-042）：精益求精连续算式 / 伤害向上取整 / 定神 +100 进连续倍率
+{
+  // R1 连续算式：1.5 + 0.02 × (rate / 3) × picks —— 不对 rate/3 取整
+  assert(
+    'refine mul continuous no rounding',
+    Math.abs(critDamageMul(7, 1) - 1.5466666666666666) < 1e-9 && // 7/3 不再爬档
+      Math.abs(critDamageMul(4, 1) - 1.5266666666666666) < 1e-9 &&
+      Math.abs(critDamageMul(100, 1) - 2.166666666666667) < 1e-9 &&
+      Math.abs(critDamageMul(7, 1) - 1.56) > 1e-6 && // 旧 ceil 档位
+      Math.abs(critDamageMul(7, 1) - 1.5) > 1e-6, // 旧 floor 档位
+  )
+
+  // R1 每 3 点暴击率 +0.02 倍率（manifest 参考值：rate 30 → 1.70、rate 120 → 2.30）
+  assert(
+    'refine mul per 3 rate 0.02',
+    REFINE_CRIT_STEP === 3 &&
+      REFINE_CRIT_DMG_PER_STEP === 0.02 &&
+      Math.abs(critDamageMul(3, 1) - 1.52) < 1e-9 &&
+      Math.abs(critDamageMul(30, 1) - 1.7) < 1e-9 &&
+      Math.abs(critDamageMul(100, 1) - 2.166666666666667) < 1e-9 &&
+      Math.abs(critDamageMul(120, 1) - 2.3) < 1e-9,
+  )
+
+  // R1 按层数相乘（manifest 参考值：3 层 rate 100 → 3.50）
+  assert(
+    'refine mul scales by picks',
+    Math.abs(critDamageMul(9, 1) - 1.56) < 1e-9 &&
+      Math.abs(critDamageMul(9, 2) - 1.62) < 1e-9 &&
+      Math.abs(critDamageMul(9, 3) - 1.68) < 1e-9 &&
+      Math.abs(critDamageMul(100, 2) - 2.8333333333333335) < 1e-9 &&
+      Math.abs(critDamageMul(100, 3) - 3.5) < 1e-9,
+  )
+
+  // R1② 精益求精 0 层恒为 1.5（rate 多大都一样）
+  assert(
+    'refine mul 0 picks 1.5',
+    critDamageMul(0, 0) === 1.5 &&
+      critDamageMul(0, 1) === 1.5 &&
+      critDamageMul(100, 0) === 1.5 &&
+      critDamageMul(500, 0) === 1.5,
+  )
+
+  // R2 伤害向上取整助手：非整数进位、整数幂等、非有限值兜底 0
+  assert(
+    'damage ceil integer',
+    ceilDamage(12.3) === 13 &&
+      ceilDamage(0.4) === 1 &&
+      ceilDamage(62.5) === 63 &&
+      ceilDamage(40) === 40 &&
+      ceilDamage(0) === 0 &&
+      ceilDamage(88.00000000000001) === 89 && // 纯 Math.ceil，不做 epsilon 兜底
+      ceilDamage(Number.NaN) === 0,
+  )
+
+  // R2 非暴击路径实战：战士半蓄 22×1.3=28.6 → 29；法师满蓄 25×1.5=37.5 → 38，
+  // 且飘字（onDamage 的 d）与扣血完全一致、都是整数。
+  {
+    const wHit = makeCreep(40, 200)
+    const wCombat = createCombat({
+      player: mkFireP('warrior'),
+      targets: [wHit],
+      weapon: createBow({ charId: 'warrior' }),
+    })
+    wCombat.tryFire(0.5)
+    const warriorDmg = wCombat.bullets[0].damage
+    const mHit = makeCreep(40, 200)
+    const mLog = []
+    const mCombat = createCombat({
+      player: mkFireP('mage'),
+      targets: [mHit],
+      weapon: createBow({ charId: 'mage' }),
+      hooks: { onDamage: (t, d) => mLog.push(d) },
+    })
+    mCombat.tryFire(1)
+    const mageDmg = mCombat.bullets[0].damage
+    for (let i = 0; i < 30; i++) mCombat.update(0.016)
+    assert(
+      'damage ceil non crit',
+      warriorDmg === 29 &&
+        Number.isInteger(warriorDmg) &&
+        mageDmg === 38 &&
+        Number.isInteger(mageDmg) &&
+        mHit.hp === 200 - 38 &&
+        mLog.length === 1 &&
+        mLog[0] === 38 &&
+        Number.isInteger(mLog[0]),
+    )
+  }
+
+  // R3 定神 +100 是「真实暴击率」，照常进连续倍率：直接构造「基础 0 + 100」= 100 →
+  // 1.5 + 0.02 × (100 / 3) × 2 = 2.8333…（旧 ceil 口径会给 2.86 → 115，与本断言不同）
+  {
+    const steadyP = { ...mkFireP(), steadyArmed: true }
+    steadyP.consumeSteadyCrit = function () {
+      if (!this.steadyArmed) return false
+      this.steadyArmed = false
+      return true
+    }
+    const steadyW = createBow()
+    steadyW.refinePicks = 2 // 基础暴击率仍为 0，纯构造「0 + 100」
+    const steadyC = createCombat({ player: steadyP, targets: [], weapon: steadyW })
+    steadyC.tryFire(1)
+    const steadyShot = steadyC.bullets[0]
+    assert(
+      'steady 100 feeds continuous mul',
+      steadyW.critRate === 0 &&
+        STEADY_CRIT_RATE_BONUS === 100 &&
+        Math.abs(critDamageMul(0 + STEADY_CRIT_RATE_BONUS, 2) - 2.8333333333333335) < 1e-9 &&
+        steadyShot.crit === true &&
+        steadyShot.damage === 114,
+    )
+  }
 }
 
 console.log(
