@@ -26,11 +26,6 @@ import {
   CREEP_HP,
   CREEP_SRC,
   creepFrameAt,
-  grayFrameSrcs,
-  grayTreeFrameAt,
-  GRAY_ANIM_SEC,
-  GRAY_FRAME_NAMES,
-  GRAY_FRAMES,
   GRAY_SRC,
   iceBulletRotation,
   ICE_BULLET_SPRITE_DRAW,
@@ -49,6 +44,8 @@ import {
   ICE_MAN_SRC,
   ORCHID_SRC,
   ICE_BULLET_SRC,
+  SCORPION_BULLET_SRC,
+  SCORPION_BULLET_SPRITE_DRAW,
   ARMOR_DMG_MUL,
   ARMOR_OUTLINE,
   GRAY_BURST_COUNT,
@@ -143,6 +140,8 @@ import {
   ICE_BULLET_DMG,
   ICE_LEAVE_MARGIN,
 } from './index.js'
+// 命名空间导入：用于断言「已删除的帧序 API 真的不存在」（批次7 移除灰树序列帧）。
+import * as enemiesModule from './index.js'
 import {
   GRAY_HP0,
   GRAY_SELF_DMG_MAX0,
@@ -1559,32 +1558,37 @@ assert(
 }
 
 {
-  // R2①：灰树 4 帧，0.1s/帧、0.4s 一轮、纯函数口径同小怪。
-  const missing = GRAY_FRAME_NAMES.filter((n) => !fs.existsSync(path.join(GRAY_ASSET_DIR, n)))
-  assert(
-    'graytree frames 4',
-    GRAY_FRAMES === 4 &&
-      Math.abs(GRAY_ANIM_SEC - 0.4) < 1e-12 &&
-      GRAY_FRAME_NAMES.length === 4 &&
-      grayFrameSrcs().length === 4 &&
-      GRAY_SRC.includes('灰树.png'),
+  // R2①：灰树回单帧 —— 只画 树木/灰树.png 第 1 帧；帧序常量与取帧 API 已删。
+  // R2③：灰树-2/-3/-4.png **不删素材**（仍在磁盘上，只是不再引用）。
+  const backupsExist = ['灰树-2.png', '灰树-3.png', '灰树-4.png'].every((n) =>
+    fs.existsSync(path.join(GRAY_ASSET_DIR, n)),
   )
   assert(
-    'graytree anim time driven',
-    grayTreeFrameAt(0) === 0 &&
-      grayTreeFrameAt(0.1) === 1 &&
-      grayTreeFrameAt(0.2) === 2 &&
-      grayTreeFrameAt(0.3) === 3 &&
-      grayTreeFrameAt(0.4) === 0 &&
-      grayTreeFrameAt(0.5) === 1 &&
-      grayTreeFrameAt(-1) === 0 &&
-      grayTreeFrameAt(Number.NaN) === 0 &&
-      [0, 0.1, 0.2, 0.3, 0.4, 9.9].every((t) => {
-        const i = grayTreeFrameAt(t)
-        return Number.isInteger(i) && i >= 0 && i < GRAY_FRAMES
-      }),
+    'graytree back to single frame',
+    GRAY_SRC.includes('树木/灰树.png') &&
+      !GRAY_SRC.includes('灰树-2') &&
+      !('GRAY_FRAMES' in enemiesModule) &&
+      !('GRAY_FRAME_NAMES' in enemiesModule) &&
+      !('GRAY_ANIM_SEC' in enemiesModule) &&
+      !('grayFrameSrcs' in enemiesModule) &&
+      backupsExist,
   )
-  assert('graytree 4 frame assets exist', missing.length === 0)
+}
+
+{
+  // R2①：灰树没有序列帧状态、也没有取帧路径 —— 时间推进不会换帧（始终第 1 帧）。
+  const foes = createEnemies({ random: () => 0.5 })
+  const tree = foes.spawnGrayAt(focus.x + 200, focus.y + 200, GRAY_HP0)
+  const f0 = foes.animFrameOf(tree)
+  foes.update(1, focus, camera, 0)
+  assert(
+    'graytree no frame anim',
+    tree.animPhase === undefined &&
+      tree.animT === undefined &&
+      f0 === 0 &&
+      foes.animFrameOf(tree) === 0 &&
+      !('grayTreeFrameAt' in enemiesModule),
+  )
 }
 
 {
@@ -1650,30 +1654,68 @@ assert(
 }
 
 {
-  // R2②：灰树动画不碰自损口径与「被砍毁 → 4 只裂怪」流程；相位按实例错开。
+  // R2②：回单帧不碰「被砍毁 → 4 只裂怪」流程（自损伤害与百分比生命由既有断言覆盖）。
   const foes = createEnemies({ random: () => 0.5 })
-  const a = foes.spawnGrayAt(focus.x + 200, focus.y + 200, GRAY_HP0)
-  const b = foes.spawnGrayAt(focus.x - 200, focus.y - 200, GRAY_HP0)
-  assert(
-    'graytree anim phase per instance',
-    a.animPhase !== b.animPhase &&
-      foes.animFrameOf(a) === grayTreeFrameAt(a.animT + a.animPhase * GRAY_ANIM_SEC) &&
-      foes.animFrameOf(b) === grayTreeFrameAt(b.animT + b.animPhase * GRAY_ANIM_SEC),
-  )
-  foes.update(GRAY_ANIM_SEC, focus, camera, 0)
-  assert(
-    'graytree anim keeps gameplay fields',
-    a.hp === GRAY_HP0 &&
-      b.hp === GRAY_HP0 &&
-      Math.abs(a.animT - GRAY_ANIM_SEC) < 1e-9 &&
-      Math.abs(b.animT - GRAY_ANIM_SEC) < 1e-9,
-  )
-  a.takeHit(9999)
+  const tree = foes.spawnGrayAt(focus.x + 200, focus.y + 200, GRAY_HP0)
+  tree.takeHit(9999)
   foes.update(0.01, focus, camera, 0)
-  assert('graytree anim keeps burst armed', foes.bursts.length === 1)
   foes.update(0.01, focus, camera, GRAY_BURST_DELAY)
   foes.update(0.8, focus, camera, GRAY_BURST_DELAY + 0.8)
-  assert('graytree anim keeps 4 splits', foes.creeps().length === GRAY_BURST_COUNT)
+  assert(
+    'graytree single frame keeps burst & splits',
+    foes.bursts.length === 0 && foes.creeps().length === GRAY_BURST_COUNT,
+  )
+}
+
+// —— P42 批次7 R1：蝎子怪子弹与冰人冰锥彻底拆开（批次6 曾把两者串成同一张冰锥贴图） ——
+assert(
+  'scorpion bullet uses old sprite',
+  SCORPION_BULLET_SRC.includes('怪物子弹.png') &&
+    !SCORPION_BULLET_SRC.includes('冰锥') &&
+    SCORPION_BULLET_SPRITE_DRAW === ICE_BULLET_DRAW &&
+    SCORPION_BULLET_SPRITE_DRAW === 4,
+)
+
+{
+  // 真开一枪：蝎子开火产生的弹体必须走「旧弹体」口径（不是冰人的冰锥）。
+  const foes = createEnemies({ random: () => 0.5 })
+  const bug = foes.spawnScorpionAt(focus.x + BODY * 5, focus.y)
+  bug.shotCd = 0
+  foes.update(0.016, focus, camera, 0)
+  const b = foes.iceBullets[0]
+  assert(
+    'scorpion bullet not icicle',
+    b &&
+      b.kind === 'scorpion' &&
+      b.kind !== 'ice' &&
+      b.w === ICE_BULLET_DRAW &&
+      b.h === ICE_BULLET_DRAW &&
+      b.dmg === 1 &&
+      Math.abs(Math.hypot(b.vx, b.vy) - SCORPION_BULLET_SPEED) < 1e-9 &&
+      SCORPION_BULLET_SRC !== ICE_BULLET_SRC &&
+      !SCORPION_BULLET_SRC.includes('冰锥'),
+  )
+}
+
+{
+  // 冰人开一轮弹幕：产生的弹体必须仍走冰锥口径（贴图 + 12px + 尖头补偿 + dmg 2）。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 40, focus.y, focus)
+  boss.barrageCd = 0
+  foes.update(0.016, focus, camera, 0)
+  const b = foes.iceBullets[0]
+  assert(
+    'iceman bullet keeps icicle',
+    b &&
+      b.kind === 'ice' &&
+      ICE_BULLET_SRC.includes('冰锥.png') &&
+      !ICE_BULLET_SRC.includes('怪物子弹') &&
+      ICE_BULLET_SPRITE_DRAW === 12 &&
+      Math.abs(ICE_BULLET_TIP_OFFSET - Math.PI / 2) < 1e-12 &&
+      b.w === ICE_BULLET_DRAW &&
+      b.dmg === ICE_BULLET_DMG &&
+      Math.abs(Math.hypot(b.vx, b.vy) - ICE_BULLET_SPEED) < 1e-9,
+  )
 }
 
 assert(
@@ -1711,7 +1753,8 @@ assert(
 }
 
 {
-  // R3①：速度/伤害/生成节奏/预警不变 —— 判定盒仍是 ICE_BULLET_DRAW，弹速与伤害不变。
+  // R3①（批次6，仍生效）：速度/伤害/生成节奏/预警不变 —— 判定盒仍是 ICE_BULLET_DRAW，弹速与伤害不变。
+  // 批次7 补充：冰人这条路径的弹体必须带 kind='ice'（与蝎子的 'scorpion' 分开）。
   const foes = createEnemies({ random: () => 0.5 })
   const boss = foes.spawnIceManAt(focus.x + 40, focus.y, focus)
   boss.barrageCd = 0
@@ -1720,6 +1763,7 @@ assert(
   assert(
     'ice bullet keeps gameplay fields',
     b &&
+      b.kind === 'ice' &&
       b.w === ICE_BULLET_DRAW &&
       b.h === ICE_BULLET_DRAW &&
       b.dmg === ICE_BULLET_DMG &&

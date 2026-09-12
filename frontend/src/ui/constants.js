@@ -63,8 +63,11 @@ export const BOND_UNITY_THRESHOLDS = [2, 4, 6, 8]
 
 export const BOND_VAJRA_THRESHOLDS = [7]
 
-/** 生生不息：3 档 / 5 档（5 个计入项，全拿 = 档 5）。 */
-export const BOND_SHENG_THRESHOLDS = [3, 5]
+/**
+ * 生生不息：3 档 / 5 档 / 8 档（当前只计 5 种升级，全拿 = 档 5）。
+ * 档 8 当前不可达（只计 5 种升级，等后续加计入项）—— 保留档位与文案，避免被当成 bug。
+ */
+export const BOND_SHENG_THRESHOLDS = [3, 5, 8]
 
 /** 档 5：每 45s 回 1 心（满血不回、计时照走）。 */
 export const BOND_SHENG_HEAL_SEC = 45
@@ -194,6 +197,28 @@ export const UPGRADE_THORN = 'thorn'
 
 export const UPGRADE_NOURISH = 'nourish'
 
+/** P42 批次7：贪婪（高级项；**不计入任何羁绊**，图标未过审 → 局内空白方块）。 */
+export const UPGRADE_GREED = 'greed'
+
+/** 贪婪：获取经验时 50% 概率再获得一次经验；每层 +10%、上限 100%；触发后 0.1s 冷却。 */
+export const GREED_CHANCE_BASE = 50
+
+export const GREED_CHANCE_STEP = 10
+
+export const GREED_CHANCE_MAX = 100
+
+export const GREED_COOLDOWN_SEC = 0.1
+
+/**
+ * 贪婪层数为 picks 时的触发概率（%）。
+ * 0 层未持有 → 0；≥1 层 = min(100, 50 + 10 × (picks − 1))。
+ */
+export function greedChance(picks) {
+  const n = Math.max(0, picks | 0)
+  if (n <= 0) return 0
+  return Math.min(GREED_CHANCE_MAX, GREED_CHANCE_BASE + GREED_CHANCE_STEP * (n - 1))
+}
+
 /** 滋补：每击杀 1000 个敌人回 1 心；每层 −100，下限 100。 */
 export const NOURISH_KILL_BASE = 1000
 
@@ -300,6 +325,8 @@ export const UPGRADES = [
   { id: UPGRADE_THORN, title: '荆棘', desc: '受击时对 2 身位内敌人造成 攻击×150%（每层 +50%，范围 +0.5 身位）', bond: BOND_SHENG },
 
   { id: UPGRADE_NOURISH, title: '滋补', desc: '每击杀 1000 个敌人回复 1 滴血（每层 −100）', bond: BOND_SHENG },
+
+  { id: UPGRADE_GREED, title: '贪婪', desc: '获取经验时 50% 概率再获得一次经验（每层 +10% 概率，最高 100%）', tier: 'advanced' },
 
   { id: UPGRADE_EGG, title: '奇怪的蛋', desc: '生成 1 个可成长的蛋跟班；可叠', tier: 'advanced', bond: BOND_UNITY },
 
@@ -550,12 +577,13 @@ export const BOND_TIERS = {
     { rank: 8, text: '跟班移速 +0.2；伤害 +10；优先攻击角色的目标' },
   ],
   [BOND_VAJRA]: [
-    { rank: 7, text: '每 3.0s 释放七色脉冲（范围 1.5 身位，伤害攻击×1.3，独立暴击；减速 30% 持续 0.4s）' },
-    { rank: 7, text: '所有葫芦娃效果值 +10%（加法）' },
+    { rank: 7, text: '每 3.0s 释放七色脉冲（3 身位，伤害 攻击×2，每次单独掷暴击；减速 30% 持续 0.4s；不击退、不点燃、不破六娃失锁）' },
+    { rank: 7, text: '每个兄弟的效果按「再获得一次」生效（大娃 / 二娃 / 三娃 / 四娃 / 五娃 / 六娃 / 七娃 各按层数 +1 计算）' },
   ],
   [BOND_SHENG]: [
     { rank: 3, text: '受击后 1.5s 移速 +0.20' },
     { rank: 5, text: '每 45s 回 1 心（满血不回）' },
+    { rank: 8, text: '受致命伤时以 1 血复活；复活后需再回血 5 次才能再次触发' },
   ],
 }
 

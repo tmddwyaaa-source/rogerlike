@@ -9,6 +9,8 @@
  * P25：三娃护甲（armor / addArmor / getArmor）、六娃失锁脉冲（unlockLevel / applyUnlockPulse / unlockDurationFor）。
  * P42：受击后限时移速加成 applyHurtSpeedBuff（增量法，不改 speedUnits；计时走 update；死亡不再生效）。
  * P42：power「定神」applyPower('steady') / consumeSteadyCrit（静止 0.15s 就绪；只有 WASD 移动会打断，瞄准/蓄力/攻击后摇/受击都不打断；暴击判定在战斗侧）。
+ * P42 批次7：小金刚「再获得一次」玩家侧——setVajraComplete(on) 后三娃护甲按层数 ×2、六娃失锁按 picks+1 层（取代旧的「效果值 +10%」口径）。
+ * P42 批次7：生生不息档 8 复活接口 tryRevive / isReviveReady / reviveHealsLeft（冷却 = 复活后再发生 5 次真实回血；档位判定由 M1 接线）。
  */
 import {
   BODY,
@@ -127,6 +129,25 @@ export const HURT_SPEED_BUFF_SEC = 1.5
  * `consumeSteadyCrit()` 决定，玩家侧不实现暴击。
  */
 export const STEADY_STILL_SEC = 0.15
+
+/**
+ * P42 批次7：小金刚「再获得一次」——集齐七兄弟后，每个兄弟的升级效果**按层数 +1 生效**。
+ *
+ * 玩家侧覆盖两个兄弟，都靠 `setVajraComplete(true)` 开关（由 M1 在 match.js 的 syncVajra 里接线，
+ * player 自己**不读**羁绊档位）：
+ * - **三娃**（护甲）：再获得一次 = 同一份护甲再发一次 ⇒ `addArmor(n)` 实际 +2n 层（1 层 → 2 层）；
+ * - **六娃**（失锁）：时长公式按 `picks + 1` 层算 ⇒ `1.0s + 0.5s × (层数 + 1)`。
+ *
+ * **旧的「效果值 +10%（加法）」口径作废**（三娃 +1 层甲 / 六娃 +0.25s）：player 侧不留任何
+ * ×1.1 / +10% / +0.25s 分支 —— 那是「加法百分比」，与「再获得一次」是两回事。
+ */
+export const VAJRA_REOBTAIN_LAYERS = 1
+
+/**
+ * P42 批次7 · 生生不息**档 8**：受致命伤时以 **1 血复活**。
+ * 冷却口径 = 复活后需要再发生 **5 次真实回血**（每次 `heal()` 真的增加了 hp 计 1 次，满血不回血不计）。
+ */
+export const REVIVE_HEAL_COUNT = 5
 
 /** P25 三娃护甲：整数层，可无限叠，抵挡一次完整伤害。 */
 export const ARMOR_OUTLINE = '#e0b84a'
@@ -300,6 +321,11 @@ export function createPlayer(opts = {}) {
     steadyEnabled: false,
     steadyT: 0,
     steadyArmed: false,
+    /** P42 批次7：小金刚集齐标记（M1 在 match.js 的 syncVajra 里 setVajraComplete；player 不读羁绊档位）。 */
+    vajraComplete: false,
+    /** P42 批次7 · 档 8 复活：是否就绪 / 复活后还差几次真实回血才恢复就绪（只读查询走 reviveHealsLeft()）。 */
+    reviveReady: true,
+    reviveCdLeft: 0,
     deathT: 0,
     animTime: 0,
     anim: 'Idle',
@@ -333,6 +359,14 @@ export function createPlayer(opts = {}) {
     addUnlockLevel,
     setUnlockLevel,
     currentUnlockDuration,
+    /** P42 批次7：小金刚「再获得一次」开关与六娃当前生效层数。 */
+    setVajraComplete,
+    getVajraComplete,
+    effectiveUnlockLayers,
+    /** P42 批次7 · 档 8 复活接口（档位判定由 M1 接线，player 只认「就绪/冷却」）。 */
+    tryRevive,
+    isReviveReady,
+    reviveHealsLeft,
     applyUnlockPulse,
     isTargetBlind,
     isEnemyUnlocked,
@@ -408,6 +442,8 @@ export function createPlayer(opts = {}) {
     const next = Math.min(player.hpMax, player.hp + n)
     if (next === player.hp) return false
     player.hp = next
+    // P42 批次7 · 档 8：**真实回血**各计 1 次（按次不按血量）；满血 / 死亡 / 非法调用在上面已 return，不计。
+    stepReviveCooldown()
     return true
   }
 
@@ -513,9 +549,29 @@ export function createPlayer(opts = {}) {
     return true
   }
 
+  /**
+   * P42 批次7：小金刚集齐标记（M1 在 match.js 的 syncVajra 里接线，与 `combat.setVajraComplete` 同一处）。
+   * player **不读**羁绊档位，只认这个开关。
+   */
+  function setVajraComplete(on) {
+    player.vajraComplete = Boolean(on)
+    return player.vajraComplete
+  }
+
+  function getVajraComplete() {
+    return player.vajraComplete
+  }
+
+  /** P42 批次7：六娃失锁的**生效层数** = 已选层数 +（小金刚「再获得一次」的 1 层）。 */
+  function effectiveUnlockLayers() {
+    return player.unlockLevel + (player.vajraComplete ? VAJRA_REOBTAIN_LAYERS : 0)
+  }
+
   function addArmor(n = 1) {
     const add = Math.max(0, Math.floor(Number(n) || 0))
-    player.armor += add
+    // P42 批次7：小金刚「再获得一次」= 同一份护甲再发一次 ⇒ 实际 +2n 层（1 层 → 2 层，整数层不变）。
+    const grant = player.vajraComplete ? add * 2 : add
+    player.armor += grant
     return player.armor
   }
 
@@ -535,12 +591,49 @@ export function createPlayer(opts = {}) {
   }
 
   function currentUnlockDuration() {
-    return unlockDurationFor(player.unlockLevel)
+    // P42 批次7：六娃按 picks+1 生效（小金刚「再获得一次」）。
+    return unlockDurationFor(effectiveUnlockLayers())
+  }
+
+  /**
+   * P42 批次7 · 生生不息档 8：致命伤 → **1 血复活**（接口层，只提供「就绪 / 冷却」）。
+   *
+   * - 由 M1 在 `match.js` 的 `onHurt` 里按「生生不息档位 ≥ 8 且 hp ≤ 0」调用；player 不读羁绊档位。
+   * - 就绪 → `hp` 置 1、清掉死亡计时（**不进死亡流程**）、消耗这次机会并进入冷却（再发生
+   *   `REVIVE_HEAL_COUNT` 次真实回血后恢复就绪），返回 true；
+   * - 未就绪 → 返回 false；此时死亡流程与既有行为**完全不变**。
+   */
+  function tryRevive() {
+    if (!player.reviveReady) return false
+    player.reviveReady = false
+    player.reviveCdLeft = REVIVE_HEAL_COUNT
+    player.hp = 1
+    player.deathT = 0
+    return true
+  }
+
+  function isReviveReady() {
+    return player.reviveReady
+  }
+
+  /** 还差几次真实回血才恢复就绪；已就绪返回 0。 */
+  function reviveHealsLeft() {
+    return player.reviveReady ? 0 : player.reviveCdLeft
+  }
+
+  /** P42 批次7：一次**真实回血**记 1 次；满 5 次恢复就绪（每次 heal 调用算 1 次，不按回血量）。 */
+  function stepReviveCooldown() {
+    if (player.reviveReady) return
+    player.reviveCdLeft -= 1
+    if (player.reviveCdLeft <= 0) {
+      player.reviveCdLeft = 0
+      player.reviveReady = true
+    }
   }
 
   /** P25/P30 六娃失锁：对 3 身位内活敌写入剩余秒数 unlockT（M6/enemies 只读并负责衰减）。 */
   function applyUnlockPulse(targets, duration) {
-    const dur = duration ?? unlockDurationFor(player.unlockLevel)
+    const dur = duration ?? unlockDurationFor(effectiveUnlockLayers())
     if (!Array.isArray(targets)) return 0
     const r = UNLOCK_RADIUS
     let n = 0
@@ -574,7 +667,7 @@ export function createPlayer(opts = {}) {
     while (player.unlockTimer >= UNLOCK_PULSE_INTERVAL_SEC) {
       player.unlockTimer -= UNLOCK_PULSE_INTERVAL_SEC
       player.unlockPulseCount += 1
-      const duration = unlockDurationFor(player.unlockLevel)
+      const duration = unlockDurationFor(effectiveUnlockLayers())
       // P27 扩散圈特效：每次脉冲从角色中心扩散。
       player.unlockRings.push({
         x: player.x,

@@ -1,6 +1,7 @@
 /**
  * M5 蓄力箭自测。运行：在 frontend/ 下 `node src/game/combat/selftest.mjs`
  */
+import fs from 'node:fs'
 import { BODY, WORLD_HEIGHT, WORLD_WIDTH } from '../constants.js'
 import {
   ATTACK_BASE,
@@ -60,7 +61,6 @@ import {
   warriorKnockback,
   FIRE_DURATION_SEC,
   FIRE_DMG_PER_PICK,
-  FIRE_DMG_PER_PICK_BOOST,
   PULSE_INTERVAL_SEC,
   PULSE_RADIUS_MUL,
   PULSE_DMG_MUL,
@@ -83,6 +83,11 @@ import {
   REFINE_CRIT_STEP,
   STEADY_CRIT_RATE_BONUS,
   ceilDamage,
+  THORN_FX_FRAMES,
+  THORN_FX_FPS,
+  GIANT_SIZE_PER_PICK,
+  vajraPicks,
+  fireDps,
 } from './index.js'
 
 let failed = 0
@@ -984,17 +989,43 @@ assert(
   cSfxFast.bullets.length === 1 && fastLog.length === 1 && fastLog[0] === 'shoot',
 )
 
-// P25 M5：四娃点燃 / 五娃减速 / 高级击退 / 七色脉冲 / 集齐后效果 +10%
+// P25 M5：四娃点燃 / 五娃减速 / 高级击退 / 七色脉冲；P42 批次7：集齐七兄弟改「再获得一次（层数 +1）」
 assert('FIRE_DURATION_SEC 3', FIRE_DURATION_SEC === 3)
-assert('FIRE_DMG_PER_PICK 0.3/0.4', FIRE_DMG_PER_PICK === 0.3 && FIRE_DMG_PER_PICK_BOOST === 0.4)
-assert('fireDpsPerPick boost', fireDpsPerPick(false) === 0.3 && fireDpsPerPick(true) === 0.4)
-assert('waterSlowPct boost', waterSlowPct(false) === 0.2 && waterSlowPct(true) === 0.3)
+assert('FIRE_DMG_PER_PICK 0.3 base', FIRE_DMG_PER_PICK === 0.3)
+assert(
+  'vajra reobtain fire',
+  fireDpsPerPick() === 0.3 &&
+    fireDps(1, false) === 0.3 &&
+    Math.abs(fireDps(1, true) - 0.6) < 1e-9 && // 1 层 + 集齐 = 2 层
+    Math.abs(fireDps(2, true) - 0.9) < 1e-9 && // 0.3×3（浮点：0.899999…，用容差）
+    vajraPicks(1, true) === 2,
+)
+assert(
+  'vajra reobtain water',
+  waterSlowPct() === 0.2 &&
+    waterSlowSec(1, false) === 0.3 &&
+    waterSlowSec(1, true) === 0.5 &&
+    waterSlowSec(2, true) === 0.7,
+)
 assert('waterSlowSec layers', waterSlowSec(1) === 0.3 && Math.abs(waterSlowSec(2) - 0.5) < 1e-9)
 assert('BASE_KNOCKBACK_BODIES 0.5', BASE_KNOCKBACK_BODIES === 0.5)
 assert('knockback bonus 2 picks = 2 BODY', Math.abs(knockbackBonusForPicks(2) - BODY * 2) < 1e-9)
 assert('erse chance base', erseChance(1, false) === 20 && erseChance(3, false) === 60)
-assert('erse chance boost', erseChance(1, true) === 30 && erseChance(4, true) === 100)
+assert(
+  'vajra reobtain erse',
+  erseChance(1, true) === 40 && erseChance(2, true) === 60 && erseChance(4, true) === 100,
+)
 assert('erse chance cap', erseChance(6, false) === 100)
+// 批次7 R3：旧的「各兄弟效果 +10%」boost 分支/常量已删除（直接扫源码，避免残留死常量）
+assert(
+  'vajra no more plus10 pct',
+  fireDpsPerPick() === 0.3 &&
+    waterSlowPct() === 0.2 &&
+    erseChancePerPick() === 20 &&
+    !/FIRE_DMG_PER_PICK_BOOST|WATER_SLOW_BOOST|ERSE_CHANCE_PER_PICK_BOOST/.test(
+      fs.readFileSync(new URL('../weapons/index.js', import.meta.url), 'utf8'),
+    ),
+)
 
 {
   const eW = createBow()
@@ -1043,17 +1074,41 @@ const cPulse2 = createCombat({ player: pulseP2, targets: [pulseHit2], weapon: pu
 cPulse2.setVajraComplete(true)
 assert('vajra flag', cPulse2.getVajraComplete() === true && pulseW2.vajraComplete === true)
 cPulse2.update(PULSE_INTERVAL_SEC)
-assert('pulse dmg attack×1.3', Math.abs(pulseHit2.hp - (200 - ATTACK_BASE * PULSE_DMG_MUL)) < 1e-9)
+assert('pulse dmg 2x', PULSE_DMG_MUL === 2 && Math.abs(pulseHit2.hp - (200 - ATTACK_BASE * 2)) < 1e-9)
 assert('pulse slow 30%/0.4s', Math.abs(pulseHit2.slowFactor - (1 - PULSE_SLOW)) < 1e-9 && pulseHit2.slowLeft === PULSE_SLOW_SEC)
-assert('pulse constants', PULSE_RADIUS_MUL === 1.5 && PULSE_DMG_MUL === 1.3 && PULSE_SLOW === 0.3 && PULSE_SLOW_SEC === 0.4)
+assert('pulse constants', PULSE_RADIUS_MUL === 3 && BODY * PULSE_RADIUS_MUL === 66 && PULSE_DMG_MUL === 2 && PULSE_SLOW === 0.3 && PULSE_SLOW_SEC === 0.4)
+
+// P42 批次7 R2：脉冲半径 1.5 → 3 身位（3 身位内命中、刚好外侧不命中；伤害 ×2）
+{
+  const inP = mkFireP()
+  const inW = createBow()
+  const near = makeCreep(BODY * 3, 200)
+  const far = makeCreep(BODY * 3 + 1, 200)
+  const cIn = createCombat({ player: inP, targets: [near, far], weapon: inW })
+  cIn.setVajraComplete(true)
+  cIn.update(PULSE_INTERVAL_SEC)
+  assert(
+    'pulse radius 3 bodies',
+    PULSE_RADIUS_MUL === 3 &&
+      near.hp === 200 - ATTACK_BASE * 2 &&
+      far.hp === 200,
+  )
+}
 
 {
   const gW2 = createBow()
   gW2.applyUpgrade('giant')
   assert('giant base 1.4', Math.abs(gW2.sizeMul - 1.4) < 1e-9)
   gW2.setVajraComplete(true)
-  assert('giant boost 1.5', Math.abs(gW2.sizeMul - 1.5) < 1e-9)
-  assert('giantSizeMul boost', Math.abs(giantSizeMul(1, true) - 1.5) < 1e-9)
+  // P42 批次7 R3：集齐 → 层数 +1（1 层变 2 层 → 1.8），不再是旧的 +10%（1.5）
+  assert(
+    'vajra reobtain giant',
+    GIANT_SIZE_PER_PICK === 0.4 &&
+      Math.abs(gW2.sizeMul - 1.8) < 1e-9 &&
+      Math.abs(giantSizeMul(1, true) - 1.8) < 1e-9 &&
+      Math.abs(giantSizeMul(3, true) - 2.6) < 1e-9 &&
+      Math.abs(giantSizeMul(3, false) - 2.2) < 1e-9,
+  )
 }
 
 const fbP2 = mkFireP()
@@ -1064,7 +1119,7 @@ const fbHit2 = makeCreep(40, 200)
 const cFb2 = createCombat({ player: fbP2, targets: [fbHit2], weapon: fbW2 })
 cFb2.tryFire(1)
 for (let i = 0; i < 30; i++) cFb2.update(0.016)
-assert('fire boost dps 40%', Math.abs(fbHit2.burnDps - ATTACK_BASE * 0.4) < 1e-9)
+assert('vajra fire live burn dps', Math.abs(fbHit2.burnDps - ATTACK_BASE * 0.6) < 1e-9)
 
 // P28 B2/B3：伤害数字传实际伤害（不按剩余血量截断）+ 暴击倍率信息
 const truncP = mkFireP()
@@ -1212,6 +1267,76 @@ const setThornPicksOn = (c, n) => {
       t2.hp === 400 - ATTACK_BASE * 2 && // 2 层 ×2.0
       mul3.hp === 400 - ATTACK_BASE * 2.5 && // 3 层 ×2.5
       t0.hp === 400, // 0 层零伤害
+  )
+}
+
+// P42 批次7 R1：荆棘 4 帧爆发特效（纯表现，不改判定）
+{
+  const thornFxOf = (c) => (typeof c?.getThornFx === 'function' ? c.getThornFx() : [])
+  const mkThornC = (picks, opts = {}) => {
+    const w = createBow()
+    const c = createCombat({ player: mkFireP(opts.charId), targets: opts.targets ?? [], weapon: w })
+    setThornPicksOn(c, picks)
+    return c
+  }
+
+  // ① 触发时以角色为中心生成一次；0 层不触发
+  const fxP = mkFireP()
+  const fxC = createCombat({ player: fxP, targets: [], weapon: createBow() })
+  setThornPicksOn(fxC, 1)
+  const fxBefore = thornFxOf(fxC).length
+  thornBurstOf(fxC)
+  const fx = thornFxOf(fxC)
+  const zeroC = mkThornC(0)
+  thornBurstOf(zeroC)
+  assert(
+    'thorn burst fx spawned',
+    fxBefore === 0 &&
+      fx.length === 1 &&
+      fx[0].x === fxP.x &&
+      fx[0].y === fxP.y &&
+      thornFxOf(zeroC).length === 0,
+  )
+  // 同屏上限：反复触发不无限增长（帧率保护）
+  for (let i = 0; i < 20; i++) thornBurstOf(fxC)
+  const fxMany = thornFxOf(fxC).length
+  assert('thorn burst fx capped', fxMany >= 1 && fxMany <= 8, `len=${fxMany}`)
+
+  // ② 4 帧 @10fps：帧号随时间 0 → 1 → 3
+  const animC = mkThornC(1)
+  thornBurstOf(animC)
+  const framesSeen = [thornFxOf(animC)[0]?.frame]
+  animC.update(0.1)
+  framesSeen.push(thornFxOf(animC)[0]?.frame)
+  animC.update(0.2)
+  framesSeen.push(thornFxOf(animC)[0]?.frame)
+  assert(
+    'thorn burst fx 4 frames',
+    THORN_FX_FRAMES === 4 &&
+      THORN_FX_FPS === 10 &&
+      Math.abs(THORN_FX_FRAMES / THORN_FX_FPS - 0.4) < 1e-9 &&
+      framesSeen.join(',') === '0,1,3',
+    `frames=${framesSeen.join(',')}`,
+  )
+
+  // ③ 播完即消失、不循环（先确认它确实存在过，再确认它没了——避免空数组假通过）
+  const sawFx = thornFxOf(animC).length === 1
+  animC.update(0.1)
+  assert('thorn burst fx expires', sawFx && thornFxOf(animC).length === 0)
+
+  // ④ 显示尺寸跟当前荆棘半径走（直径 = 2 × 半径），不是写死 96
+  const sizeFor = (picks) => {
+    const c = mkThornC(picks)
+    thornBurstOf(c)
+    const f = thornFxOf(c)[0]
+    return f ? f.draw : -1
+  }
+  assert(
+    'thorn burst fx follows radius',
+    sizeFor(1) === 88 && // 2 身位半径 44 → 直径 88
+      sizeFor(2) === 110 && // 2.5 身位半径 55 → 110
+      sizeFor(4) === 154 && // 3.5 身位半径 77 → 154
+      sizeFor(1) !== 96,
   )
 }
 

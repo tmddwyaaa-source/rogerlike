@@ -68,6 +68,9 @@ import {
   UPGRADE_SURVIVE,
   UPGRADE_THORN,
   UPGRADE_NOURISH,
+  UPGRADE_GREED,
+  GREED_COOLDOWN_SEC,
+  greedChance,
   UPGRADES,
   POWER_TITLE,
   POWER_UNIQUE_IDS,
@@ -368,6 +371,11 @@ export function applyUpgrade(id, ctx = {}) {
     }
     return true
   }
+  if (id === UPGRADE_GREED) {
+    // P42 批次7（R1）：贪婪只做层数记账（recordPicked 里 +1）与概率/冷却（session.rollGreedBonus 消费）；
+    // 不计入任何羁绊（def 里没有 bond 字段），也没有战斗/玩家侧副作用。
+    return true
+  }
   if (id === UPGRADE_LIUWA) {
     if (player) {
       if (typeof player.addUnlockLevel === 'function') { player.addUnlockLevel(1); return true }
@@ -582,6 +590,8 @@ export function createSession() {
     beginPowerOffer,
     applyPowerChoice,
     powerCandidates,
+    rollGreedBonus,
+    greedPicks: () => greedPicks,
     pause,
     resume,
     recordMemory,
@@ -601,6 +611,9 @@ export function createSession() {
   // P42 批次3：power（激发力量）——每 10 级欠一次；唯一项只拿一次，sp-power 可无限叠。
   const powerTaken = []
   let powerPending = 0
+  // P42 批次7（TASK-050）：贪婪——层数 + 触发冷却（冷却由 per-frame tick 按真实时间递减）。
+  let greedPicks = 0
+  let greedCd = 0
   // addKill / tick 拿不到 ctx（match.js 调的是 shell.ui.addKill()），
   // 用最近一次带 player 的调用（每帧的 snapshot 一定带）兜底。
   const lastCtx = { player: null, combat: null }
@@ -672,6 +685,8 @@ export function createSession() {
     powerPending = 0
     session.powerChoices = []
     session.powerOfferSeq = 0
+    greedPicks = 0
+    greedCd = 0
   }
 
   function reset() {
@@ -749,8 +764,24 @@ export function createSession() {
   function tick(dt) {
     if (session.phase !== 'playing' || dt <= 0) return false
     session.elapsedSec += dt
+    // P42 批次7（R1③）：贪婪冷却用真实时间推进（会话既有的 per-frame tick 里递减）。
+    if (greedCd > 0) greedCd = Math.max(0, greedCd - dt)
     applyShengHeal(dt)
     return tryFinishWin()
+  }
+
+  /**
+   * P42 批次7（R1③）贪婪掷点：按当前层数掷概率，命中返回 1 并开始 GREED_COOLDOWN_SEC 冷却；
+   * 未命中 / 冷却中 / 未持有都返回 0。叠层只提高概率，不叠冷却。
+   * @param {() => number} [rng] 可注入随机源（默认 Math.random），便于断言
+   */
+  function rollGreedBonus(rng) {
+    if (greedPicks <= 0 || greedCd > 0) return 0
+    const chance = greedChance(greedPicks) / 100
+    const roll = typeof rng === 'function' ? Number(rng()) : Math.random()
+    if (!(roll < chance)) return 0
+    greedCd = GREED_COOLDOWN_SEC
+    return 1
   }
 
   function setElapsedSec(sec) {
@@ -951,6 +982,8 @@ export function createSession() {
     }
     // P42 批次2（R2）：滋补层数记账（阈值 = nourishKillThreshold(nourishPicks)）。
     if (id === UPGRADE_NOURISH) nourishPicks += 1
+    // P42 批次7（R1③）：贪婪层数记账（概率 = greedChance(greedPicks)，上限 100%）。
+    if (id === UPGRADE_GREED) greedPicks += 1
     if (sanwaN > 0 && sanwaLevelAcc >= sanwaN) {
       if (typeof ctx.player?.addArmor === 'function') ctx.player.addArmor(1)
       sanwaLevelAcc -= sanwaN

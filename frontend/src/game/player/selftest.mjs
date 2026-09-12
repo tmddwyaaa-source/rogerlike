@@ -1,6 +1,7 @@
 /**
  * M4 自测。运行：node src/game/player/selftest.mjs
  */
+import { readFileSync } from 'node:fs'
 import { BODY, SPEED_PX_PER_UNIT, WORLD_WIDTH, WORLD_HEIGHT } from '../constants.js'
 import {
   ARMOR_OUTLINE,
@@ -11,7 +12,9 @@ import {
   LEVELUP_STAGGER,
   PLAYER_SPEED,
   PLAYER_SPEED_UNITS,
+  REVIVE_HEAL_COUNT,
   STEADY_STILL_SEC,
+  VAJRA_REOBTAIN_LAYERS,
   UNLOCK_BASE_SEC,
   UNLOCK_PER_LAYER_SEC,
   UNLOCK_PULSE_INTERVAL_SEC,
@@ -699,6 +702,154 @@ die.objectiveT = 5
 die.hp = 0
 die.update(0.01)
 assert('death clears objective', die.objectiveT === 0)
+
+// —— P42 批次7 · 小金刚「再获得一次」玩家侧（三娃护甲 / 六娃失锁） ——
+// 口径：集齐七兄弟后，该兄弟的升级效果按「再获得一次」生效（＝层数 +1），**不是**旧的「效果值 +10%」。
+// 开关由 M1 在 match.js 的 syncVajra 里 setVajraComplete；player 自己不读羁绊档位。
+const vajraP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+assert(
+  'vajra flag default off + api',
+  vajraP.getVajraComplete() === false &&
+    typeof vajraP.setVajraComplete === 'function' &&
+    typeof vajraP.effectiveUnlockLayers === 'function',
+)
+const armorPlain = vajraP.addArmor(1) // 未集齐：+1 层
+vajraP.setVajraComplete(true)
+const armorFirst = vajraP.addArmor(1) // 三娃选中：再获得一次 ⇒ +2 层
+const armorSecond = vajraP.addArmor(1) // 此后每 N 级再触发：同样 +2 层
+assert(
+  'vajra reobtain sanwa',
+  armorPlain === 1 &&
+    armorFirst === 3 &&
+    armorSecond === 5 &&
+    vajraP.getArmor() === 5 &&
+    vajraP.addArmor(0) === 5 &&
+    VAJRA_REOBTAIN_LAYERS === 1,
+)
+
+const liuwaP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+liuwaP.addUnlockLevel(1)
+const liuwaPlain = liuwaP.currentUnlockDuration() // 未集齐：1.0 + 0.5×1 = 1.5
+liuwaP.setVajraComplete(true)
+const liuwaReobtain = liuwaP.currentUnlockDuration() // 再获得一次：picks+1 ⇒ 1.0 + 0.5×2 = 2.0
+liuwaP.addUnlockLevel(1)
+const liuwaTwo = liuwaP.currentUnlockDuration() // 2 picks + 1 ⇒ 1.0 + 0.5×3 = 2.5
+const pulseTarget = { x: liuwaP.x + 10, y: liuwaP.y, hp: 10 }
+liuwaP.applyUnlockPulse([pulseTarget]) // 默认时长也走「picks+1」
+const periodicTarget = { x: 0, y: 0, hp: 10 }
+const periodicVajra = createPlayer({
+  keys: { w: false, a: false, s: false, d: false },
+  random: () => 0.5,
+  getTargets: () => [periodicTarget],
+})
+periodicVajra.setUnlockLevel(1)
+periodicVajra.setVajraComplete(true)
+periodicTarget.x = periodicVajra.x + 10
+periodicTarget.y = periodicVajra.y
+periodicVajra.update(UNLOCK_PULSE_INTERVAL_SEC + 0.01) // 自动脉冲同样按 picks+1
+assert(
+  'vajra reobtain liuwa',
+  liuwaPlain === 1.5 &&
+    liuwaReobtain === 2.0 &&
+    liuwaTwo === 2.5 &&
+    liuwaP.effectiveUnlockLayers() === 3 &&
+    pulseTarget.unlockT === 2.5 &&
+    periodicTarget.unlockT === 2.0,
+)
+
+// 旧口径「效果值 +10%（加法）」已作废：player 侧不得再出现 ×1.1 / +10% / +0.25s 分支。
+// （先去掉注释再扫源码，注释里允许写「旧 +10% 已作废」这类说明。）
+const playerSrc = readFileSync(new URL('./index.js', import.meta.url), 'utf8')
+const playerCode = playerSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+assert(
+  'vajra no more plus10 pct player',
+  !/1\.1|\+\s*10\s*%|0\.25|plus10/i.test(playerCode) &&
+    vajraP.getArmor() % 1 === 0 && // 护甲仍是整数层（不是 +10% 后的 1.1）
+    liuwaReobtain === 2.0, // 六娃是 +0.5s 一层，不是 +10%（1.65 / 1.75）
+)
+
+// —— P42 批次7 · 生生不息档 8：受致命伤以 1 血复活（冷却 = 再发生 5 次真实回血） ——
+const reviveP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+assert(
+  'revive api exposed',
+  typeof reviveP.tryRevive === 'function' &&
+    typeof reviveP.isReviveReady === 'function' &&
+    typeof reviveP.reviveHealsLeft === 'function' &&
+    REVIVE_HEAL_COUNT === 5,
+)
+assert(
+  'revive ready by default',
+  reviveP.isReviveReady() === true && reviveP.reviveHealsLeft() === 0 && reviveP.reviveCdLeft === 0,
+)
+
+const deathlessP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+deathlessP.hp = 0
+deathlessP.deathT = 0.4
+const revived = deathlessP.tryRevive()
+deathlessP.update(0.01)
+assert(
+  'revive sets hp 1',
+  revived === true &&
+    deathlessP.hp === 1 &&
+    deathlessP.deathT === 0 &&
+    deathlessP.anim !== 'Death' &&
+    deathlessP.deathAnimDone() === false,
+)
+assert(
+  'revive needs 5 heals',
+  deathlessP.isReviveReady() === false &&
+    deathlessP.reviveHealsLeft() === REVIVE_HEAL_COUNT &&
+    deathlessP.reviveHealsLeft() === 5,
+)
+assert(
+  'revive consumed once',
+  deathlessP.tryRevive() === false && // 冷却中再调不可用
+    deathlessP.hp === 1 &&
+    deathlessP.reviveHealsLeft() === 5,
+)
+
+// 只有**真实回血**计数：满血不回血 / heal(0) / 死亡时 heal 都不计；heal(5) 按次算 1 次。
+const noCountP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+noCountP.hp = 0
+noCountP.tryRevive() // hp 1 / 冷却 5 次
+const realHealed = noCountP.heal(5) === true // 1 → 3（hpMax 3）真实回血 ⇒ 计 1 次
+const afterReal = noCountP.reviveHealsLeft()
+const fullRefused = noCountP.heal(1) === false // 满血不回血 ⇒ 不计
+const zeroRefused = noCountP.heal(0) === false // 非法 ⇒ 不计
+noCountP.hp = 0
+const deadRefused = noCountP.heal(1) === false // 死亡不治疗 ⇒ 不计
+assert(
+  'revive heal count only real heal',
+  realHealed && afterReal === 4 && fullRefused && zeroRefused && deadRefused && noCountP.reviveHealsLeft() === 4,
+)
+
+const cdP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+cdP.hp = 0
+cdP.tryRevive()
+const cdSeq = []
+for (let i = 0; i < 5; i++) {
+  cdP.hp = 1
+  cdP.heal(1) // 每次真实回血 −1
+  cdSeq.push(cdP.reviveHealsLeft())
+}
+const readyAfter5 = cdP.isReviveReady() === true
+cdP.hp = 0
+const secondRevive = cdP.tryRevive() // 恢复就绪后可再次复活
+assert(
+  'heal counts toward revive cd',
+  cdSeq.join(',') === '4,3,2,1,0' && readyAfter5 && secondRevive === true && cdP.hp === 1,
+)
+
+// 复活不可用时，死亡流程与既有行为完全不变。
+const plainDeathP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+plainDeathP.hp = 0
+plainDeathP.tryRevive() // 用掉就绪
+plainDeathP.hp = 0
+plainDeathP.update(0.01)
+assert(
+  'revive unavailable keeps death flow',
+  plainDeathP.tryRevive() === false && plainDeathP.anim === 'Death' && plainDeathP.hp === 0,
+)
 
 console.log(failed === 0 ? '\nRESULT PASS' : `\nRESULT FAIL (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

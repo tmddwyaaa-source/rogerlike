@@ -16,14 +16,12 @@
  *   env.addMagnet()                // 磁铁：吸取范围 +1 身位
  *   env.addEarth()                 // 大地啊：普通树每波 +2 棵、果实概率 +10%/层、结晶掉落上限 +2/层（可叠）
  *   env.earthPicks()               // 大地啊已选层数（= mods.extraTrees ÷ TREE_EXTRA_PER_EARTH）
- *   env.getTreeAnimTime()          // 普通树动画时间：只在 update(dt>0) 推进（4 帧 / 0.1s 一帧 / 0.4s 一轮）
- *   env.treeFrameIndexOf(tree)     // 该树此刻的帧号（时间驱动 + 每树相位错开）
  *   env.updatePickups(dt, player)  // 暂停时仍让结晶飞
  *   env.updatePickups(dt, player, { collect: false })  // 升级停顿：只飞不拾取
  */
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../constants.js'
 import { drawGrass } from '../render/grass.js'
-import { FRUIT_CHANCE, MAGNET_BONUS_STEP, TREE_EXTRA_PER_EARTH, TREE_FRAME_SEC, TREE_FRAME_SOURCES, TREE_SEED_COUNT, TREE_SPAWN_COUNT, TREE_SRC, earthPicksFromExtraTrees, treeDropElapsed, treeFrameAt, treePhaseForIndex } from './constants.js'
+import { FRUIT_CHANCE, MAGNET_BONUS_STEP, TREE_EXTRA_PER_EARTH, TREE_SEED_COUNT, TREE_SPAWN_COUNT, TREE_SRC, earthPicksFromExtraTrees, treeDropElapsed } from './constants.js'
 import { createPickupField } from '../pickups/pickups.js'
 import { createTreeField } from './trees.js'
 import { createDecorationField } from './decorations.js'
@@ -50,16 +48,10 @@ export {
   DECOR_STICK_SOURCES,
   DECOR_STONE_SOURCES,
   DECOR_PADDING,
-  TREE_ANIM_SEC,
   TREE_CRYSTAL_EARTH_STEP,
   TREE_EXTRA_PER_EARTH,
-  TREE_FRAMES,
-  TREE_FRAME_SEC,
-  TREE_FRAME_SOURCES,
   earthPicksFromExtraTrees,
   treeDropElapsed,
-  treeFrameAt,
-  treePhaseForIndex,
   treeCrystalMax,
   treeHpForTier,
   treeSpawnInterval,
@@ -88,72 +80,6 @@ export function createEnvironment(opts = {}) {
     return treeDropElapsed(sec, earthPicks())
   }
 
-  // —— P42 批次6（TASK-040）：普通树（浅树）4 帧序列动画 ——
-  /** 4 帧贴图；未 loadAssets / node 环境为空数组 ⇒ 走 trees.js 既有兜底色块。 */
-  let treeFrames = []
-  /** 动画时间只在 update 里推进；draw 不推进（暂停/升级 match 不调 update ⇒ 整帧停住）。 */
-  let treeAnimT = 0
-
-  function animUsable(img) {
-    return !!(img && img.complete !== false && (img.naturalWidth || img.width))
-  }
-
-  function firstUsableTreeFrame() {
-    for (const f of treeFrames) {
-      if (animUsable(f)) return f
-    }
-    return null
-  }
-
-  /**
-   * 每棵树的相位（秒）：按实例下标占满一轮 4 个帧桶（0/0.1/0.2/0.3）。
-   * 刻意不消耗 random()：刷树位置用的是同一条随机序列，动画不该打乱它。
-   */
-  function ensureTreePhases() {
-    const list = trees.trees
-    for (let i = 0; i < list.length; i++) {
-      const tree = list[i]
-      if (tree && !Number.isFinite(tree.animPhase)) tree.animPhase = treePhaseForIndex(i)
-    }
-  }
-
-  /** 该树此刻的帧号（时间驱动 + 自身相位）。 */
-  function treeFrameIndexOf(tree) {
-    const n = treeFrames.length
-    if (!n || !tree) return 0
-    return treeFrameAt(treeAnimT + (tree.animPhase ?? 0), n, TREE_FRAME_SEC)
-  }
-
-  /** 该树此刻的贴图；所选帧缺图则退回第一个可用帧（通常是第 0 帧），全缺返回 null。 */
-  function treeSpriteOf(tree) {
-    if (!treeFrames.length) return null
-    const chosen = treeFrames[treeFrameIndexOf(tree)]
-    return animUsable(chosen) ? chosen : firstUsableTreeFrame()
-  }
-
-  function drawTrees(ctx) {
-    if (!firstUsableTreeFrame()) {
-      trees.draw(ctx, null)
-      return
-    }
-    for (const tree of trees.trees) {
-      const spr = treeSpriteOf(tree)
-      const dx = Math.round(tree.x - tree.w / 2)
-      const dy = Math.round(tree.y - tree.h / 2)
-      ctx.drawImage(
-        spr,
-        0,
-        0,
-        spr.naturalWidth || spr.width,
-        spr.naturalHeight || spr.height,
-        dx,
-        dy,
-        tree.w,
-        tree.h,
-      )
-    }
-  }
-
   const pickups = createPickupField({
     ...opts,
     getFruitChance: () => Math.min(1, FRUIT_CHANCE + mods.fruitBonus),
@@ -179,19 +105,14 @@ export function createEnvironment(opts = {}) {
 
   async function loadAssets() {
     if (typeof Image === 'undefined') return null
-    // P42 批次6：4 帧按序并发加载；任一张失败只是那张 naturalWidth=0，
-    // 取帧时退回第一个可用帧（通常是第 0 帧），不崩。
-    treeFrames = await Promise.all(
-      TREE_FRAME_SOURCES.map((src) => {
-        const img = new Image()
-        img.src = src
-        return img
-          .decode()
-          .then(() => img)
-          .catch(() => img)
-      }),
-    )
-    sprite = treeFrames[0] ?? null
+    const img = new Image()
+    img.src = TREE_SRC
+    try {
+      await img.decode()
+      sprite = img
+    } catch {
+      sprite = img
+    }
     await decorations.loadAssets()
     return sprite
   }
@@ -199,20 +120,15 @@ export function createEnvironment(opts = {}) {
   function update(dt, focus, camera, elapsedSec) {
     ensureSeed(focus, camera)
     elapsed = elapsedSec ?? elapsed + dt
-    // 动画时间只随本窗 update 的 dt 推进；暂停/升级时 match 不调 update ⇒ 整帧停住。
-    if (dt > 0) treeAnimT += dt
-    ensureTreePhases()
     trees.update(dt, focus, camera, elapsed)
-    ensureTreePhases()
     pickups.update(dt, focus)
   }
 
   function draw(ctx, camera) {
     ensureSeed(null, camera)
-    ensureTreePhases()
     drawGrass(ctx, camera)
     decorations.draw(ctx, camera)
-    drawTrees(ctx)
+    trees.draw(ctx, sprite)
     pickups.draw(ctx)
   }
 
@@ -245,12 +161,6 @@ export function createEnvironment(opts = {}) {
     mods,
     /** P42 批次5：大地啊层数（= mods.extraTrees ÷ TREE_EXTRA_PER_EARTH），供查收/断言读取。 */
     earthPicks,
-    /** P42 批次6：普通树动画时间（只在 update(dt>0) 里推进）。 */
-    getTreeAnimTime: () => treeAnimT,
-    /** P42 批次6：该树此刻的帧号（0..3，时间驱动 + 自身相位）。 */
-    treeFrameIndexOf,
-    /** P42 批次6：4 帧贴图（未加载时为 []）。 */
-    treeFrames: () => treeFrames,
     addEarth() {
       mods.extraTrees += TREE_EXTRA_PER_EARTH
       mods.fruitBonus += 0.1

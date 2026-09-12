@@ -243,6 +243,11 @@ export function createMatchRuntime(opts) {
         charId,
         onHurt: () => {
           sfx.play('hurt')
+          // P42 批次7 · 生生不息档 8：致命伤时「以 1 血复活」（档位判定在 M1，复活/冷却逻辑在 player）。
+          // 必须在死亡流程（update 里的 hp<=0 → 死亡动画 → 结算）之前把 hp 拉回 1。
+          if (shengRank() >= 8 && (player?.hp ?? 1) <= 0) {
+            player?.tryRevive?.()
+          }
           // P42 批次2：荆棘 —— 受击时对 4 身位内活敌结算（层数由 ui 侧 applyUpgrade → combat.setThornPicks 同步）。
           combat?.thornBurst?.(player)
           // P42 批次2：生生不息档 3 —— 受击后 1.5s 移速 +0.20 设计单位。
@@ -263,8 +268,11 @@ export function createMatchRuntime(opts) {
         getHpGrowthAdd: hpGrowthAdd,
         hooks: {
           onCrystal: () => {
+            // P42 批次7 · 贪婪：命中时「再获得一次经验」＝这一颗结晶按 2 点经验结算
+            //（概率 50%+10%/层、上限 100%、0.1s 冷却、不入羁绊，全部由 ui/session 决定；M1 只接线）。
+            const extra = shell.ui?.session?.rollGreedBonus?.() ?? 0
             // notifyExp 回传的是「本次升了几级」（普通结晶为 0），不是「获得了经验」。
-            const gained = shell.notifyExp(1)
+            const gained = shell.notifyExp(1 + extra)
             if (gained > 0) player?.queueLevelUpFx?.(gained)
             sfx.play('pickup')
           },

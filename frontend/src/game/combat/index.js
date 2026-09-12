@@ -62,13 +62,11 @@ import {
   warriorKnockback,
   FIRE_DURATION_SEC,
   FIRE_DMG_PER_PICK,
-  FIRE_DMG_PER_PICK_BOOST,
   PULSE_INTERVAL_SEC,
   PULSE_RADIUS_MUL,
   PULSE_DMG_MUL,
   PULSE_SLOW,
   PULSE_SLOW_SEC,
-  fireDpsPerPick,
   waterSlowPct,
   waterSlowSec,
   knockbackBonusForPicks,
@@ -80,6 +78,12 @@ import {
   RAPID_EXTRA_DELAY_SEC,
   STEADY_CRIT_RATE_BONUS,
   PIERCE_AMP_STEP,
+  fireDps,
+  vajraPicks,
+  GIANT_SIZE_PER_PICK,
+  THORN_FX_FRAMES,
+  THORN_FX_FPS,
+  THORN_FX_SRC,
 } from '../weapons/index.js'
 
 export {
@@ -155,7 +159,6 @@ export {
   warriorKnockback,
   FIRE_DURATION_SEC,
   FIRE_DMG_PER_PICK,
-  FIRE_DMG_PER_PICK_BOOST,
   PULSE_INTERVAL_SEC,
   PULSE_RADIUS_MUL,
   PULSE_DMG_MUL,
@@ -172,6 +175,12 @@ export {
   RAPID_UNCHARGED_CHANCE,
   PIERCE_AMP_STEP,
   SP_POWER_DMG,
+  fireDps,
+  vajraPicks,
+  GIANT_SIZE_PER_PICK,
+  THORN_FX_FRAMES,
+  THORN_FX_FPS,
+  THORN_FX_SRC,
 } from '../weapons/index.js'
 
 const STEP_PX = 4
@@ -371,6 +380,10 @@ export function createCombat(opts = {}) {
   let rapidCd = 0
   // P42 批次5 R3：连射「额外那一发」的延迟队列——主发当帧只排定，0.2s 后由 update(dt) 真正生成。
   const pendingRapidExtras = []
+  // P42 批次7 R1：荆棘爆发特效（纯表现）——以角色为中心播一次 4 帧 @10fps、播完即消失。
+  const thornFxList = []
+  const THORN_FX_MAX = 8
+  const THORN_FX_LIFE = THORN_FX_FRAMES / THORN_FX_FPS
   const imgs = {
     arrow: loadImg(ARROW_SRC, true),
     orb: loadImg(ORB_SRC, true),
@@ -379,6 +392,7 @@ export function createCombat(opts = {}) {
     U: loadImg(BLOOD_SRC.U, true),
     slash: SLASH_SRC.map((src) => loadImg(src, false)),
     empower: loadImg(EMPOWER_SRC, false),
+    thornFx: THORN_FX_SRC.map((src) => loadImg(src, false)),
   }
 
   function syncPlayerCharge(on) {
@@ -598,15 +612,16 @@ export function createCombat(opts = {}) {
   }
 
   function burnDpsFor(ent) {
-    const picks = weapon.siwaPicks || 0
+    // P42 批次7 R3：集齐七兄弟后四娃按「层数 +1」生效（不再有 +10% boost）。
+    const picks = vajraPicks(weapon.siwaPicks || 0, weapon.vajraComplete)
     if (!picks) return 0
     const atk = weapon.attack ?? player?.attack ?? ATTACK_BASE
-    return fireDpsPerPick(weapon.vajraComplete) * atk * picks
+    return fireDps(weapon.siwaPicks || 0, weapon.vajraComplete) * atk
   }
 
   function applyIgnite(ent) {
     if (!ent || ent.hp <= 0) return
-    const picks = weapon.siwaPicks || 0
+    const picks = vajraPicks(weapon.siwaPicks || 0, weapon.vajraComplete)
     if (picks <= 0) return
     const dps = burnDpsFor(ent)
     if (dps <= 0) return
@@ -615,7 +630,11 @@ export function createCombat(opts = {}) {
     ent.burnAccum = 0
   }
 
-  function applySlow(ent, pct = waterSlowPct(weapon.vajraComplete), sec = waterSlowSec(weapon.wuwaPicks || 1)) {
+  function applySlow(
+    ent,
+    pct = waterSlowPct(),
+    sec = waterSlowSec(weapon.wuwaPicks || 0, weapon.vajraComplete),
+  ) {
     if (!ent || ent.hp <= 0) return
     if (!(pct > 0) || !(sec > 0)) return
     // M6 移动消费：ent.slowFactor = 速度乘子（0.8=减速20%），ent.slowLeft = 剩余秒（combat 每帧扣减）。
@@ -626,7 +645,8 @@ export function createCombat(opts = {}) {
   function applyHitStatus(ent) {
     if (!ent || ent.hp <= 0) return
     applyIgnite(ent)
-    if ((weapon.wuwaPicks || 0) > 0) applySlow(ent)
+    // P42 批次7 R3：五娃同样按「有效层数」判定（集齐 → +1 层）。
+    if (vajraPicks(weapon.wuwaPicks || 0, weapon.vajraComplete) > 0) applySlow(ent)
   }
 
   function triggerPulse() {
@@ -674,9 +694,22 @@ export function createCombat(opts = {}) {
     return thornPicks
   }
 
-  /** P42 批次5 R1：当前荆棘半径（世界像素）。 */
+  /** P42 批次7 R1：当前荆棘半径（世界像素）。 */
   function thornRadius() {
     return BODY * (THORN_RANGE_BASE_BODIES + THORN_RANGE_STEP_BODIES * (thornPicks - 1))
+  }
+
+  /**
+   * P42 批次7 R1：荆棘爆发特效入队（纯表现，与伤害同帧触发）。
+   * 以**角色**为中心；显示直径 = 2 × 当前荆棘半径（不写死 96px）；
+   * 同屏上限 THORN_FX_MAX，超出丢最旧的（帧率保护）。
+   */
+  function spawnThornFx() {
+    const x = player?.x ?? 0
+    const y = player?.y ?? 0
+    const r = thornRadius()
+    thornFxList.push({ x, y, t: 0, frame: 0, r, draw: r * 2 })
+    while (thornFxList.length > THORN_FX_MAX) thornFxList.shift()
   }
 
   /**
@@ -687,6 +720,8 @@ export function createCombat(opts = {}) {
   function thornBurst(origin = player) {
     const picks = thornPicks
     if (picks <= 0 || !origin) return 0
+    // P42 批次7 R1：特效与伤害同帧入队（纯表现，不影响下面的判定/数值）。
+    spawnThornFx()
     const atk = weapon.attack ?? player?.attack ?? ATTACK_BASE
     const mul = THORN_DMG_BASE_MUL + THORN_DMG_STEP_MUL * (picks - 1)
     const crit = rollCrit(weapon.critRate ?? 0)
@@ -899,6 +934,16 @@ export function createCombat(opts = {}) {
       if (max <= 0) tryFire(1)
       else weapon.charge = Math.min(max, weapon.charge + dt)
     }
+    // P42 批次7 R1：荆棘特效计时（4 帧 @10fps；播完即消失、不循环）。
+    for (let i = thornFxList.length - 1; i >= 0; i--) {
+      const fx = thornFxList[i]
+      fx.t += dt
+      if (fx.t >= THORN_FX_LIFE) {
+        thornFxList.splice(i, 1)
+        continue
+      }
+      fx.frame = Math.min(THORN_FX_FRAMES - 1, Math.floor(fx.t * THORN_FX_FPS))
+    }
     for (let i = bullets.length - 1; i >= 0; i--) {
       stepBullet(bullets[i], dt)
       if (!bullets[i].alive) bullets.splice(i, 1)
@@ -1086,12 +1131,23 @@ export function createCombat(opts = {}) {
     ctx.restore()
   }
 
+  /**
+   * P42 批次7 R1：画一帧荆棘爆发特效。素材缺失/未加载完时 drawImg 返回 false，直接跳过（不崩、不画占位）。
+   */
+  function drawThornFx(ctx, fx) {
+    const frame = fx.frame ?? Math.min(THORN_FX_FRAMES - 1, Math.floor(fx.t * THORN_FX_FPS))
+    const img = imgs.thornFx?.[frame]
+    if (!img) return
+    drawImg(ctx, img, fx.x, fx.y, null, fx.draw, fx.draw)
+  }
+
   function draw(ctx) {
     if (!ctx) return
     drawChargeBar(ctx)
     for (const b of bullets) drawProjectile(ctx, b)
     for (const fx of hitFx) drawBlood(ctx, fx)
     for (const p of pulses) drawPulse(ctx, p)
+    for (const fx of thornFxList) drawThornFx(ctx, fx)
   }
 
   function bindInput(io = {}) {
@@ -1214,6 +1270,8 @@ export function createCombat(opts = {}) {
     getPendingRapidExtras: () => pendingRapidExtras.length,
     /** P42 批次5 R1：当前荆棘半径（世界像素，随层数增长）。 */
     getThornRadius: () => (thornPicks > 0 ? thornRadius() : 0),
+    /** P42 批次7 R1：当前在播的荆棘爆发特效（只读，供自测/调试）。 */
+    getThornFx: () => thornFxList,
     applyKnockback,
     getRecoil: () => 0,
     getSwing: () => 0,

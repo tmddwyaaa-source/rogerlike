@@ -4,8 +4,8 @@
  * + P18 树血 extra / spawnCrystalBurst。
  * 运行：在 frontend/ 下 `node src/game/world/selftest.mjs`
  */
-import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import * as worldConstants from './constants.js'
 import { BODY } from '../constants.js'
 import { createPickupField } from '../pickups/pickups.js'
 import { createTreeField } from './trees.js'
@@ -22,13 +22,9 @@ import {
   MAGNET_BONUS_STEP,
   MAGNET_RANGE,
   PICKUP_SPEED,
-  TREE_ANIM_SEC,
   TREE_CRYSTAL_EARTH_STEP,
   TREE_DROP_CRYSTALS_MAX,
   TREE_DROP_CRYSTALS_MIN,
-  TREE_FRAMES,
-  TREE_FRAME_SEC,
-  TREE_FRAME_SOURCES,
   TREE_HP_BASE,
   TREE_HP_PER_TIER,
   TREE_SRC,
@@ -36,9 +32,7 @@ import {
   rollTreeCrystals,
   treeCrystalMax,
   treeDropElapsed,
-  treeFrameAt,
   treeHpForTier,
-  treePhaseForIndex,
 } from './constants.js'
 import { createEnvironment } from './index.js'
 
@@ -488,57 +482,14 @@ try {
 }
 assert('env.draw renders decorations (background layer)', decoDrawOk)
 
-// —— P42 批次6（TASK-040 / M5）：普通树（浅树）4 帧序列动画 ——
-const TREE_FRAME_FILES = ['浅树.png', '浅树-2.png', '浅树-3.png', '浅树-4.png']
+// —— 批次7（TASK-047 / M5）：普通树移除序列帧，回单帧 ——
+const TREE_FRAME_ASSETS = ['浅树.png', '浅树-2.png', '浅树-3.png', '浅树-4.png']
 const treeRuntimeUrl = (f) => new URL(`../../../public/assets/树木/${f}`, import.meta.url)
 const treeSourceUrl = (f) => new URL(`../../../../assets/source/树木/${f}`, import.meta.url)
-const shaOf = (url) =>
-  existsSync(url) ? createHash('sha256').update(readFileSync(url)).digest('hex') : null
+const treeConstantsSource = readFileSync(new URL('./constants.js', import.meta.url), 'utf8')
+const treeIndexSource = readFileSync(new URL('./index.js', import.meta.url), 'utf8')
 
-assert(
-  'tree frames 4',
-  TREE_FRAMES === 4 &&
-    TREE_FRAME_SEC === 0.1 &&
-    Math.abs(TREE_ANIM_SEC - 0.4) < 1e-9 &&
-    TREE_FRAME_SOURCES.length === TREE_FRAMES &&
-    TREE_FRAME_SOURCES[0] === TREE_SRC &&
-    treePhaseForIndex(0) === 0 &&
-    treePhaseForIndex(1) === TREE_FRAME_SEC &&
-    treePhaseForIndex(3) === 3 * TREE_FRAME_SEC,
-)
-assert(
-  'tree anim time driven',
-  treeFrameAt(0) === 0 &&
-    treeFrameAt(0.1) === 1 &&
-    treeFrameAt(0.2) === 2 &&
-    treeFrameAt(0.3) === 3 &&
-    treeFrameAt(0.4) === 0 &&
-    treeFrameAt(0.5) === 1 &&
-    treeFrameAt(0.7) === 3 &&
-    treeFrameAt(0.8) === 0 &&
-    treeFrameAt(0.099) === 0 &&
-    treeFrameAt(0.399999) === 3 &&
-    treeFrameAt(13) === 2 &&
-    treeFrameAt(-0.1) === 3 &&
-    treeFrameAt(-1.4) === 2 &&
-    treeFrameAt(NaN) === 0 &&
-    treeFrameAt(Infinity) === 0 &&
-    treeFrameAt(0.1, 1) === 0 &&
-    treeFrameAt(1.7, 2) === 1,
-)
-assert(
-  'tree 4 frame assets exist',
-  TREE_FRAME_FILES.every((f) => existsSync(treeRuntimeUrl(f)) && existsSync(treeSourceUrl(f))),
-)
-assert(
-  'tree 4 frame images differ',
-  TREE_FRAME_FILES.every((f) => shaOf(treeRuntimeUrl(f)) && shaOf(treeSourceUrl(f))) &&
-    new Set(TREE_FRAME_FILES.map((f) => shaOf(treeRuntimeUrl(f)))).size === TREE_FRAMES &&
-    new Set(TREE_FRAME_FILES.map((f) => shaOf(treeSourceUrl(f)))).size === TREE_FRAMES,
-)
-
-// 绘制侧接线：stub globalThis.Image（decode 立即 resolve）走真实 loadAssets，
-// 再看每棵树画出来的到底是第几帧 —— 断言的是可观察行为，不是内部字段。
+// 绘制侧：stub globalThis.Image 走真实 loadAssets，记录「请求过哪些贴图」与「实际画出哪些贴图」。
 class TreeStubImage {
   constructor() {
     this.complete = true
@@ -550,6 +501,7 @@ class TreeStubImage {
   }
   set src(v) {
     this._src = v
+    TreeStubImage.requested.push(v)
   }
   get src() {
     return this._src
@@ -558,10 +510,12 @@ class TreeStubImage {
     return Promise.resolve()
   }
 }
+TreeStubImage.requested = []
 globalThis.Image = TreeStubImage
-const treeAnimEnv = createEnvironment({ random: lcg(909) })
-await treeAnimEnv.loadAssets()
-function treeDrawnFrames() {
+const treeSingleEnv = createEnvironment({ random: lcg(909) })
+await treeSingleEnv.loadAssets()
+
+function treeDrawnSources() {
   const images = []
   const ctx = {
     fillStyle: '',
@@ -580,39 +534,51 @@ function treeDrawnFrames() {
       return { width: 0 }
     },
   }
-  treeAnimEnv.draw(ctx, { x: 0, y: 0 })
+  treeSingleEnv.draw(ctx, { x: 0, y: 0 })
   return images
-    .filter((img) => img && TREE_FRAME_SOURCES.includes(img.src))
-    .map((img) => TREE_FRAME_SOURCES.indexOf(img.src))
+    .filter((img) => img && String(img.src).includes('浅树'))
+    .map((img) => img.src)
 }
-treeAnimEnv.update(0, { x: 100, y: 100 }, { x: 0, y: 0 }, 0)
-const treePhases = treeAnimEnv.trees.map((t) => t.animPhase)
-const framesAt0 = treeDrawnFrames()
-treeAnimEnv.update(0.1, { x: 100, y: 100 }, { x: 0, y: 0 }, 0.1)
-const framesAt1 = treeDrawnFrames()
-treeAnimEnv.update(0, { x: 100, y: 100 }, { x: 0, y: 0 }, 0.2)
-const framesPaused = treeDrawnFrames()
+treeSingleEnv.update(0, { x: 100, y: 100 }, { x: 0, y: 0 }, 0)
+const treeDrawn0 = treeDrawnSources()
+treeSingleEnv.update(0.4, { x: 100, y: 100 }, { x: 0, y: 0 }, 0.4)
+const treeDrawn1 = treeDrawnSources()
+const treeRequested = TreeStubImage.requested.filter((s) => String(s).includes('浅树'))
 
 assert(
-  'tree anim draws frame images per tree',
-  framesAt0.length > 0 && framesAt0.length === treeAnimEnv.trees.length,
+  'tree back to single frame',
+  TREE_SRC === '/assets/树木/浅树.png' &&
+    worldConstants.TREE_FRAMES === undefined &&
+    worldConstants.TREE_FRAME_SEC === undefined &&
+    worldConstants.TREE_ANIM_SEC === undefined &&
+    worldConstants.TREE_FRAME_SOURCES === undefined &&
+    worldConstants.treeFrameAt === undefined &&
+    worldConstants.treePhaseForIndex === undefined &&
+    !treeConstantsSource.includes('TREE_FRAME') &&
+    !treeConstantsSource.includes('treeFrameAt') &&
+    !treeConstantsSource.includes('treePhaseForIndex') &&
+    !treeIndexSource.includes('TREE_FRAME') &&
+    !treeIndexSource.includes('treeFrameAt') &&
+    !treeIndexSource.includes('treeAnimT') &&
+    treeRequested.length > 0 &&
+    treeRequested.every((s) => s === TREE_SRC) &&
+    TREE_FRAME_ASSETS.every((f) => existsSync(treeRuntimeUrl(f)) && existsSync(treeSourceUrl(f))),
 )
 assert(
-  'tree anim frame advances with time',
-  framesAt0.length > 0 && framesAt0.every((f, i) => framesAt1[i] === (f + 1) % TREE_FRAMES),
-)
-assert('tree anim paused when not playing', framesAt1.join(',') === framesPaused.join(','))
-assert(
-  'tree anim phase staggered',
-  treePhases.length > 0 &&
-    treePhases.every((p) => Number.isFinite(p) && p >= 0 && p < TREE_ANIM_SEC + 1e-9) &&
-    new Set(treePhases).size === Math.min(treePhases.length, TREE_FRAMES),
+  'tree no frame anim',
+  treeDrawn0.length > 0 &&
+    treeDrawn0.length === treeSingleEnv.trees.length &&
+    treeDrawn0.every((s) => s === TREE_SRC) &&
+    treeDrawn0.join(',') === treeDrawn1.join(',') &&
+    typeof treeSingleEnv.treeFrameIndexOf === 'undefined' &&
+    typeof treeSingleEnv.getTreeAnimTime === 'undefined' &&
+    typeof treeSingleEnv.trees[0]?.animPhase === 'undefined',
 )
 
-// 动画不得改变：碰撞盒 / 血量 / 阻挡判定
-const animKeepEnv = createEnvironment({ random: () => 0.999 })
-animKeepEnv.update(0, { x: 100, y: 100 }, { x: 0, y: 0 }, 0)
-const keepTree = animKeepEnv.trees[0]
+// 回单帧后这些既有行为必须一字不变：碰撞盒 / 血量 / 阻挡判定
+const keepEnv = createEnvironment({ random: () => 0.999 })
+keepEnv.update(0, { x: 100, y: 100 }, { x: 0, y: 0 }, 0)
+const keepTree = keepEnv.trees[0]
 const keepSnap = keepTree
   ? {
       x: keepTree.x,
@@ -625,14 +591,14 @@ const keepSnap = keepTree
     }
   : null
 const blockedBefore = keepTree
-  ? animKeepEnv.collideSolid({ x: keepTree.x, y: keepTree.y, w: 16, h: 16 })
+  ? keepEnv.collideSolid({ x: keepTree.x, y: keepTree.y, w: 16, h: 16 })
   : false
-animKeepEnv.update(0.3, { x: 100, y: 100 }, { x: 0, y: 0 }, 0.3)
+keepEnv.update(0.4, { x: 100, y: 100 }, { x: 0, y: 0 }, 0.4)
 const blockedAfter = keepTree
-  ? animKeepEnv.collideSolid({ x: keepTree.x, y: keepTree.y, w: 16, h: 16 })
+  ? keepEnv.collideSolid({ x: keepTree.x, y: keepTree.y, w: 16, h: 16 })
   : false
 assert(
-  'tree anim keeps collision box, hp and blocking',
+  'tree keeps collision box, hp and blocking',
   !!keepTree &&
     keepTree.x === keepSnap.x &&
     keepTree.y === keepSnap.y &&
@@ -645,23 +611,23 @@ assert(
     blockedAfter === true,
 )
 
-// 动画不得改变：砍倒流程与结晶掉落（同一随机种子，只差动画时间）
+// 砍倒流程与结晶掉落（含批次5 的每分钟 +2 与 earth 上限）不变
 const dropEnvStill = createEnvironment({ random: () => 0.999 })
 dropEnvStill.update(0, { x: 100, y: 100 }, { x: 0, y: 0 }, 0)
-const dropEnvAnim = createEnvironment({ random: () => 0.999 })
-dropEnvAnim.update(0.3, { x: 100, y: 100 }, { x: 0, y: 0 }, 0.3)
-for (const e of [dropEnvStill, dropEnvAnim]) {
+const dropEnvLater = createEnvironment({ random: () => 0.999 })
+dropEnvLater.update(0.4, { x: 100, y: 100 }, { x: 0, y: 0 }, 0.4)
+for (const e of [dropEnvStill, dropEnvLater]) {
   const t = e.trees[0]
   if (t) {
     for (let i = 0; i < 12 && e.trees.includes(t); i++) e.hitAt(t.x, t.y, 50)
   }
 }
 assert(
-  'tree anim keeps chop and crystal drop flow',
+  'tree keeps chop and crystal drop flow',
   dropEnvStill.trees.length === 0 &&
-    dropEnvAnim.trees.length === 0 &&
+    dropEnvLater.trees.length === 0 &&
     dropEnvStill.pickups.filter((i) => i.type === 'crystal').length === 6 &&
-    dropEnvAnim.pickups.filter((i) => i.type === 'crystal').length === 6,
+    dropEnvLater.pickups.filter((i) => i.type === 'crystal').length === 6,
 )
 
 console.log(failed ? `RESULT FAIL (${failed})` : 'RESULT PASS')

@@ -87,7 +87,7 @@ function assert(name, cond) {
 
 assert('title 类幸存者', createMatchUi().title === '类幸存者')
 assert('normal pool 23', UPGRADES.filter((u) => u.tier !== 'advanced').length === 23)
-assert('advanced 9', UPGRADES.filter((u) => u.tier === 'advanced').length === 9)
+assert('advanced 10', UPGRADES.filter((u) => u.tier === 'advanced').length === 10)
 assert('upgrade 暴击', UPGRADES.find((u) => u.id === 'crit')?.title === '暴击')
 assert('暴击文案', UPGRADES.find((u) => u.id === 'crit')?.desc === '暴击率 +10')
 assert('upgrade 唯快不破', UPGRADES.find((u) => u.id === 'only_fast')?.title === '唯快不破' && UPGRADES.find((u) => u.id === 'only_fast')?.tier !== 'advanced')
@@ -110,7 +110,7 @@ assert(
     BOND_TIERS.vajra.map((t) => t.rank).join() === '7,7' &&
     BOND_TIERS.qian.every((t) => t.text.includes('随等级提高')) &&
     BOND_TIERS.vajra[0].text.includes('七色脉冲') &&
-    BOND_TIERS.vajra[1].text.includes('+10%') &&
+    BOND_TIERS.vajra[1].text.includes('再获得一次') &&
     Boolean(BOND_DESC.qian) &&
     Boolean(BOND_DESC.unity) &&
     Boolean(BOND_DESC.vajra),
@@ -571,7 +571,7 @@ assert(
   nourishUnder && nourishCross && nourishFullHold && nourishNoBank && nourishHold2 && nourishCross2,
 )
 
-/* R3 生生不息：阈值 [3,5]；计入项恰好 5 个；档 5 每 45s 回 1 心。 */
+/* R3 生生不息：阈值 [3,5,8]（档 8 当前不可达）；计入项恰好 5 个；档 5 每 45s 回 1 心。 */
 const shengS = createSession()
 shengS.start('1')
 const shengPl = createPlayer()
@@ -591,8 +591,8 @@ assert(
   '羁绊 生生不息 档位',
   C42.BOND_SHENG === 'sheng' &&
     C42.BOND_SHENG_TITLE === '生生不息' &&
-    C42.BOND_SHENG_THRESHOLDS?.join?.() === '3,5' &&
-    C42.BOND_THRESHOLDS?.['sheng']?.join?.() === '3,5' &&
+    C42.BOND_SHENG_THRESHOLDS?.join?.() === '3,5,8' &&
+    C42.BOND_THRESHOLDS?.['sheng']?.join?.() === '3,5,8' &&
     bondRank('sheng', 2) === 0 &&
     bondRank('sheng', 3) === 3 &&
     bondRank('sheng', 5) === 5 &&
@@ -1194,7 +1194,7 @@ assert(
   bondTiers(BOND_VAJRA).length === 2 &&
     bondTiers(BOND_VAJRA).every((t) => t.rank === 7) &&
     bondTiers(BOND_VAJRA)[0].text.includes('七色脉冲') &&
-    bondTiers(BOND_VAJRA)[1].text.includes('+10%'),
+    bondTiers(BOND_VAJRA)[1].text.includes('再获得一次'),
 )
 
 const sSanwa = createSession()
@@ -1901,7 +1901,7 @@ assert(
   BOND_DESC.sheng === '不同种类升级集齐解锁档位' &&
     BOND_DESC[BOND_QIAN].startsWith('不同种类升级集齐解锁档位') &&
     !shengOptionWords.some((w) => BOND_DESC.sheng.includes(w)) &&
-    BOND_TIERS.sheng.map((t) => t.rank).join() === '3,5',
+    BOND_TIERS.sheng.map((t) => t.rank).join() === '3,5,8',
 )
 assert(
   'sheng desc hides options',
@@ -2000,6 +2000,137 @@ assert(
     powerViewSrc.includes('{{ c.desc }}') &&
     /\.rl-power-desc\s*\{[^}]*font-size:\s*var\(--rl-f1\)/.test(powerViewSrc) &&
     /font-size:\s*var\(--rl-f1\)/.test(powerViewSrc),
+)
+
+/* ---- P42 批次7（TASK-050 / M6）：新高级「贪婪」+ 小金刚/生生不息羁绊文本 ---- */
+
+/* R1① 贪婪入高级池：id / title / desc / tier / 无过审图 → 空白方块（不画程序图标）。 */
+const greedDef = UPGRADES.find((u) => u.id === 'greed')
+assert(
+  'greed in advanced pool',
+  C42.UPGRADE_GREED === 'greed' &&
+    greedDef?.id === 'greed' &&
+    greedDef?.title === '贪婪' &&
+    greedDef?.desc === '获取经验时 50% 概率再获得一次经验（每层 +10% 概率，最高 100%）' &&
+    greedDef?.tier === 'advanced' &&
+    descFor('greed') === greedDef?.desc &&
+    availableUpgrades(null, { tier: 'advanced', charId: 'ranger' }).some((u) => u.id === 'greed') &&
+    !availableUpgrades(null, { tier: 'normal', charId: 'ranger' }).some((u) => u.id === 'greed') &&
+    UPGRADES.filter((u) => u.tier === 'advanced').length === 10 &&
+    resolveUpgradeIcon('greed', false).kind === 'blank' &&
+    !existsSync(new URL('../../public/assets/upgrades/greed.png', import.meta.url)),
+)
+
+/* R1② 概率：1 层 50% 起、每层 +10、上限 100、0 层 0。 */
+assert(
+  'greed chance 50 base',
+  C42.GREED_CHANCE_BASE === 50 && C42.greedChance?.(0) === 0 && C42.greedChance?.(1) === 50,
+)
+assert(
+  'greed chance step 10 cap 100',
+  C42.GREED_CHANCE_STEP === 10 &&
+    C42.GREED_CHANCE_MAX === 100 &&
+    C42.greedChance?.(2) === 60 &&
+    C42.greedChance?.(6) === 100 &&
+    C42.greedChance?.(7) === 100 &&
+    C42.greedChance?.(99) === 100 &&
+    [1, 2, 3, 4, 5, 6, 7, 9, 20].every((p) => C42.greedChance?.(p) === Math.min(100, 50 + 10 * (p - 1))),
+)
+
+/* R1③ 会话侧 rollGreedBonus：按层数掷概率、命中 +1 并起 0.1s 冷却、冷中/未命中 0；冷却由 tick 真实时间递减；叠层不加冷却。 */
+const greedS = createSession()
+greedS.start('1')
+const greedCtx = { player: createPlayer() }
+const greedHitRng = () => 0
+const greedMissRng = () => 0.999
+const greedBeforePick = greedS.rollGreedBonus?.(greedHitRng) ?? null
+greedS.grantUpgrade('greed', greedCtx)
+const greedHit = greedS.rollGreedBonus?.(greedHitRng) ?? null
+const greedDuringCd = greedS.rollGreedBonus?.(greedHitRng) ?? null
+greedS.tick(C42.GREED_COOLDOWN_SEC ?? 0.1)
+const greedAfterCd = greedS.rollGreedBonus?.(greedHitRng) ?? null
+const greedS2 = createSession()
+greedS2.start('1')
+greedS2.grantUpgrade('greed', greedCtx)
+const greedMiss = greedS2.rollGreedBonus?.(greedMissRng) ?? null
+const greedMissThenHit = greedS2.rollGreedBonus?.(greedHitRng) ?? null
+const greedS3 = createSession()
+greedS3.start('1')
+greedS3.grantUpgrade('greed', greedCtx)
+greedS3.grantUpgrade('greed', greedCtx)
+const greed2Hit = greedS3.rollGreedBonus?.(greedHitRng) ?? null
+greedS3.tick(0.05)
+const greed2CdHalf = greedS3.rollGreedBonus?.(greedHitRng) ?? null
+greedS3.tick(0.05 + 1e-9)
+const greed2CdDone = greedS3.rollGreedBonus?.(greedHitRng) ?? null
+assert(
+  'greed cooldown 0.1',
+  C42.GREED_COOLDOWN_SEC === 0.1 &&
+    greedBeforePick === 0 &&
+    greedHit === 1 &&
+    greedDuringCd === 0 &&
+    greedAfterCd === 1 &&
+    greedMiss === 0 &&
+    greedMissThenHit === 1 &&
+    greed2Hit === 1 &&
+    greed2CdHalf === 0 &&
+    greed2CdDone === 1,
+)
+
+/* R1④ 不计入任何羁绊：无 bond 字段、四种羁绊都不计它。 */
+assert(
+  'greed not in any bond',
+  greedDef?.id === 'greed' &&
+    !('bond' in greedDef) &&
+    !('bonds' in greedDef) &&
+    [BOND_QIAN, BOND_UNITY, BOND_VAJRA, C42.BOND_SHENG].every((b) => C42.belongsToBond?.(greedDef, b) === false) &&
+    [BOND_QIAN, BOND_UNITY, BOND_VAJRA, C42.BOND_SHENG].every(
+      (b) => uniqueBondCount([{ id: 'greed' }], b) === 0,
+    ) &&
+    listActiveBonds([{ id: 'greed' }]).length === 0,
+)
+
+/* R2① 小金刚文本：脉冲 3 身位 / 攻击×2 + 兄弟效果「再获得一次」。 */
+assert(
+  'vajra tier text pulse 3 body 2x',
+  bondTiers(BOND_VAJRA).length === 2 &&
+    bondTiers(BOND_VAJRA).every((t) => t.rank === 7) &&
+    bondTiers(BOND_VAJRA)[0].text.includes('七色脉冲') &&
+    bondTiers(BOND_VAJRA)[0].text.includes('3 身位') &&
+    bondTiers(BOND_VAJRA)[0].text.includes('攻击×2') &&
+    bondTiers(BOND_VAJRA)[0].text.includes('减速 30%') &&
+    bondTiers(BOND_VAJRA)[0].text.includes('不击退') &&
+    bondTiers(BOND_VAJRA)[0].text.includes('不点燃') &&
+    bondTiers(BOND_VAJRA)[0].text.includes('六娃'),
+)
+assert(
+  'vajra tier text reobtain',
+  bondTiers(BOND_VAJRA)[1].text.includes('再获得一次') &&
+    ['大娃', '二娃', '三娃', '四娃', '五娃', '六娃', '七娃'].every((n) =>
+      bondTiers(BOND_VAJRA)[1].text.includes(n),
+    ) &&
+    !bondTiers(BOND_VAJRA)[1].text.includes('+10%'),
+)
+
+/* R2②③ 生生不息档位 3/5/8 + 档 8 复活文本 + 注明档 8 当前不可达。 */
+const constantsSrc = readFileSync(new URL('../ui/constants.js', import.meta.url), 'utf8')
+assert(
+  'sheng threshold 3 5 8',
+  C42.BOND_SHENG_THRESHOLDS?.join?.() === '3,5,8' &&
+    C42.BOND_THRESHOLDS?.['sheng']?.join?.() === '3,5,8' &&
+    BOND_TIERS.sheng.map((t) => t.rank).join() === '3,5,8' &&
+    bondRank('sheng', 5) === 5 &&
+    bondRank('sheng', 8) === 8 &&
+    /* 只计 5 种 → 档 8 当前不可达（等后续加计入项），源码里必须写明 */
+    UPGRADES.filter((u) => C42.belongsToBond?.(u, C42.BOND_SHENG)).length === 5 &&
+    /档 8 当前不可达/.test(constantsSrc),
+)
+assert(
+  'sheng tier8 revive text',
+  BOND_TIERS.sheng.find((t) => t.rank === 8)?.text ===
+    '受致命伤时以 1 血复活；复活后需再回血 5 次才能再次触发' &&
+    bondTiers('sheng').length === 3 &&
+    !/致命伤/.test(BOND_DESC.sheng),
 )
 
 const vol = defaultSettings()

@@ -71,39 +71,37 @@ export function iceManFrameSrcs() {
 
 export const ICE_MAN_SRC = iceManFrameSrcs()[0]
 
-/** P42 批次6：灰树 4 帧序列，0.1s/帧 ⇒ 0.4s 一轮（与 8 种小怪同口径）。 */
-export const GRAY_FRAMES = 4
-export const GRAY_FRAME_NAMES = ['灰树.png', '灰树-2.png', '灰树-3.png', '灰树-4.png']
-export const GRAY_ANIM_SEC = GRAY_FRAMES * ANIM_FRAME_SEC
-
-/** 灰树按帧序的 4 个资源 URL。 */
-export function grayFrameSrcs() {
-  return GRAY_FRAME_NAMES.slice(0, GRAY_FRAMES).map((name) => assetUrl(`assets/树木/${name}`))
-}
-
 /**
- * P42 批次6 R3：冰人子弹贴图换成 `子弹/冰锥.png`（32×32；旧素材 怪物子弹.png 是 4×4）。
- * 源图尖头朝向**实测**（../.task/TASK-038/evidence/asset-analysis.txt）：主体 bbox 12×20、脊竖直、**尖头在上（-Y）**，
- * 故源图尖头角 = ICE_BULLET_TIP_ANGLE = -π/2。绘制旋转 = atan2(vy, vx) + ICE_BULLET_TIP_OFFSET，
- * 尖头于是在**任意**飞行角都朝前；不要写死成某个固定方向（弹幕有多个发射角）。
+ * P42 批次7 R1：**两类怪物弹体彻底拆开**（批次6 把 spawnIceBullet 的贴图换成冰锥后，蝎子怪的子弹也一起变成冰锥了）。
+ * - 通用（两类共用）：判定盒 ICE_BULLET_DRAW、描边色 BULLET_OUTLINE；物理/命中/生命期同一套。
+ * - 冰人：冰锥贴图 + ICE_BULLET_SPRITE_DRAW(12) + 尖头角补偿。
+ * - 蝎子怪：旧贴图 怪物子弹.png + 绘制尺寸 = 判定盒(4) + **不旋转、不补偿**。
  */
 export const ICE_BULLET_SRC = assetUrl('assets/子弹/冰锥.png')
 export const ICE_BULLET_TIP_ANGLE = -Math.PI / 2
 export const ICE_BULLET_TIP_OFFSET = -ICE_BULLET_TIP_ANGLE
-/** 贴图绘制边长（纯视觉）。判定仍用 ICE_BULLET_DRAW，未改。 */
+/** 冰锥贴图绘制边长（纯视觉，只属于冰人）。判定仍用 ICE_BULLET_DRAW，未改。 */
 export const ICE_BULLET_SPRITE_DRAW = 12
+/** 蝎子怪弹体贴图：批次6 之前的旧素材（原生 4×4）。 */
+export const SCORPION_BULLET_SRC = assetUrl('assets/子弹/怪物子弹.png')
+/** 蝎子怪弹体绘制边长 = 判定盒（4）：批次6 之前就是轴对齐 4×4，观感与判定一致。 */
+export const SCORPION_BULLET_SPRITE_DRAW = 4
 export const ICE_MAN_DRAW = 48
 /** 有甲时不透明像素 1px 黄边（同伤害数字黄）。 */
 export const ARMOR_OUTLINE = '#e0b84a'
 /** P27 强化怪：素材最外圈紫色。 */
 export const ELITE_OUTLINE = '#7a2fd6'
-/** P27 冰人子弹：素材最外圈蓝色。 */
-export const ICE_BULLET_OUTLINE = '#3f9fff'
+/** 怪物弹体共用的蓝色描边（两类弹体都用；贴图/尺寸各自独立，见上）。 */
+export const BULLET_OUTLINE = '#3f9fff'
+/** 兼容旧名（= BULLET_OUTLINE）。 */
+export const ICE_BULLET_OUTLINE = BULLET_OUTLINE
 export const ORCHID_DRAW = 16
+/** 怪物弹体判定盒（两类共用）。 */
 export const ICE_BULLET_DRAW = 4
 
 /** 与 M7 普通树同量级：约 3 身位高。 */
 export const GRAY_DRAW = Math.round(BODY * 2.5)
-export const GRAY_SRC = grayFrameSrcs()[0]
+/** P42 批次7 R2：灰树**回单帧**（树木不适合序列帧）。只用第 1 帧；灰树-2/-3/-4.png 留在磁盘上不再引用。 */
+export const GRAY_SRC = assetUrl('assets/树木/灰树.png')
 
 export const BLACK_KEY = 12

@@ -91,28 +91,39 @@ export const FIRE_COOLDOWN = FIRE_INTERVAL
 export const BULLET_SPEED = ARROW_SPEED
 export const BULLET_SRC = ARROW_SRC
 
-/** M5/P27 四娃·喷火：命中点燃 3 秒；每层每秒 30% 攻击（集齐后 40%）。 */
+/** M5/P27 四娃·喷火：命中点燃 3 秒；每层每秒 30% 攻击（集齐七兄弟 → 层数 +1，见 vajraPicks）。 */
 export const FIRE_DURATION_SEC = 3
 export const FIRE_DMG_PER_PICK = 0.3
-export const FIRE_DMG_PER_PICK_BOOST = 0.4
-/** M5 五娃·吐水：命中减速 20%（集齐后 30%）；基础 0.3s，每层 +0.2s。 */
+/** M5 五娃·吐水：命中减速 20%；基础 0.3s，每层 +0.2s（集齐 → 层数 +1）。 */
 export const WATER_SLOW_BASE = 0.2
-export const WATER_SLOW_BOOST = 0.3
 export const WATER_SLOW_SEC = 0.3
 export const WATER_SLOW_ADD_SEC = 0.2
 /** P32 所有角色基础击退：初始 0.5 身位。 */
 export const BASE_KNOCKBACK_BODIES = 0.5
 /** P32 高级「击退」：每层 +1 身位。 */
 export const KNOCKBACK_BONUS_BODIES = 1
-/** M5 二娃·千里眼：三选一 20%/层 概率变四选一（集齐后 30%/层）。 */
+/** M5 二娃·千里眼：三选一 20%/层 概率变四选一（集齐 → 层数 +1）。 */
 export const ERSE_CHANCE_PER_PICK = 20
-export const ERSE_CHANCE_PER_PICK_BOOST = 30
-/** M5 小金刚七色脉冲。 */
+/** M5 小金刚七色脉冲（P42 批次7 R2：半径 3 身位、伤害 ×2）。 */
 export const PULSE_INTERVAL_SEC = 3.0
-export const PULSE_RADIUS_MUL = 1.5
-export const PULSE_DMG_MUL = 1.3
+export const PULSE_RADIUS_MUL = 3
+export const PULSE_DMG_MUL = 2.0
 export const PULSE_SLOW = 0.3
 export const PULSE_SLOW_SEC = 0.4
+
+/** P42 批次7 R1：荆棘爆发特效（4 帧 @10fps、播完即消失、不循环；素材由 M1 落盘 assets/fx/）。 */
+export const THORN_FX_FRAMES = 4
+export const THORN_FX_FPS = 10
+export const THORN_FX_SRC = [1, 2, 3, 4].map((n) => assetUrl(`assets/fx/thorn-burst-${n}.png`))
+/** P42 批次5 / 批次7 R3：大娃每层 +0.4 倍弹体尺寸。 */
+export const GIANT_SIZE_PER_PICK = 0.4
+/**
+ * P42 批次7 R3：集齐七兄弟（小金刚）后，各兄弟升级按「层数 +1」生效（＝再获得一次该升级）。
+ * 取代旧的「各兄弟效果 +10%」boost 分支——boost 常量与分支已删除。
+ */
+export function vajraPicks(picks = 0, vajraComplete = false) {
+  return Math.max(0, picks | 0) + (vajraComplete ? 1 : 0)
+}
 
 /** P42 批次3 power（M2 战斗侧）：连射「额外一发」自带的冷却（秒），与 FIRE_INTERVAL 各算各的。 */
 export const RAPID_EXTRA_CD_SEC = 0.75
@@ -272,25 +283,32 @@ export function fireAngles(base, extraFront = 0, backCount = 0, stepDeg = SPREAD
   return angs
 }
 
+/** P42 批次5 / 批次7 R3：大娃每层 +0.4 倍弹体尺寸（集齐七兄弟 → 层数 +1）。 */
 export function giantSizeMul(picks, vajraComplete = false) {
-  const n = Math.max(0, picks | 0)
-  const per = vajraComplete ? 0.5 : 0.4
-  return 1 + per * n
+  return 1 + GIANT_SIZE_PER_PICK * vajraPicks(picks, vajraComplete)
 }
 
-/** 四娃点燃 DPS（每层每秒占攻击的比例）。集齐后每层 40%，否则 30%。 */
-export function fireDpsPerPick(vajraComplete = false) {
-  return vajraComplete ? FIRE_DMG_PER_PICK_BOOST : FIRE_DMG_PER_PICK
+/** 四娃点燃每层每秒占攻击的比例（恒定 30%；集齐七兄弟改为层数 +1）。 */
+export function fireDpsPerPick() {
+  return FIRE_DMG_PER_PICK
 }
 
-/** 五娃减速幅度。集齐后 30%，否则 20%。 */
-export function waterSlowPct(vajraComplete = false) {
-  return vajraComplete ? WATER_SLOW_BOOST : WATER_SLOW_BASE
+/**
+ * P42 批次7 R3：四娃点燃总比例 = 每层 30% × 有效层数（集齐七兄弟 → 层数 +1）。
+ * 例：1 层 + 集齐 = 2 层 → 0.6；1 层未集齐 = 0.3。
+ */
+export function fireDps(picks = 0, vajraComplete = false) {
+  return FIRE_DMG_PER_PICK * vajraPicks(picks, vajraComplete)
 }
 
-/** 五娃减速时长：基础 0.3s，每层 +0.2s。 */
-export function waterSlowSec(picks = 1) {
-  const n = Math.max(1, picks | 0)
+/** 五娃减速幅度：恒定 20%（集齐七兄弟不再改幅度，改的是层数 → 时长）。 */
+export function waterSlowPct() {
+  return WATER_SLOW_BASE
+}
+
+/** P42 批次7 R3：五娃减速时长 = 基础 0.3s + 0.2s × (有效层数 − 1)，集齐七兄弟 → 层数 +1。 */
+export function waterSlowSec(picks = 0, vajraComplete = false) {
+  const n = Math.max(1, vajraPicks(picks, vajraComplete))
   return WATER_SLOW_SEC + WATER_SLOW_ADD_SEC * (n - 1)
 }
 
@@ -299,14 +317,14 @@ export function knockbackBonusForPicks(picks = 0) {
   return Math.max(0, picks | 0) * KNOCKBACK_BONUS_BODIES * BODY
 }
 
-/** 二娃四选一概率 %/层。集齐后 30%，否则 20%。 */
-export function erseChancePerPick(vajraComplete = false) {
-  return vajraComplete ? ERSE_CHANCE_PER_PICK_BOOST : ERSE_CHANCE_PER_PICK
+/** 二娃四选一概率 %/层（恒定 20%；集齐七兄弟 → 层数 +1）。 */
+export function erseChancePerPick() {
+  return ERSE_CHANCE_PER_PICK
 }
 
-/** 二娃四选一总概率（%）。层数越多越高，封顶 100。 */
+/** P42 批次7 R3：二娃四选一总概率（%）= 20 × 有效层数（集齐 → +1 层），封顶 100。 */
 export function erseChance(picks = 0, vajraComplete = false) {
-  return Math.min(100, Math.max(0, picks | 0) * erseChancePerPick(vajraComplete))
+  return Math.min(100, ERSE_CHANCE_PER_PICK * vajraPicks(picks, vajraComplete))
 }
 
 /**

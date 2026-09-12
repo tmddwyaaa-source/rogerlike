@@ -121,17 +121,15 @@ import {
   ANIM_FRAME_SEC,
   BLACK_KEY,
   ARMOR_OUTLINE,
+  BULLET_OUTLINE,
   CREEP_ANIM_SEC,
   CREEP_DRAW,
   CREEP_FRAME_KINDS,
   CREEP_FRAME_NAMES,
   CREEP_FRAMES,
-  GRAY_ANIM_SEC,
   GRAY_DRAW,
-  GRAY_FRAME_NAMES,
-  GRAY_FRAMES,
+  GRAY_SRC,
   creepFrameSrcs,
-  grayFrameSrcs,
   ICE_BULLET_DRAW,
   ICE_BULLET_SPRITE_DRAW,
   ICE_BULLET_SRC,
@@ -144,7 +142,8 @@ import {
   iceManFrameSrcs,
   ORCHID_DRAW,
   ELITE_OUTLINE,
-  ICE_BULLET_OUTLINE,
+  SCORPION_BULLET_SRC,
+  SCORPION_BULLET_SPRITE_DRAW,
 } from './constants.js'
 
 export { outlinePixels, outlineSheet } from './outline.js'
@@ -153,6 +152,7 @@ export {
   ANIM_FPS,
   ANIM_FRAME_SEC,
   ARMOR_OUTLINE,
+  BULLET_OUTLINE,
   CREEP_ANIM_FPS,
   CREEP_ANIM_SEC,
   CREEP_DRAW,
@@ -161,13 +161,9 @@ export {
   CREEP_FRAME_SEC,
   CREEP_FRAMES,
   CREEP_SRC,
-  GRAY_ANIM_SEC,
   GRAY_DRAW,
-  GRAY_FRAME_NAMES,
-  GRAY_FRAMES,
   GRAY_SRC,
   creepFrameSrcs,
-  grayFrameSrcs,
   ICE_BULLET_DRAW,
   ICE_BULLET_SRC,
   ICE_BULLET_SPRITE_DRAW,
@@ -180,6 +176,8 @@ export {
   ICE_MAN_SRC,
   iceManFrameSrcs,
   ORCHID_SRC,
+  SCORPION_BULLET_SRC,
+  SCORPION_BULLET_SPRITE_DRAW,
   SCORPION_SRC,
   SLIME_X1_SRC,
   SLIME_X3_SRC,
@@ -323,11 +321,6 @@ export function iceManFrameAt(t, frames = ICE_MAN_FRAMES) {
   return animFrameAt(t, frames)
 }
 
-/** P42 批次6：灰树按时间取帧（纯函数）。4 帧一轮 0.4s，口径同小怪。 */
-export function grayTreeFrameAt(t, frames = GRAY_FRAMES) {
-  return animFrameAt(t, frames)
-}
-
 /**
  * P42 批次6 R3：冰人子弹的绘制旋转角（纯函数）= 飞行角 + 源图尖头补偿。
  * 源图冰锥尖头朝 -Y（实测），补偿 ICE_BULLET_TIP_OFFSET = +π/2 后，尖头在任意飞行角都朝前。
@@ -358,11 +351,10 @@ function animKeyOf(ent) {
   return ent?.kind
 }
 
-/** 全部序列帧表（键 → 文件名数组）。 */
+/** 全部序列帧表（键 → 文件名数组）。灰树不在内（批次7 已回单帧）。 */
 const ANIM_FRAME_NAMES = {
   ...CREEP_FRAME_NAMES,
   ice_man: ICE_MAN_FRAME_NAMES,
-  gray: GRAY_FRAME_NAMES,
 }
 
 /** 该怪一轮的帧数（表项缺失时退回 CREEP_FRAMES）。 */
@@ -374,13 +366,12 @@ function animFramesOf(key) {
 /** 该怪一轮的秒数（相位按各自轮长折算）。 */
 function animCycleOf(key) {
   if (key === 'ice_man') return ICE_MAN_ANIM_SEC
-  if (key === 'gray') return GRAY_ANIM_SEC
   return CREEP_ANIM_SEC
 }
 
 /**
- * P42 批次6：冰人 / 灰树的实例相位**刻意不消耗 random()** —— 灰树的生成路径被既有顺序 rng 断言
- * （自伤 rolls=[0,0.99]）盯着，多掷一次会打乱；改用按实例序号的金比错开，同屏照样不整齐划一。
+ * P42：冰人的实例相位**刻意不消耗 random()**，改用按实例序号的金比错开 ——
+ * 生成管线里有既有断言按顺序取随机数（如灰树自伤 rolls=[0,0.99]），多掷一次会打乱它们。
  */
 let animSeq = 0
 const ANIM_PHASE_STEP = 0.6180339887498949
@@ -505,10 +496,11 @@ export function createEnemies(opts = {}) {
   let orchidSheets = null
   let scorpionSheets = null
   let stingerSheets = null
-  /** 冰人 6 帧 / 灰树 4 帧 / 子弹单帧贴图（按帧序数组）。 */
+  /** 冰人 6 帧贴图（按帧序数组）；灰树单帧；两类弹体各自的贴图。 */
   let iceManSheets = null
-  let graySprites = null
+  let graySprite = null
   let iceBulletSheet = null
+  let scorpionBulletSheet = null
 
   function extraHp() {
     const n = opts.getHpGrowthAdd?.()
@@ -824,12 +816,17 @@ export function createEnemies(opts = {}) {
     return spawnDummyAt(px + DUMMY_OFFSET, py)
   }
 
-  function spawnIceBullet(x, y, tx, ty, speed = ICE_BULLET_SPEED, dmg = 1) {
+  /**
+   * P42 批次7 R1④：通用怪物弹体（物理/命中/生命期两类共用；判定盒一律 ICE_BULLET_DRAW）。
+   * `kind` 决定贴图与绘制口径：'ice' = 冰锥（旋转 + 尖端补偿），'scorpion' = 旧弹体（轴对齐、不补偿）。
+   */
+  function spawnBullet(x, y, tx, ty, speed, dmg, kind) {
     const dx = (tx ?? x) - x
     const dy = (ty ?? y) - y
     const len = Math.hypot(dx, dy) || 1
     const spd = speed ?? ICE_BULLET_SPEED
     iceBullets.push({
+      kind,
       x,
       y,
       vx: (dx / len) * spd,
@@ -839,6 +836,16 @@ export function createEnemies(opts = {}) {
       life: 5,
       dmg,
     })
+  }
+
+  /** 冰人：冰锥弹（弹幕 + 近身接触都用这条）。 */
+  function spawnIceBullet(x, y, tx, ty, speed = ICE_BULLET_SPEED, dmg = 1) {
+    return spawnBullet(x, y, tx, ty, speed, dmg, 'ice')
+  }
+
+  /** 蝎子怪：旧弹体（怪物子弹.png）。速度/伤害/发射节奏沿用原常量，与冰人彻底分开。 */
+  function spawnScorpionBullet(x, y, tx, ty, speed = SCORPION_BULLET_SPEED, dmg = 1) {
+    return spawnBullet(x, y, tx, ty, speed, dmg, 'scorpion')
   }
 
   function queueBurst(x, y) {
@@ -859,9 +866,7 @@ export function createEnemies(opts = {}) {
       knockbackable: false,
       dead: false,
       selfAcc: 0,
-      // P42 批次6：灰树 4 帧序列（相位按实例序号错开，不消耗 random()，见 nextAnimPhase 注释）。
-      animPhase: nextAnimPhase(),
-      animT: 0,
+      // P42 批次7 R2：灰树回单帧 —— 不再有 animPhase / animT（无序列帧状态）。
     }
     bindTakeHit(tree, () => {
       tree.dead = true
@@ -1337,7 +1342,7 @@ export function createEnemies(opts = {}) {
         if (mode === 'hold' && player && !isBlind(ent)) {
           ent.shotCd = (ent.shotCd ?? 0) - dt
           if (ent.shotCd <= 0) {
-            spawnIceBullet(ent.x, ent.y, player.x, player.y, SCORPION_BULLET_SPEED)
+            spawnScorpionBullet(ent.x, ent.y, player.x, player.y, SCORPION_BULLET_SPEED)
             ent.shotCd = SCORPION_SHOT_PERIOD
           }
         }
@@ -1382,16 +1387,17 @@ export function createEnemies(opts = {}) {
 
   async function loadAssets() {
     if (typeof Image === 'undefined') return null
-    // P42：8 种小怪 ×4 帧 + 冰人 ×6 帧 + 灰树 ×4 帧 = 42 张序列帧；子弹仍单帧。
-    const [animImgs, iceImgs, grayImgs, bulletImg] = await Promise.all([
+    // P42 批次7：8 种小怪 ×4 帧 + 冰人 ×6 帧 = 38 张序列帧；灰树回单帧；两类弹体各一张。
+    const [animImgs, iceImgs, grayImg, iceBulletImg, scorpionBulletImg] = await Promise.all([
       Promise.all(
         CREEP_FRAME_KINDS.map((key) =>
           Promise.all(creepFrameSrcs(key).map((src) => loadImage(src))),
         ),
       ),
       Promise.all(iceManFrameSrcs().map((src) => loadImage(src))),
-      Promise.all(grayFrameSrcs().map((src) => loadImage(src))),
+      loadImage(GRAY_SRC),
       loadImage(ICE_BULLET_SRC),
+      loadImage(SCORPION_BULLET_SRC),
     ])
     const sheet = (img) => {
       try {
@@ -1418,10 +1424,11 @@ export function createEnemies(opts = {}) {
     orchidSheets = sheetsByKey.orchid
     // 冰人 6 帧：与 8 种小怪同样抠黑 + 描边变体。
     iceManSheets = iceImgs.map((img) => sheet(img))
-    // 灰树 4 帧：沿用原「不抠黑、直接画」路径（graySprite = grayImg 的旧行为），只多帧。
-    graySprites = grayImgs
-    // P27 冰人子弹：素材最外圈蓝色。
-    iceBulletSheet = outlineSheet(chromaBlack(bulletImg), ICE_BULLET_OUTLINE)
+    // 灰树：单帧，沿用原「不抠黑、直接画」路径（不预加载 灰树-2/-3/-4.png）。
+    graySprite = grayImg
+    // 两类弹体各自的贴图（同一条蓝色描边）；冰锥只给冰人，怪物子弹只给蝎子怪。
+    iceBulletSheet = outlineSheet(chromaBlack(iceBulletImg), BULLET_OUTLINE)
+    scorpionBulletSheet = outlineSheet(chromaBlack(scorpionBulletImg), BULLET_OUTLINE)
     return {
       creepSheets,
       snailSheets,
@@ -1433,11 +1440,12 @@ export function createEnemies(opts = {}) {
       scorpionSheets,
       stingerSheets,
       iceBulletSheet,
-      graySprites,
+      scorpionBulletSheet,
+      graySprite,
     }
   }
 
-  /** P42：该实例当前应画的帧（时间驱动 + 本实例相位）。小怪 / 冰人 / 灰树共用。 */
+  /** P42：该实例当前应画的帧（时间驱动 + 本实例相位）。小怪 / 冰人共用（灰树、木桩单帧）。 */
   function animFrameOf(ent) {
     if (!ent) return 0
     const key = animKeyOf(ent)
@@ -1509,12 +1517,13 @@ export function createEnemies(opts = {}) {
       ctx.fillRect(px - 3, py + 1, 2, 2)
     }
     for (const b of iceBullets) {
-      drawIceBullet(ctx, b)
+      if (b.kind === 'scorpion') drawScorpionBullet(ctx, b)
+      else drawIceBullet(ctx, b)
     }
   }
 
   /**
-   * P42 批次6 R3：冰锥按飞行角旋转绘制，尖头朝前。
+   * P42 批次6 R3（只属于冰人）：冰锥按飞行角旋转绘制，尖头朝前。
    * 源图尖头朝 -Y，故旋转 = atan2(vy, vx) + ICE_BULLET_TIP_OFFSET；判定尺寸仍用 b.w / b.h（未改）。
    */
   function drawIceBullet(ctx, b) {
@@ -1533,11 +1542,33 @@ export function createEnemies(opts = {}) {
     ctx.restore()
   }
 
+  /**
+   * P42 批次7 R1（只属于蝎子怪）：观感回到批次6 之前 —— 怪物子弹.png、轴对齐、尺寸 = 判定盒(4)、
+   * **不旋转、不加尖头角补偿**；与冰人的 drawIceBullet 是两条独立路径。
+   */
+  function drawScorpionBullet(ctx, b) {
+    const spr = spriteOf(scorpionBulletSheet, b, 0)
+    const size = SCORPION_BULLET_SPRITE_DRAW
+    const dx = Math.round(b.x - size / 2)
+    const dy = Math.round(b.y - size / 2)
+    if (spr) {
+      const sw = spr.naturalWidth || spr.width
+      const sh = spr.naturalHeight || spr.height
+      ctx.drawImage(spr, 0, 0, sw, sh, dx, dy, size, size)
+      return
+    }
+    ctx.fillStyle = '#1a3048'
+    ctx.fillRect(dx, dy, size, size)
+    ctx.fillStyle = '#80d0ff'
+    ctx.fillRect(dx + 4, dy + 4, 6, 6)
+  }
+
+  /** P42 批次7 R2：灰树单帧（只用 灰树.png 第 1 帧，不按时间取帧）。 */
   function drawGray(ctx, ent) {
     const dx = Math.round(ent.x - ent.w / 2)
     const dy = Math.round(ent.y - ent.h / 2)
-    const spr = spriteOf(graySprites, ent, animFrameOf(ent))
-    if (spr) {
+    const spr = graySprite
+    if (spr && (spr.naturalWidth || spr.width)) {
       const sw = spr.naturalWidth || spr.width
       const sh = spr.naturalHeight || spr.height
       ctx.drawImage(spr, 0, 0, sw, sh, dx, dy, ent.w, ent.h)
