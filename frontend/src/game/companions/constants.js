@@ -8,24 +8,56 @@ export const GOBLIN_DRAW = 16
 export const GOBLIN_INTERVAL = 0.4
 
 /**
- * P42 批次4（TASK-031 / M7）：地精 4 帧序列动画的**播放口径**，
+ * P42 批次4/6（TASK-031 地精 / TASK-039 其余 8 套）跟班序列动画的**播放口径**，
  * 与角色 `render/ranger.js` 的 `ANIM_FPS` 同一套口径（时间驱动，不逐帧计数）：
  * 帧时长 0.1s ≈ 10fps，4 帧一轮 0.4s，无限循环。
  * 注意 `GOBLIN_INTERVAL` 是**攻击间隔**（也是 0.4s），与这里的**动画周期**语义无关，别混用。
  */
-export const GOBLIN_FRAMES = 4
-export const GOBLIN_FRAME_SEC = 0.1
-export const GOBLIN_ANIM_SEC = GOBLIN_FRAME_SEC * GOBLIN_FRAMES
-/** 4 帧素材（每帧 32×32，由 M1 双拷落盘；本任务不改素材）。 */
-export const GOBLIN_FRAME_SRC = [
-  assetUrl('assets/跟班/地精.png'),
-  assetUrl('assets/跟班/地精-2.png'),
-  assetUrl('assets/跟班/地精-3.png'),
-  assetUrl('assets/跟班/地精-4.png'),
-]
+export const COMPANION_FRAMES = 4
+export const COMPANION_FRAME_SEC = 0.1
+export const COMPANION_ANIM_SEC = COMPANION_FRAME_SEC * COMPANION_FRAMES
+
+/** 地精沿用批次 4 的名字（既有断言、导出与调用点继续可用，值同为上面的通用口径）。 */
+export const GOBLIN_FRAMES = COMPANION_FRAMES
+export const GOBLIN_FRAME_SEC = COMPANION_FRAME_SEC
+export const GOBLIN_ANIM_SEC = COMPANION_ANIM_SEC
+
+/** 一套 4 帧的 URL：`X.png` / `X-2.png` / `X-3.png` / `X-4.png`（每帧 32×32，M1 已双拷落盘）。 */
+function frameSrcs(name) {
+  return [name, `${name}-2`, `${name}-3`, `${name}-4`].map((f) =>
+    assetUrl(`assets/跟班/${f}.png`),
+  )
+}
+
+export const GOBLIN_FRAME_SRC = frameSrcs('地精')
+export const RABBIT_FRAME_SRC = frameSrcs('兔子')
+export const BAT_FRAME_SRC = frameSrcs('蝙蝠')
+export const DEMON_FRAME_SRC = frameSrcs('恶魔')
+export const SLIME_GG_FRAME_SRC = { 1: frameSrcs('史莱姆g-1'), 2: frameSrcs('史莱姆g-2') }
+export const EGG_FRAME_SRC = {
+  1: frameSrcs('奇怪的蛋-x'),
+  2: frameSrcs('奇怪的蛋-y'),
+  3: frameSrcs('奇怪的蛋-z'),
+}
 
 /**
- * 地精序列动画取帧（纯函数，便于断言）：第 `t` 秒应显示第几帧。
+ * 帧集注册表：绘制时按「实例种类 + 阶段/变体」取一套 4 帧。
+ * goblin / rabbit / bat / demon 各一套；slime 按变体（g-1 / g-2）、egg 按阶段（x / y / z）各一套。
+ */
+export const COMPANION_FRAME_SRC = {
+  goblin: GOBLIN_FRAME_SRC,
+  rabbit: RABBIT_FRAME_SRC,
+  bat: BAT_FRAME_SRC,
+  demon: DEMON_FRAME_SRC,
+  slime1: SLIME_GG_FRAME_SRC[1],
+  slime2: SLIME_GG_FRAME_SRC[2],
+  egg1: EGG_FRAME_SRC[1],
+  egg2: EGG_FRAME_SRC[2],
+  egg3: EGG_FRAME_SRC[3],
+}
+
+/**
+ * 跟班序列动画取帧（纯函数，便于断言）：第 `t` 秒应显示第几帧。
  *
  * - **时间驱动**：帧索引只由 t 决定（`floor(t / frameSec)`），调用次数 / 帧率都不影响；
  * - 对帧数**取模**，4 帧一轮无限循环；
@@ -34,15 +66,20 @@ export const GOBLIN_FRAME_SRC = [
  *
  * `+1e-9`：0.3 / 0.1 在 IEEE754 下是 2.9999999999999996，不留容差会在 t=0.3 停在上一帧。
  */
-export function goblinFrameAt(t, frames = GOBLIN_FRAMES, frameSec = GOBLIN_FRAME_SEC) {
+export function companionFrameAt(t, frames = COMPANION_FRAMES, frameSec = COMPANION_FRAME_SEC) {
   const fn = Math.floor(Number(frames))
-  const n = Number.isFinite(fn) && fn >= 1 ? fn : GOBLIN_FRAMES
+  const n = Number.isFinite(fn) && fn >= 1 ? fn : COMPANION_FRAMES
   const rawStep = Number(frameSec)
-  const step = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : GOBLIN_FRAME_SEC
+  const step = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : COMPANION_FRAME_SEC
   const sec = Number(t)
   const safe = Number.isFinite(sec) ? sec : 0
   const i = Math.floor(safe / step + 1e-9)
   return ((i % n) + n) % n
+}
+
+/** 地精口径的别名：批次 4 的断言与调用点签名保持不变。 */
+export function goblinFrameAt(t, frames = GOBLIN_FRAMES, frameSec = GOBLIN_FRAME_SEC) {
+  return companionFrameAt(t, frames, frameSec)
 }
 export const GOBLIN_DMG_BASE = 15
 export const GOBLIN_DMG_ATK_RATIO = 0.6

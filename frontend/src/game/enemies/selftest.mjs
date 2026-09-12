@@ -4,6 +4,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import {
   BODY,
@@ -14,6 +15,7 @@ import {
   WORLD_WIDTH,
 } from '../constants.js'
 import {
+  animFrameAt,
   CREEP_ANIM_FPS,
   CREEP_ANIM_SEC,
   CREEP_DRAW,
@@ -24,6 +26,22 @@ import {
   CREEP_HP,
   CREEP_SRC,
   creepFrameAt,
+  grayFrameSrcs,
+  grayTreeFrameAt,
+  GRAY_ANIM_SEC,
+  GRAY_FRAME_NAMES,
+  GRAY_FRAMES,
+  GRAY_SRC,
+  iceBulletRotation,
+  ICE_BULLET_SPRITE_DRAW,
+  ICE_BULLET_DRAW,
+  ICE_BULLET_TIP_ANGLE,
+  ICE_BULLET_TIP_OFFSET,
+  iceManFrameAt,
+  iceManFrameSrcs,
+  ICE_MAN_ANIM_SEC,
+  ICE_MAN_FRAME_NAMES,
+  ICE_MAN_FRAMES,
   SNAIL_SRC,
   SPLIT_SRC,
   SLIME_X1_SRC,
@@ -149,6 +167,179 @@ function assert(name, cond) {
 
 /** P42 批次4：序列帧素材磁盘目录（frontend/public/assets/小怪/）。 */
 const CREEP_ASSET_DIR = fileURLToPath(new URL('../../../public/assets/小怪/', import.meta.url))
+/** P42 批次6：灰树素材目录（frontend/public/assets/树木/）。 */
+const GRAY_ASSET_DIR = fileURLToPath(new URL('../../../public/assets/树木/', import.meta.url))
+
+/**
+ * 最小 PNG 解码（8bit，colorType 0/2/4/6，非隔行）→ { w, h, rgba }。
+ * 只服务「冰锥尖头朝向实测」：让断言盯着真实素材字节，而不是只盯我们自己写的常量。
+ */
+function decodePng(file) {
+  const buf = fs.readFileSync(file)
+  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error(`not png: ${file}`)
+  let off = 8
+  let w = 0
+  let h = 0
+  let colorType = 6
+  const idat = []
+  while (off < buf.length) {
+    const len = buf.readUInt32BE(off)
+    const type = buf.toString('ascii', off + 4, off + 8)
+    const data = buf.subarray(off + 8, off + 8 + len)
+    if (type === 'IHDR') {
+      w = data.readUInt32BE(0)
+      h = data.readUInt32BE(4)
+      if (data[8] !== 8) throw new Error(`bitDepth ${data[8]} unsupported`)
+      colorType = data[9]
+      if (data[12] !== 0) throw new Error('interlaced unsupported')
+    } else if (type === 'IDAT') idat.push(data)
+    else if (type === 'IEND') break
+    off += 12 + len
+  }
+  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[colorType]
+  if (!channels) throw new Error(`colorType ${colorType} unsupported`)
+  const raw = zlib.inflateSync(Buffer.concat(idat))
+  const stride = w * channels
+  const out = Buffer.alloc(w * h * 4)
+  const prev = Buffer.alloc(stride)
+  const cur = Buffer.alloc(stride)
+  for (let y = 0; y < h; y++) {
+    const filter = raw[y * (stride + 1)]
+    raw.copy(cur, 0, y * (stride + 1) + 1, y * (stride + 1) + 1 + stride)
+    for (let x = 0; x < stride; x++) {
+      const a = x >= channels ? cur[x - channels] : 0
+      const b = prev[x]
+      const c = x >= channels ? prev[x - channels] : 0
+      if (filter === 1) cur[x] = (cur[x] + a) & 255
+      else if (filter === 2) cur[x] = (cur[x] + b) & 255
+      else if (filter === 3) cur[x] = (cur[x] + ((a + b) >> 1)) & 255
+      else if (filter === 4) {
+        const p = a + b - c
+        const pa = Math.abs(p - a)
+        const pb = Math.abs(p - b)
+        const pc = Math.abs(p - c)
+        const pred = pa <= pb && pa <= pc ? a : pb <= pc ? b : c
+        cur[x] = (cur[x] + pred) & 255
+      }
+    }
+    cur.copy(prev)
+    for (let x = 0; x < w; x++) {
+      const s = x * channels
+      const d = (y * w + x) * 4
+      if (channels === 4) {
+        out[d] = cur[s]
+        out[d + 1] = cur[s + 1]
+        out[d + 2] = cur[s + 2]
+        out[d + 3] = cur[s + 3]
+      } else if (channels === 3) {
+        out[d] = cur[s]
+        out[d + 1] = cur[s + 1]
+        out[d + 2] = cur[s + 2]
+        out[d + 3] = 255
+      } else if (channels === 1) {
+        out[d] = out[d + 1] = out[d + 2] = cur[s]
+        out[d + 3] = 255
+      } else {
+        out[d] = out[d + 1] = out[d + 2] = cur[s]
+        out[d + 3] = cur[s + 1]
+      }
+    }
+  }
+  return { w, h, rgba: out }
+}
+
+/** 实心像素掩码：alpha>8 且不是抠黑底（r,g,b 三者都 <12）。 */
+function solidMask({ w, h, rgba }) {
+  const m = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) {
+    m[i] =
+      rgba[i * 4 + 3] > 8 && !(rgba[i * 4] < 12 && rgba[i * 4 + 1] < 12 && rgba[i * 4 + 2] < 12)
+        ? 1
+        : 0
+  }
+  return m
+}
+
+/**
+ * 尖头朝向实测：取最长轴为脊，比较脊两端最外 3 行/列的实心像素数，少的一端是尖头。
+ * @returns {{ axis: 'vertical'|'horizontal', tipAngle: number, tipEnd: string, bbox: number[] }}
+ */
+function measureTip({ w, h, rgba }) {
+  const m = solidMask({ w, h, rgba })
+  const rows = new Array(h).fill(0)
+  const cols = new Array(w).fill(0)
+  let minX = w
+  let maxX = -1
+  let minY = h
+  let maxY = -1
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!m[y * w + x]) continue
+      rows[y]++
+      cols[x]++
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+  }
+  const bw = maxX - minX + 1
+  const bh = maxY - minY + 1
+  const band = 3
+  const sum = (arr, a, b) => arr.slice(a, b).reduce((s, v) => s + v, 0)
+  if (bh >= bw) {
+    const top = sum(rows, minY, minY + band)
+    const bottom = sum(rows, maxY - band + 1, maxY + 1)
+    const tipUp = top < bottom
+    return {
+      axis: 'vertical',
+      tipAngle: tipUp ? -Math.PI / 2 : Math.PI / 2,
+      tipEnd: tipUp ? 'top(-Y)' : 'bottom(+Y)',
+      bbox: [bw, bh],
+    }
+  }
+  const left = sum(cols, minX, minX + band)
+  const right = sum(cols, maxX - band + 1, maxX + 1)
+  const tipLeft = left < right
+  return {
+    axis: 'horizontal',
+    tipAngle: tipLeft ? Math.PI : 0,
+    tipEnd: tipLeft ? 'left(-X)' : 'right(+X)',
+    bbox: [bw, bh],
+  }
+}
+
+/** 把角度归一到 (-π, π]。 */
+function wrapPi(a) {
+  let x = a
+  while (x > Math.PI) x -= Math.PI * 2
+  while (x < -Math.PI) x += Math.PI * 2
+  return x
+}
+
+/** 绘制桩：只统计「有没有被画到」，不做像素断言。 */
+function makeStubCtx() {
+  const calls = []
+  const noop = (name) => (...args) => calls.push([name, ...args])
+  return {
+    calls,
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    globalAlpha: 1,
+    beginPath: noop('beginPath'),
+    arc: noop('arc'),
+    stroke: noop('stroke'),
+    strokeRect: noop('strokeRect'),
+    fillRect: noop('fillRect'),
+    drawImage: noop('drawImage'),
+    save: noop('save'),
+    restore: noop('restore'),
+    translate: noop('translate'),
+    rotate: noop('rotate'),
+    scale: noop('scale'),
+  }
+}
 
 function makeFocus() {
   return {
@@ -626,7 +817,7 @@ assert('barrage patterns 4', ICE_BARRAGE_PATTERNS.length === 4)
 assert('camera 4 corners', cameraCorners(camera).length === 4)
 assert('camera 4 mids', cameraEdgeMids(camera).length === 4)
 assert('plan barrage 16 shots', planBarrageSet(ICE_BARRAGE_PATTERNS).length === 16)
-assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes('兰花.png') && ICE_BULLET_SRC.includes('怪物子弹.png'))
+assert('ice sprites', ICE_MAN_SRC.includes('冰人.png') && ORCHID_SRC.includes('兰花.png') && ICE_BULLET_SRC.includes('冰锥.png'))
 
 {
   const wave = createEnemies({ random: () => 0.5 })
@@ -1322,6 +1513,218 @@ assert(
       creep.animT === t1 &&
       foes.creepFrameOf(creep) === f1 &&
       f1 === creepFrameAt('creep', 0.25 + creep.animPhase * CREEP_ANIM_SEC, CREEP_FRAMES),
+  )
+}
+
+// —— P42 批次6：冰人 6 帧 + 灰树 4 帧 + 冰锥（尖头朝飞行方向） ——
+assert(
+  'iceman frames 6',
+  ICE_MAN_FRAMES === 6 &&
+    Math.abs(ICE_MAN_ANIM_SEC - 0.6) < 1e-12 &&
+    ICE_MAN_FRAME_NAMES.length === 6 &&
+    iceManFrameSrcs().length === 6 &&
+    iceManFrameSrcs()[0].includes('冰人.png') &&
+    iceManFrameSrcs()[5].includes('冰人-6.png'),
+)
+
+assert(
+  'iceman anim time driven',
+  iceManFrameAt(0) === 0 &&
+    iceManFrameAt(0.1) === 1 &&
+    iceManFrameAt(0.2) === 2 &&
+    iceManFrameAt(0.3) === 3 &&
+    iceManFrameAt(0.4) === 4 &&
+    iceManFrameAt(0.5) === 5 &&
+    iceManFrameAt(0.6) === 0 &&
+    iceManFrameAt(0.7) === 1 &&
+    iceManFrameAt(5.9) === 5 &&
+    iceManFrameAt(6) === 0 &&
+    animFrameAt(0.3, 6) === 3 &&
+    [0, 0.1, 0.5, 0.6, 7.7, 123.4, -2].every((t) => {
+      const i = iceManFrameAt(t)
+      return Number.isInteger(i) && i >= 0 && i < ICE_MAN_FRAMES
+    }) &&
+    [0, 0.1, 0.2, 0.3, 0.4, 0.5].every(
+      (t) => iceManFrameAt(t) === iceManFrameAt(t + ICE_MAN_ANIM_SEC),
+    ),
+)
+
+{
+  // R1⑤ / R2：素材在磁盘上（素材由 M1 双拷落盘，本任务不改素材）。
+  const missingIce = ICE_MAN_FRAME_NAMES.filter((n) => !fs.existsSync(path.join(CREEP_ASSET_DIR, n)))
+  assert(
+    'iceman 6 frame assets exist',
+    ICE_MAN_FRAME_NAMES.length === 6 && missingIce.length === 0,
+  )
+}
+
+{
+  // R2①：灰树 4 帧，0.1s/帧、0.4s 一轮、纯函数口径同小怪。
+  const missing = GRAY_FRAME_NAMES.filter((n) => !fs.existsSync(path.join(GRAY_ASSET_DIR, n)))
+  assert(
+    'graytree frames 4',
+    GRAY_FRAMES === 4 &&
+      Math.abs(GRAY_ANIM_SEC - 0.4) < 1e-12 &&
+      GRAY_FRAME_NAMES.length === 4 &&
+      grayFrameSrcs().length === 4 &&
+      GRAY_SRC.includes('灰树.png'),
+  )
+  assert(
+    'graytree anim time driven',
+    grayTreeFrameAt(0) === 0 &&
+      grayTreeFrameAt(0.1) === 1 &&
+      grayTreeFrameAt(0.2) === 2 &&
+      grayTreeFrameAt(0.3) === 3 &&
+      grayTreeFrameAt(0.4) === 0 &&
+      grayTreeFrameAt(0.5) === 1 &&
+      grayTreeFrameAt(-1) === 0 &&
+      grayTreeFrameAt(Number.NaN) === 0 &&
+      [0, 0.1, 0.2, 0.3, 0.4, 9.9].every((t) => {
+        const i = grayTreeFrameAt(t)
+        return Number.isInteger(i) && i >= 0 && i < GRAY_FRAMES
+      }),
+  )
+  assert('graytree 4 frame assets exist', missing.length === 0)
+}
+
+{
+  // R1②：冰人动画停住（playing 以外）—— 只有 update 推进动画时间，绘制侧不推进。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 200, focus.y, focus)
+  foes.update(0.25, focus, camera, 0)
+  const t1 = boss.animT
+  const f1 = foes.animFrameOf(boss)
+  const ctx = makeStubCtx()
+  foes.update(0, focus, camera, 0)
+  foes.draw(ctx)
+  assert(
+    'iceman anim paused when not playing',
+    t1 === 0.25 &&
+      boss.animT === t1 &&
+      foes.animFrameOf(boss) === f1 &&
+      f1 === iceManFrameAt(0.25 + boss.animPhase * ICE_MAN_ANIM_SEC),
+  )
+  assert(
+    'iceman anim phase per instance',
+    boss.animPhase > 0 &&
+      boss.animPhase < 1 &&
+      foes.animFrameOf(boss) === iceManFrameAt(boss.animT + boss.animPhase * ICE_MAN_ANIM_SEC),
+  )
+}
+
+{
+  // R1③：6 帧动画不碰冰人的任何既有判定；能力计时（冲刺/弹幕/兰花）仍只按 dt 走。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 200, focus.y, { ...focus, speed: 96, speedUnits: 1.2 })
+  const statics = (e) =>
+    [
+      e.w,
+      e.h,
+      e.hurtW,
+      e.hurtH,
+      e.hp,
+      e.maxHp,
+      e.knockbackResist,
+      e.knockbackScale,
+      e.wanderSpd,
+      e.contactDamage,
+      e.fleeT,
+      e.hurtAcc,
+    ].join(',')
+  const before = statics(boss)
+  const dash0 = boss.dashCd
+  const barrage0 = boss.barrageCd
+  const orchid0 = boss.orchidCd
+  const ctx = makeStubCtx()
+  foes.update(ICE_MAN_ANIM_SEC, focus, camera, 0)
+  foes.draw(ctx)
+  const dt = ICE_MAN_ANIM_SEC
+  assert(
+    'iceman anim keeps gameplay fields',
+    before === statics(boss) &&
+      Math.abs(boss.dashCd - (dash0 - dt)) < 1e-9 &&
+      Math.abs(boss.barrageCd - (barrage0 - dt)) < 1e-9 &&
+      Math.abs(boss.orchidCd - (orchid0 - dt)) < 1e-9 &&
+      Math.abs(boss.animT - dt) < 1e-9,
+  )
+}
+
+{
+  // R2②：灰树动画不碰自损口径与「被砍毁 → 4 只裂怪」流程；相位按实例错开。
+  const foes = createEnemies({ random: () => 0.5 })
+  const a = foes.spawnGrayAt(focus.x + 200, focus.y + 200, GRAY_HP0)
+  const b = foes.spawnGrayAt(focus.x - 200, focus.y - 200, GRAY_HP0)
+  assert(
+    'graytree anim phase per instance',
+    a.animPhase !== b.animPhase &&
+      foes.animFrameOf(a) === grayTreeFrameAt(a.animT + a.animPhase * GRAY_ANIM_SEC) &&
+      foes.animFrameOf(b) === grayTreeFrameAt(b.animT + b.animPhase * GRAY_ANIM_SEC),
+  )
+  foes.update(GRAY_ANIM_SEC, focus, camera, 0)
+  assert(
+    'graytree anim keeps gameplay fields',
+    a.hp === GRAY_HP0 &&
+      b.hp === GRAY_HP0 &&
+      Math.abs(a.animT - GRAY_ANIM_SEC) < 1e-9 &&
+      Math.abs(b.animT - GRAY_ANIM_SEC) < 1e-9,
+  )
+  a.takeHit(9999)
+  foes.update(0.01, focus, camera, 0)
+  assert('graytree anim keeps burst armed', foes.bursts.length === 1)
+  foes.update(0.01, focus, camera, GRAY_BURST_DELAY)
+  foes.update(0.8, focus, camera, GRAY_BURST_DELAY + 0.8)
+  assert('graytree anim keeps 4 splits', foes.creeps().length === GRAY_BURST_COUNT)
+}
+
+assert(
+  'ice bullet uses icicle asset',
+  ICE_BULLET_SRC.includes('冰锥.png') && !ICE_BULLET_SRC.includes('怪物子弹'),
+)
+
+{
+  // R3②：源图尖头朝向**实测**（解 PNG 字节），再验补偿后任意飞行角尖头都朝前。
+  const img = decodePng(fileURLToPath(new URL('../../../public/assets/子弹/冰锥.png', import.meta.url)))
+  const measured = measureTip(img)
+  const dirs = [
+    [1, 0],
+    [1, 1],
+    [0, 1],
+    [-1, 1],
+    [-1, 0],
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+  ]
+  const facesTravel = dirs.every(([vx, vy]) => {
+    const len = Math.hypot(vx, vy)
+    // 旋转后纹样尖头本地轴（ICE_BULLET_TIP_ANGLE）应指向 (vx, vy)。
+    const tip = ICE_BULLET_TIP_ANGLE + iceBulletRotation(vx, vy)
+    return Math.abs(Math.cos(tip) - vx / len) < 1e-9 && Math.abs(Math.sin(tip) - vy / len) < 1e-9
+  })
+  assert(
+    'ice bullet tip faces travel',
+    measured.axis === 'vertical' &&
+      Math.abs(wrapPi(measured.tipAngle + ICE_BULLET_TIP_OFFSET)) < 1e-9 &&
+      Math.abs(ICE_BULLET_TIP_ANGLE + ICE_BULLET_TIP_OFFSET) < 1e-12 &&
+      facesTravel,
+  )
+}
+
+{
+  // R3①：速度/伤害/生成节奏/预警不变 —— 判定盒仍是 ICE_BULLET_DRAW，弹速与伤害不变。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 40, focus.y, focus)
+  boss.barrageCd = 0
+  foes.update(0.016, focus, camera, 0)
+  const b = foes.iceBullets[0]
+  assert(
+    'ice bullet keeps gameplay fields',
+    b &&
+      b.w === ICE_BULLET_DRAW &&
+      b.h === ICE_BULLET_DRAW &&
+      b.dmg === ICE_BULLET_DMG &&
+      Math.abs(Math.hypot(b.vx, b.vy) - ICE_BULLET_SPEED) < 1e-9 &&
+      ICE_BULLET_SPRITE_DRAW > ICE_BULLET_DRAW,
   )
 }
 

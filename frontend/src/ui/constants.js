@@ -285,7 +285,7 @@ export const UPGRADES = [
 
   { id: UPGRADE_ONLY_FAST, title: '唯快不破', desc: '攻击速度 +20%（不改变蓄力时间）；可叠', bond: BOND_QIAN },
 
-  { id: UPGRADE_REFINE, title: '精益求精', desc: '暴击率 +5（可叠）；每 3 点暴击使暴击伤害 +0.02 倍率（向上取整）', tier: 'advanced', bond: BOND_QIAN },
+  { id: UPGRADE_REFINE, title: '精益求精', desc: '暴击率 +5（可叠）；每 3 点暴击使暴击伤害 +0.02 倍率', tier: 'advanced', bond: BOND_QIAN },
 
   { id: UPGRADE_KNOCKBACK, title: '击退', desc: '命中击退 +1 身位', tier: 'advanced' },
 

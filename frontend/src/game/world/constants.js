@@ -17,6 +17,48 @@ export const TREE_ASPECT = 51 / 77
 export const TREE_DRAW_W = Math.round(TREE_DRAW_H * TREE_ASPECT)
 export const TREE_SRC = assetUrl('assets/树木/浅树.png')
 
+/** P42 批次6（TASK-040）：普通树（浅树）4 帧序列动画 —— 与批次 4/5 同一套时间驱动口径。 */
+export const TREE_FRAMES = 4
+export const TREE_ANIM_FPS = 10
+/** 单帧时长 0.1s（≈10fps）。 */
+export const TREE_FRAME_SEC = 1 / TREE_ANIM_FPS
+/** 一轮 0.4s（4 帧 × 0.1s），无限循环。 */
+export const TREE_ANIM_SEC = TREE_FRAMES * TREE_FRAME_SEC
+/** 第 1 帧仍是既有 TREE_SRC，向后兼容旧引用。 */
+export const TREE_FRAME_SOURCES = [
+  TREE_SRC,
+  assetUrl('assets/树木/浅树-2.png'),
+  assetUrl('assets/树木/浅树-3.png'),
+  assetUrl('assets/树木/浅树-4.png'),
+]
+
+/**
+ * 普通树按时间取帧（纯函数，便于断言）：帧索引只由 t 决定，调用次数/帧率都不影响。
+ * 对帧数取模无限循环；越界与负时间走 `((i % n) + n) % n` 回绕（与批次6 地精口径一致），
+ * 非有限值（NaN/±Infinity）按 t=0；非法 frames/帧时长回落到默认，结果恒在 [0, n)。
+ */
+export function treeFrameAt(t, frames = TREE_FRAMES, frameSec = TREE_FRAME_SEC) {
+  const fn = Math.floor(Number(frames))
+  const n = Number.isFinite(fn) && fn >= 1 ? fn : TREE_FRAMES
+  const rawStep = Number(frameSec)
+  const step = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : TREE_FRAME_SEC
+  const sec = Number(t)
+  const safe = Number.isFinite(sec) ? sec : 0
+  // +1e-9：0.3 / 0.1 在 IEEE754 下是 2.9999999999999996，不留容差会在 t=0.3 停在上一帧。
+  const i = Math.floor(safe / step + 1e-9)
+  return ((i % n) + n) % n
+}
+
+/**
+ * 相位错开：按实例序号占满一轮里的 4 个帧桶（0/0.1/0.2/0.3）。
+ * 刻意**不消耗 random()**：刷树位置用的是同一条随机序列，动画不该打乱它。
+ * ≥5 棵时序列号取模会回到同一桶（全长只有 4 帧），与批次6 跟班的取舍一致。
+ */
+export function treePhaseForIndex(i = 0) {
+  const n = Number.isFinite(i) ? Math.floor(i) : 0
+  return (((n % TREE_FRAMES) + TREE_FRAMES) % TREE_FRAMES) * TREE_FRAME_SEC
+}
+
 export const TREE_DROP_CRYSTALS_MIN = 3
 /** 开局上限；之后每满 1 分钟 +2 → 3～(6+2×floor(秒/60)) */
 export const TREE_DROP_CRYSTALS_MAX = 6

@@ -14,6 +14,10 @@ import {
   COMPANIONSHIP_RATE_BASE,
   COMPANIONSHIP_RATE_STEP,
   CONTACT_INSET_RATIO,
+  COMPANION_ANIM_SEC,
+  COMPANION_FRAMES,
+  COMPANION_FRAME_SEC,
+  COMPANION_FRAME_SRC,
   DEMON_ATK_RATIO,
   DEMON_COMFORT_RADIUS,
   DEMON_DMG_BASE,
@@ -33,6 +37,11 @@ import {
   GOBLIN_INTERVAL,
   GOBLIN_MAX_TARGETS,
   GOBLIN_SRC,
+  RABBIT_FRAME_SRC,
+  BAT_FRAME_SRC,
+  DEMON_FRAME_SRC,
+  SLIME_GG_FRAME_SRC,
+  EGG_FRAME_SRC,
   RABBIT_MAX_TARGETS,
   RABBIT_SRC,
   SLIME_GG_DMG,
@@ -48,6 +57,7 @@ import {
   eggStage,
   goblinDamage,
   goblinFrameAt,
+  companionFrameAt,
   rabbitDamage,
   slotPos,
   unityDamageAdd,
@@ -65,6 +75,10 @@ export {
   COMPANIONSHIP_RATE_BASE,
   COMPANIONSHIP_RATE_STEP,
   CONTACT_INSET_RATIO,
+  COMPANION_ANIM_SEC,
+  COMPANION_FRAMES,
+  COMPANION_FRAME_SEC,
+  COMPANION_FRAME_SRC,
   DEMON_ATK_RATIO,
   DEMON_COMFORT_RADIUS,
   DEMON_DMG_BASE,
@@ -90,6 +104,11 @@ export {
   GOBLIN_INTERVAL,
   GOBLIN_MAX_TARGETS,
   GOBLIN_SRC,
+  RABBIT_FRAME_SRC,
+  BAT_FRAME_SRC,
+  DEMON_FRAME_SRC,
+  SLIME_GG_FRAME_SRC,
+  EGG_FRAME_SRC,
   RABBIT_DMG,
   RABBIT_MAX_TARGETS,
   RABBIT_SRC,
@@ -113,6 +132,7 @@ export {
   eggStage,
   goblinDamage,
   goblinFrameAt,
+  companionFrameAt,
   rabbitDamage,
   ringRadius,
   slotPos,
@@ -319,16 +339,19 @@ export function createCompanions(opts = {}) {
   const getPriorityTarget = opts.getPriorityTarget ?? null
   const hooks = opts.hooks ?? {}
   const list = []
-  // P42 批次4（TASK-031 / M7）：地精 4 帧序列动画——时间驱动，帧只由 animT 决定。
+  // P42 批次4/6（TASK-031 地精 / TASK-039 其余 8 套）：跟班序列动画——时间驱动，帧只由 animT 决定。
   const random = typeof opts.random === 'function' ? opts.random : Math.random
   let animT = 0
+  /**
+   * 出场序号：只用于给相位分配帧桶。**不能用 `list.length`**——`addSlimeGG` 会先建好
+   * g-1/g-2 两个实例再一起 push，若按 `list.length` 取桶，两只史莱姆会落在同一个
+   * 0.1s 帧桶里，只有随机抖动那点差异，实测约 67% 的时间同帧（违反「多只同类相位错开」）。
+   */
+  let companionSeq = 0
+  /** 帧集：key（goblin/rabbit/bat/demon/slime1..2/egg1..3）→ 4 张贴图。 */
+  const frameSets = {}
   let goblinFrames = []
   let goblinSheet = null
-  let rabbitSheet = null
-  let batSheet = null
-  const eggSheets = { 1: null, 2: null, 3: null }
-  let demonSheet = null
-  const slimeGGSheets = { 1: null, 2: null }
   let companionBonus = 0
   let unityTier = 0
   let tamerCount = 0
@@ -500,6 +523,9 @@ export function createCompanions(opts = {}) {
   }
 
   function makeCompanion(kind, name) {
+    // 每个新实例取下一个帧桶：同一批创建的多只（如史莱姆gg 的 g-1/g-2）也必然错开。
+    const phaseBucket = companionSeq % COMPANION_FRAMES
+    companionSeq += 1
     return {
       kind,
       name,
@@ -512,11 +538,12 @@ export function createCompanions(opts = {}) {
       knockbackable: false,
       chase: null,
       /**
-       * P42 批次4：动画相位（秒，恒落在 [0, GOBLIN_ANIM_SEC)）。
-       * 按「入场次序占一个帧桶 + 桶内随机抖动」错开：同屏 ≤4 只时相位必落在不同帧桶，
-       * 任意时刻都不会同帧；≥5 只时只有 4 帧可用，必然有重复帧，但抖动保证不会完全同步。
+       * P42 批次4/6：动画相位（秒，恒落在 [0, COMPANION_ANIM_SEC)）。
+       * 按「出场序号占一个帧桶 + 桶内随机抖动」错开：同屏 ≤4 只时相位必落在不同帧桶，
+       * 任意时刻都不会同帧（含同一批创建的两只同种跟班）；≥5 只时只有 4 帧可用，
+       * 必然有重复帧，但抖动保证不会完全同步。
        */
-      animPhase: ((list.length % GOBLIN_FRAMES) + random()) * GOBLIN_FRAME_SEC,
+      animPhase: (phaseBucket + random()) * COMPANION_FRAME_SEC,
     }
   }
 
@@ -767,91 +794,72 @@ export function createCompanions(opts = {}) {
 
   async function loadAssets() {
     if (typeof Image === 'undefined') return null
-    const [gImgs, rImg, bImg, xImg, yImg, zImg, dImg, s1Img, s2Img] = await Promise.all([
-      Promise.all(GOBLIN_FRAME_SRC.map((src) => loadImage(src))),
-      loadImage(RABBIT_SRC),
-      loadImage(BAT_SRC),
-      loadImage(EGG_SRC[1]),
-      loadImage(EGG_SRC[2]),
-      loadImage(EGG_SRC[3]),
-      loadImage(DEMON_SRC),
-      loadImage(SLIME_GG_SRC[1]),
-      loadImage(SLIME_GG_SRC[2]),
-    ])
-    // P42 批次4：地精 4 帧各一张贴图；任何一帧加载失败只退回单帧，不影响其它跟班。
-    goblinFrames = gImgs.map((img) => {
-      try {
-        return chromaBlack(img)
-      } catch {
-        return img
-      }
-    })
+    // P42 批次6：9 套跟班各 4 帧（goblin/rabbit/bat/demon/slime1..2/egg1..3），共 36 张。
+    const keys = Object.keys(COMPANION_FRAME_SRC)
+    const loadedImgs = await Promise.all(
+      keys.map((k) => Promise.all(COMPANION_FRAME_SRC[k].map((src) => loadImage(src)))),
+    )
+    for (let i = 0; i < keys.length; i += 1) {
+      // chromaBlack 需要 canvas；无 DOM 环境会抛，逐帧退回原图，不影响其它跟班。
+      frameSets[keys[i]] = loadedImgs[i].map((img) => {
+        try {
+          return chromaBlack(img)
+        } catch {
+          return img
+        }
+      })
+    }
+    goblinFrames = frameSets.goblin ?? []
     goblinSheet = goblinFrames[0] ?? null
-    try {
-      rabbitSheet = chromaBlack(rImg)
-    } catch {
-      rabbitSheet = rImg
-    }
-    try {
-      batSheet = chromaBlack(bImg)
-    } catch {
-      batSheet = bImg
-    }
-    try {
-      demonSheet = chromaBlack(dImg)
-    } catch {
-      demonSheet = dImg
-    }
-    const eggImgs = [xImg, yImg, zImg]
-    for (let i = 0; i < 3; i++) {
-      try {
-        eggSheets[i + 1] = chromaBlack(eggImgs[i])
-      } catch {
-        eggSheets[i + 1] = eggImgs[i]
-      }
-    }
-    ;[s1Img, s2Img].forEach((img, idx) => {
-      try {
-        slimeGGSheets[idx + 1] = chromaBlack(img)
-      } catch {
-        slimeGGSheets[idx + 1] = img
-      }
-    })
-    return { goblinSheet, goblinFrames, rabbitSheet, batSheet, eggSheets, demonSheet, slimeGGSheets }
+    return { goblinSheet, goblinFrames, frameSets }
   }
 
   /**
-   * P42 批次4（TASK-031）：某只地精此刻应显示的帧号 = 全局动画时间 + 自身相位。
-   * 取帧完全由时间决定（纯函数 goblinFrameAt），不做逐帧计数。
+   * P42 批次4/6：某只跟班此刻应显示的帧号 = 全局动画时间 + 自身相位。
+   * 取帧完全由时间决定（纯函数 companionFrameAt），不做逐帧计数。
    */
-  function goblinFrameOf(g) {
-    return goblinFrameAt(animT + (g?.animPhase ?? 0))
+  function companionFrameOf(g) {
+    return companionFrameAt(animT + (g?.animPhase ?? 0))
   }
 
-  /** 当前帧对应的贴图；素材未加载 / 缺帧时退回既有单帧（goblinSheet），不崩。 */
-  function goblinFrameSheet(g) {
-    if (!goblinFrames.length) return goblinSheet
-    return goblinFrames[goblinFrameOf(g)] ?? goblinFrames[0] ?? goblinSheet
+  /** 地精专用别名：批次 4 的调用点与断言（pack.goblinFrameOf）保持不变。 */
+  function goblinFrameOf(g) {
+    return companionFrameOf(g)
+  }
+
+  /** 实例 → 帧集 key：蛋按阶段（x/y/z）、史莱姆按变体（g-1/g-2），其余按种类。 */
+  function frameSetKeyOf(g) {
+    if (g?.kind === 'egg') return `egg${eggStage(getKills())}`
+    if (g?.kind === 'slime') return `slime${g.slimeVariant ?? 1}`
+    return g?.kind
+  }
+
+  /** 当前帧贴图；该套素材缺失时返回 null，交给 drawSprite 的色块兜底，不崩。 */
+  function companionFrameSheet(g) {
+    const set = frameSets[frameSetKeyOf(g)]
+    if (!set || !set.length) return null
+    return set[companionFrameOf(g)] ?? set[0]
+  }
+
+  /** 每种跟班的兜底色块（素材完全缺失时用；与改动前逐种一一对应）。 */
+  const SPRITE_FALLBACK = {
+    rabbit: { a: '#6a4030', b: '#e8c8b0' },
+    egg: { a: '#c4b070', b: '#fff4c8' },
+    bat: { a: '#3a2848', b: '#8a6aa0' },
+    demon: { a: '#3a0c3f', b: '#b04fc0' },
+    slime: { a: '#2f8f5a', b: '#8fe3a5' },
+    goblin: { a: '#2a4a28', b: '#7cbc5a' },
   }
 
   function draw(ctx) {
     if (!ctx) return
     for (const g of list) {
-      if (g.kind === 'rabbit') {
-        drawSprite(ctx, rabbitSheet, g, { a: '#6a4030', b: '#e8c8b0' })
-      } else if (g.kind === 'egg') {
-        const st = eggStage(getKills())
-        drawSprite(ctx, eggSheets[st], g, { a: '#c4b070', b: '#fff4c8' })
-      } else if (g.kind === 'bat') {
-        drawSprite(ctx, batSheet, g, { a: '#3a2848', b: '#8a6aa0' })
-      } else if (g.kind === 'demon') {
-        drawSprite(ctx, demonSheet, g, { a: '#3a0c3f', b: '#b04fc0' })
-      } else if (g.kind === 'slime') {
-        const v = g.slimeVariant ?? 1
-        drawSprite(ctx, slimeGGSheets[v], g, { a: '#2f8f5a', b: '#8fe3a5' })
-      } else {
-        drawSprite(ctx, goblinFrameSheet(g), g, { a: '#2a4a28', b: '#7cbc5a' })
-      }
+      drawSprite(
+        ctx,
+        companionFrameSheet(g),
+        g,
+        SPRITE_FALLBACK[g.kind] ?? SPRITE_FALLBACK.goblin,
+      )
     }
   }
 
@@ -881,9 +889,11 @@ export function createCompanions(opts = {}) {
     getSlimeCount: () => slimeCount,
     getCompanionshipCount: () => companionshipCount,
     getCompanionshipDamageBonus: () => companionshipDamageBonus,
-    /** P42 批次4：全局动画时间（秒）。只在 update(dt>0) 里推进。 */
+    /** P42 批次4/6：全局动画时间（秒）。只在 update(dt>0) 里推进。 */
     getAnimTime: () => animT,
-    /** P42 批次4：某只地精此刻的帧号（时间驱动 + 自身相位）。 */
+    /** P42 批次6：某只跟班此刻的帧号（时间驱动 + 自身相位，按种类/阶段取帧集）。 */
+    companionFrameOf,
+    /** P42 批次4：地精别名（既有调用点与断言保持不变）。 */
     goblinFrameOf,
     update,
     draw,

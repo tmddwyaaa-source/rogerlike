@@ -9,6 +9,10 @@ import {
   BAT_KILL_HEAL_EVERY,
   BAT_MAX_TARGETS,
   BAT_SRC,
+  COMPANION_ANIM_SEC,
+  COMPANION_FRAMES,
+  COMPANION_FRAME_SEC,
+  COMPANION_FRAME_SRC,
   COMPANIONSHIP_KILL_STEP,
   COMPANIONSHIP_RATE_BASE,
   COMPANIONSHIP_RATE_STEP,
@@ -21,6 +25,7 @@ import {
   DEMON_SRC,
   DEMON_TARGET_RADIUS,
   EGG_SRC,
+  EGG_FRAME_SRC,
   GOBLIN_ANIM_SEC,
   GOBLIN_DRAW,
   GOBLIN_FOLLOW_DIST,
@@ -31,13 +36,18 @@ import {
   GOBLIN_MAX_TARGETS,
   GOBLIN_SRC,
   RABBIT_DMG,
+  RABBIT_FRAME_SRC,
   RABBIT_SRC,
+  BAT_FRAME_SRC,
+  DEMON_FRAME_SRC,
+  SLIME_GG_FRAME_SRC,
   SLIME_GG_DMG,
   SLIME_GG_MAX_TARGETS,
   SLIME_GG_SRC,
   TAMER_DMG,
   TAMER_SPEED_ADD,
   batDamage,
+  companionFrameAt,
   createCompanions,
   demonAttackPerBonus,
   demonDamage,
@@ -1424,6 +1434,163 @@ assert(
     'goblin anim draws 4 distinct frames',
     loaded?.goblinFrames?.length === 4 &&
       GOBLIN_FRAME_SRC.every((s) => srcs.includes(s)) &&
+      seen.length === 8 &&
+      new Set(seen).size === 4,
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * P42 批次6（TASK-039 / M7）：其余 8 套跟班 4 帧序列动画（地精不动）。
+ * 口径与批次 4 地精完全一致：时间驱动 10fps / 0.4s 一轮 / 无限循环。
+ * ------------------------------------------------------------------ */
+
+assert(
+  'companion frames 4 all',
+  COMPANION_FRAMES === 4 &&
+    COMPANION_FRAME_SEC === 0.1 &&
+    COMPANION_ANIM_SEC === 0.4 &&
+    ['goblin', 'rabbit', 'bat', 'demon', 'slime1', 'slime2', 'egg1', 'egg2', 'egg3'].every(
+      (k) => Array.isArray(COMPANION_FRAME_SRC[k]) && COMPANION_FRAME_SRC[k].length === 4,
+    ) &&
+    RABBIT_FRAME_SRC.length === 4 &&
+    BAT_FRAME_SRC.length === 4 &&
+    DEMON_FRAME_SRC.length === 4 &&
+    SLIME_GG_FRAME_SRC[1].length === 4 &&
+    SLIME_GG_FRAME_SRC[2].length === 4,
+)
+
+assert(
+  'companion anim time driven',
+  typeof companionFrameAt === 'function' &&
+    // 与地精同口径：t=0/0.1/0.2/0.3 → 0/1/2/3，t=0.4 回到 0
+    companionFrameAt(0) === 0 &&
+    companionFrameAt(0.1) === 1 &&
+    companionFrameAt(0.2) === 2 &&
+    companionFrameAt(0.3) === 3 &&
+    companionFrameAt(0.4) === 0 &&
+    companionFrameAt(0.5) === 1 &&
+    companionFrameAt(0.8) === 0 &&
+    // 时间驱动而非逐帧计数
+    companionFrameAt(0.25) === companionFrameAt(0.25) &&
+    // 越界 / 负时间 / 非有限值兜底，恒落在合法帧区间
+    companionFrameAt(-0.1) === 3 &&
+    companionFrameAt(-0.4) === 0 &&
+    [NaN, Infinity, -Infinity, undefined, null, 1e9, -1e9].every((t) => {
+      const f = companionFrameAt(t)
+      return Number.isInteger(f) && f >= 0 && f < COMPANION_FRAMES
+    }) &&
+    // 缺帧退化单帧不越界
+    companionFrameAt(0.3, 1) === 0 &&
+    // 地精别名与通用函数同口径（批次 4 的调用点不受影响）
+    goblinFrameAt(0.3) === companionFrameAt(0.3) &&
+    goblinFrameAt(0.7) === 3,
+)
+
+assert(
+  'egg stage frames 4',
+  [1, 2, 3].every((st) => Array.isArray(EGG_FRAME_SRC[st]) && EGG_FRAME_SRC[st].length === 4) &&
+    COMPANION_FRAME_SRC.egg1 === EGG_FRAME_SRC[1] &&
+    COMPANION_FRAME_SRC.egg2 === EGG_FRAME_SRC[2] &&
+    COMPANION_FRAME_SRC.egg3 === EGG_FRAME_SRC[3] &&
+    // 三个阶段是不同的帧图，不能三段共用一套
+    new Set([EGG_FRAME_SRC[1][0], EGG_FRAME_SRC[2][0], EGG_FRAME_SRC[3][0]]).size === 3 &&
+    EGG_FRAME_SRC[1][1] === '/assets/跟班/奇怪的蛋-x-2.png' &&
+    EGG_FRAME_SRC[3][1] === '/assets/跟班/奇怪的蛋-z-2.png',
+)
+
+assert(
+  'companion 4 frame assets exist',
+  Object.keys(COMPANION_FRAME_SRC).every((k) =>
+    COMPANION_FRAME_SRC[k].every((src) => {
+      const rel = src.replace('/assets/', '')
+      return (
+        existsSync(new URL(`../../../public/assets/${rel}`, import.meta.url)) &&
+        existsSync(new URL(`../../../../assets/source/${rel}`, import.meta.url))
+      )
+    }),
+  ) &&
+    // 9 套 × 4 帧 = 36 张
+    Object.keys(COMPANION_FRAME_SRC).reduce((n, k) => n + COMPANION_FRAME_SRC[k].length, 0) === 36,
+)
+
+{
+  // 相位错开：同一种类多只实例（两只史莱姆gg）不能任何时刻都同帧
+  let pick = 0
+  const random = () => [0.05, 0.55, 0.95, 0.3][pick++ % 4]
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const pack = makePack(player, [], () => 20, { random })
+  const slimes = pack.addSlimeGG()
+  const rabbit = pack.addRabbit()
+  pack.update(0.15)
+  const frames = [...slimes, rabbit].map((g) =>
+    typeof pack.companionFrameOf === 'function' ? pack.companionFrameOf(g) : null,
+  )
+  const phases = [...slimes, rabbit].map((g) => g.animPhase)
+  assert(
+    'companion anim phase per instance',
+    typeof pack.companionFrameOf === 'function' &&
+      new Set(phases).size === phases.length &&
+      frames.every((f) => Number.isInteger(f) && f >= 0 && f < COMPANION_FRAMES) &&
+      // 两只史莱姆（同一种类）必须错开
+      frames[0] !== frames[1],
+  )
+
+  const t0 = typeof pack.getAnimTime === 'function' ? pack.getAnimTime() : null
+  pack.draw(null)
+  pack.update(0)
+  const t1 = typeof pack.getAnimTime === 'function' ? pack.getAnimTime() : null
+  assert('companion anim frozen without update', t0 > 0 && t1 === t0)
+}
+
+{
+  // 搜剿自检：帧号算对 ≠ 真的换图。用假 Image + 记录型 ctx 证明兔子这类
+  // 非地精跟班也真的在 4 张不同贴图之间切换。
+  const RealImage = globalThis.Image
+  const srcs = []
+  globalThis.Image = class {
+    constructor() {
+      this.naturalWidth = 32
+      this.naturalHeight = 32
+    }
+    set src(v) {
+      this._src = v
+      srcs.push(v)
+    }
+    get src() {
+      return this._src
+    }
+    decode() {
+      return Promise.resolve()
+    }
+  }
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const pack = makePack(player, [], () => 20, { random: () => 0.5 })
+  let loaded = null
+  try {
+    loaded = await pack.loadAssets()
+  } catch {
+    loaded = null
+  }
+  const drawn = []
+  const ctx = {
+    drawImage(sheet) {
+      drawn.push(sheet)
+    },
+  }
+  pack.addRabbit()
+  const seen = []
+  for (let step = 0; step < 8; step++) {
+    pack.update(COMPANION_FRAME_SEC)
+    drawn.length = 0
+    pack.draw(ctx)
+    if (drawn.length) seen.push(drawn[drawn.length - 1])
+  }
+  globalThis.Image = RealImage
+  const sets = loaded?.frameSets ?? {}
+  assert(
+    'companion anim draws 4 distinct frames',
+    RABBIT_FRAME_SRC.every((s) => srcs.includes(s)) &&
+      (sets.rabbit?.length ?? 0) === 4 &&
       seen.length === 8 &&
       new Set(seen).size === 4,
   )

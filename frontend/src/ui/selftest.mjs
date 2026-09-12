@@ -1971,10 +1971,19 @@ assert(
 assert(
   'refine desc 5 crit 3 rate',
   UPGRADES.find((u) => u.id === 'refine')?.desc ===
-    '暴击率 +5（可叠）；每 3 点暴击使暴击伤害 +0.02 倍率（向上取整）' &&
+    '暴击率 +5（可叠）；每 3 点暴击使暴击伤害 +0.02 倍率' &&
     descFor('refine').includes('暴击率 +5') &&
     descFor('refine').includes('每 3 点') &&
     descFor('refine').includes('+0.02'),
+)
+/* TASK-045 R1：精益求精 desc 去掉「（向上取整）」——倍率是连续算式（不对 rate/3 取档），
+   取整只针对伤害数字，不属于倍率描述（口径见 combat 的 critDamageMul 与 ceilDamage）。 */
+assert(
+  'refine desc no ceil wording',
+  descFor('refine') === '暴击率 +5（可叠）；每 3 点暴击使暴击伤害 +0.02 倍率' &&
+    !/取整|ceil/i.test(descFor('refine')) &&
+    !/倍率（/.test(descFor('refine')) &&
+    descFor('refine') === UPGRADES.find((u) => u.id === 'refine')?.desc,
 )
 assert(
   'earth desc crystal max 2',
