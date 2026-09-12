@@ -200,6 +200,9 @@ export const UPGRADE_NOURISH = 'nourish'
 /** P42 批次7：贪婪（高级项；**不计入任何羁绊**，图标未过审 → 局内空白方块）。 */
 export const UPGRADE_GREED = 'greed'
 
+/** P42 批次8：狼群（普通跟班项，计入万物一心；图标 upgrades/wolf_pack.png 已过审）。 */
+export const UPGRADE_WOLF_PACK = 'wolf_pack'
+
 /** 贪婪：获取经验时 50% 概率再获得一次经验；每层 +10%、上限 100%；触发后 0.1s 冷却。 */
 export const GREED_CHANCE_BASE = 50
 
@@ -328,6 +331,8 @@ export const UPGRADES = [
 
   { id: UPGRADE_GREED, title: '贪婪', desc: '获取经验时 50% 概率再获得一次经验（每层 +10% 概率，最高 100%）', tier: 'advanced' },
 
+  { id: UPGRADE_WOLF_PACK, title: '狼群', desc: '生成 3 只狼：每只基础伤害 4，优先攻击离角色最近的怪', bond: BOND_UNITY },
+
   { id: UPGRADE_EGG, title: '奇怪的蛋', desc: '生成 1 个可成长的蛋跟班；可叠', tier: 'advanced', bond: BOND_UNITY },
 
 ]
@@ -350,8 +355,22 @@ export const POWER_STEADY = 'steady'
 
 export const POWER_SP = 'sp'
 
+/** P42 批次8（TASK-056）：战士专属激发力量效果（各限一次；效果本体由 TASK-054 战斗侧实现）。 */
+export const POWER_SLASH_RETURN = 'slash_return'
+
+export const POWER_WHIRLWIND = 'whirlwind'
+
+export const POWER_BULWARK = 'bulwark'
+
 /** 只能获得一次的效果 id；`sp`（sp-power）不在其中 → 可无限叠。 */
-export const POWER_UNIQUE_IDS = [POWER_RAPID, POWER_PIERCE_AMP, POWER_STEADY]
+export const POWER_UNIQUE_IDS = [
+  POWER_RAPID,
+  POWER_PIERCE_AMP,
+  POWER_STEADY,
+  POWER_SLASH_RETURN,
+  POWER_WHIRLWIND,
+  POWER_BULWARK,
+]
 
 /** P42 批次5（R4④）：卡面文案精简成一句关键能力，保证落在卡内不溢出。 */
 export const POWER_EFFECTS = [
@@ -359,16 +378,26 @@ export const POWER_EFFECTS = [
   { id: POWER_PIERCE_AMP, name: '贯穿强化', desc: '穿透 +1，每穿 1 敌伤害 +50%' },
   { id: POWER_STEADY, name: '定神', desc: '静止 0.15s → 下次攻击必暴' },
   { id: POWER_SP, name: 'sp-power', desc: '伤害 +20，可叠加' },
+  { id: POWER_SLASH_RETURN, name: '斩返', desc: '挥砍范围 +1 身位；弹反子弹（CD 0.5s）' },
+  { id: POWER_WHIRLWIND, name: '旋风斩', desc: '额外一击：半径=挥砍范围，造成 70% 伤害' },
+  { id: POWER_BULWARK, name: '壁垒', desc: '每 400 次挥砍命中怪物 +1 护甲' },
 ]
 
 export function powerEffectById(id) {
   return POWER_EFFECTS.find((e) => e.id === id) ?? null
 }
 
-/** 候选池按角色：游侠 4 个；战士 / 法师只有 sp-power。 */
+/** P42 批次8（R1③）：候选池按角色——游侠 4 个 / 战士 4 个（斩返·旋风斩·壁垒·sp）/ 法师仅 sp-power。 */
+export const POWER_POOL_RANGER = [POWER_RAPID, POWER_PIERCE_AMP, POWER_STEADY, POWER_SP]
+
+export const POWER_POOL_WARRIOR = [POWER_SLASH_RETURN, POWER_WHIRLWIND, POWER_BULWARK, POWER_SP]
+
+export const POWER_POOL_MAGE = [POWER_SP]
+
 export function powerPoolFor(charId) {
-  if (charId === CHAR_WARRIOR || charId === CHAR_MAGE) return [POWER_SP]
-  return POWER_EFFECTS.map((e) => e.id)
+  if (charId === CHAR_WARRIOR) return POWER_POOL_WARRIOR
+  if (charId === CHAR_MAGE) return POWER_POOL_MAGE
+  return POWER_POOL_RANGER
 }
 
 /** 唯一性过滤：已拿过的唯一项移出候选池；sp 永远保留。 */

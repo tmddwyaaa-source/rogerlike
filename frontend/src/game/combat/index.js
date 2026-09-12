@@ -84,6 +84,13 @@ import {
   THORN_FX_FRAMES,
   THORN_FX_FPS,
   THORN_FX_SRC,
+  SLASH_RETURN_RANGE_BONUS_BODIES,
+  SLASH_RETURN_DEFLECT_CD_SEC,
+  WHIRLWIND_UNCHARGED_CHANCE,
+  WHIRLWIND_DELAY_SEC,
+  WHIRLWIND_EXTRA_CD_SEC,
+  WHIRLWIND_DMG_MUL,
+  BULWARK_HITS_PER_ARMOR,
 } from '../weapons/index.js'
 
 export {
@@ -181,6 +188,13 @@ export {
   THORN_FX_FRAMES,
   THORN_FX_FPS,
   THORN_FX_SRC,
+  SLASH_RETURN_RANGE_BONUS_BODIES,
+  SLASH_RETURN_DEFLECT_CD_SEC,
+  WHIRLWIND_UNCHARGED_CHANCE,
+  WHIRLWIND_DELAY_SEC,
+  WHIRLWIND_EXTRA_CD_SEC,
+  WHIRLWIND_DMG_MUL,
+  BULWARK_HITS_PER_ARMOR,
 } from '../weapons/index.js'
 
 const STEP_PX = 4
@@ -379,7 +393,14 @@ export function createCombat(opts = {}) {
   const powers = new Set()
   let rapidCd = 0
   // P42 批次5 R3：连射「额外那一发」的延迟队列——主发当帧只排定，0.2s 后由 update(dt) 真正生成。
-  const pendingRapidExtras = []
+  // P42 批次8 R2：旋风斩复用同一队列（mode 'whirl'），同样晚 0.2s 落地。
+  const pendingExtras = []
+  // P42 批次8：斩返弹反 CD / 旋风斩自身冷却 / 旋风斩日志 / 壁垒挥砍命中计数。
+  let deflectCd = 0
+  let whirlCd = 0
+  const whirlwindLog = []
+  const WHIRLWIND_LOG_MAX = 4
+  let bulwarkHits = 0
   // P42 批次7 R1：荆棘爆发特效（纯表现）——以角色为中心播一次 4 帧 @10fps、播完即消失。
   const thornFxList = []
   const THORN_FX_MAX = 8
@@ -404,6 +425,89 @@ export function createCombat(opts = {}) {
   function notifyDamage(ent, dmg, meta) {
     if (!ent || !(dmg > 0)) return
     if (typeof hooks.onDamage === 'function') hooks.onDamage(ent, dmg, meta)
+  }
+
+  /**
+   * P42 批次8 R1①：战士挥砍长度 = 既有 slashLength(...)（含蓄力/大娃）**最后**再 + 斩返的 +1 身位。
+   * 只相加、不被任何乘法放大（蓄力倍率、大娃、强化射击都不会把这 1 身位一起乘）。
+   */
+  function warriorSlashLength(ratio) {
+    const base = slashLength(ratio, weapon.sizeMul ?? 1)
+    if (!powers.has('slash_return')) return base
+    return base + SLASH_RETURN_RANGE_BONUS_BODIES * BODY
+  }
+
+  /**
+   * P42 批次8 R1②③：斩返弹反 —— 挥砍扫到敌方弹体时让它们消失（执行方是 M1 注入的
+   * `hooks.deflectBullets(info)`，内部通常调 M4 的 `enemies.clearBulletsIn({ x, y, radius })`）。
+   * combat 只负责两件事：CD 是否就绪；依据 hook 的返回值判定「这一刀是否真的扫到弹体」
+   * —— 扫到才进入 SLASH_RETURN_DEFLECT_CD_SEC（0.5s）冷却，没扫到不消耗冷却。
+   * 没有注入 hook 时静默跳过（不报错）。不改判定厚度、不改角度。
+   */
+  function tryDeflectBullets(b) {
+    if (!powers.has('slash_return') || deflectCd > 0) return false
+    const fn = hooks.deflectBullets
+    if (typeof fn !== 'function') return false
+    const len = b.slashLen ?? b.drawW
+    const info = {
+      x: player?.x ?? 0,
+      y: player?.y ?? 0,
+      ang: b.ang,
+      length: len,
+      thick: b.slashThick ?? b.drawH,
+      // 圆形接口（enemies.clearBulletsIn）用：圆心 = 角色，半径 = 刀身最远边
+      radius: SLASH_BODY_FRONT + len,
+      damage: b.payload ?? b.damage,
+    }
+    const swept = fn(info)
+    if (!swept) return false
+    deflectCd = SLASH_RETURN_DEFLECT_CD_SEC
+    return true
+  }
+
+  /**
+   * P42 批次8 R2②③：旋风斩落地 —— 以角色为中心的圆形（半径 = 排定时的挥砍长度），
+   * 范围内每个敌人各结算一次；伤害只吃暴击与暴击伤害（不乘蓄力倍率、不吃大娃）。
+   * 走 dealDamage + notifyDamage 统一通道，因此**不计入壁垒**（壁垒只认挥砍）。
+   */
+  function burstWhirlwind(job) {
+    const x = player?.x ?? 0
+    const y = player?.y ?? 0
+    const r = job.radius
+    const r2 = r * r
+    let hits = 0
+    for (const ent of targets) {
+      if (!ent || ent.hp <= 0) continue
+      const dx = ent.x - x
+      const dy = ent.y - y
+      if (dx * dx + dy * dy > r2) continue
+      const { applied } = dealDamage(ent, job.damage)
+      notifyDamage(ent, applied, {
+        base: job.crit ? applied / (job.critMul || 1) : applied,
+        crit: Boolean(job.crit),
+        critMul: job.critMul ?? 1,
+        damage: applied,
+      })
+      hits += 1
+    }
+    whirlwindLog.push({ x, y, radius: r, damage: job.damage, hits })
+    while (whirlwindLog.length > WHIRLWIND_LOG_MAX) whirlwindLog.shift()
+    return hits
+  }
+
+  /**
+   * P42 批次8 R3：壁垒计数 —— 只统计「角色挥砍命中的怪物」（树 knockbackable === false 不算，
+   * 荆棘/脉冲/旋风斩/跟班等非挥砍伤害也不经过这里）。每满 BULWARK_HITS_PER_ARMOR（400）次
+   * +1 层护甲（走既有 player.addArmor 通道），满额清零继续累计、可反复触发。
+   */
+  function countBulwarkHit() {
+    if (!powers.has('bulwark')) return 0
+    bulwarkHits += 1
+    while (bulwarkHits >= BULWARK_HITS_PER_ARMOR) {
+      bulwarkHits -= BULWARK_HITS_PER_ARMOR
+      if (typeof player?.addArmor === 'function') player.addArmor(1)
+    }
+    return bulwarkHits
   }
 
   function spawnShot(ang, damage, knockback, pierceLeft, sizeMul, spec) {
@@ -472,6 +576,8 @@ export function createCombat(opts = {}) {
       hitActors(b)
       hitWorld(b)
       b.struck = true
+      // P42 批次8 R1②：挥砍扫到敌方弹体 → 交给注入的 hook 清除（CD 0.5s，扫到才算）。
+      tryDeflectBullets(b)
     }
   }
 
@@ -541,6 +647,7 @@ export function createCombat(opts = {}) {
       kind = 'empower'
       speed = EMPOWER_SPEED
     }
+    const slashLen = id === 'warrior' ? warriorSlashLength(r) : 0
     const spec = {
       kind,
       speed,
@@ -551,7 +658,7 @@ export function createCombat(opts = {}) {
       overflowOn: empower,
       expandOn: id === 'mage' && r > 0,
       infinitePierce: id === 'warrior',
-      slashLen: id === 'warrior' ? slashLength(r, weapon.sizeMul ?? 1) : 0,
+      slashLen,
       slashThick: id === 'warrior' ? slashThick(weapon.sizeMul ?? 1) : 0,
       // P42 批次3 R2：贯穿强化只改「命中伤害」，不动既有穿透判定本身。
       pierceAmp: powers.has('pierce_amp'),
@@ -568,7 +675,8 @@ export function createCombat(opts = {}) {
     //   非 playing 时游戏循环不调 update，队列自然一并冻结）。
     if (powers.has('rapid') && rapidCd <= 0 && (r >= 1 || rng() < RAPID_UNCHARGED_CHANCE)) {
       rapidCd = RAPID_EXTRA_CD_SEC
-      pendingRapidExtras.push({
+      pendingExtras.push({
+        mode: 'volley',
         t: RAPID_EXTRA_DELAY_SEC,
         angles,
         damage,
@@ -576,6 +684,27 @@ export function createCombat(opts = {}) {
         pierceLeft,
         sizeMul,
         spec: { ...spec, extra: true },
+      })
+    }
+    // P42 批次8 R2：旋风斩 —— 战士挥砍的「额外一发」，触发结构与连射同构
+    //（不蓄力 50% / 满蓄 100%、晚 0.2s、自带 0.75s 冷却且**从主发触发时刻起算**）。
+    // ② 半径 = 当前挥砍长度 slashLen（含斩返 +1 身位、含蓄力/大娃等既有加成）；
+    // ③ 伤害 = 未蓄力基础伤害（attack）的 70%，只吃暴击与暴击伤害 —— 不乘蓄力倍率、不吃大娃；
+    //    暴击沿用本次挥砍的同一次判定（与连射「额外一发同参数」口径一致）。
+    if (
+      kind === 'slash' &&
+      powers.has('whirlwind') &&
+      whirlCd <= 0 &&
+      (r >= 1 || rng() < WHIRLWIND_UNCHARGED_CHANCE)
+    ) {
+      whirlCd = WHIRLWIND_EXTRA_CD_SEC
+      pendingExtras.push({
+        mode: 'whirl',
+        t: WHIRLWIND_DELAY_SEC,
+        radius: slashLen,
+        damage: ceilDamage(WHIRLWIND_DMG_MUL * attack * (hitCrit ? hitCritMul : 1)),
+        crit: hitCrit,
+        critMul: hitCritMul,
       })
     }
     hooks.onFire?.(fireKindForChar(id))
@@ -757,6 +886,8 @@ export function createCombat(opts = {}) {
     spawnHitFx(b.x, b.y, b.ang)
     applyHitStatus(ent)
     b.hitSet.add(ent)
+    // P42 批次8 R3：壁垒只统计「角色挥砍命中的怪物」（树不算；旋风斩/荆棘/脉冲不经过 strike）。
+    if (b.kind === 'slash' && ent.knockbackable !== false) countBulwarkHit()
     return leftoverDamage(dealt, hpBefore)
   }
 
@@ -918,12 +1049,20 @@ export function createCombat(opts = {}) {
     if (weapon.fireCd > 0) weapon.fireCd = Math.max(0, weapon.fireCd - dt)
     // P42 批次3 R1③：连射额外发的自带冷却（独立计时，不受 fireInterval / 唯快不破影响）。
     if (rapidCd > 0) rapidCd = Math.max(0, rapidCd - dt)
-    // P42 批次5 R3：连射延迟队列 —— 用 update 的真实 dt 计时（不用 setTimeout），到点补发那一次弹幕。
-    for (let i = pendingRapidExtras.length - 1; i >= 0; i--) {
-      const job = pendingRapidExtras[i]
+    // P42 批次8 R1②：斩返弹反 CD；R2：旋风斩自身冷却（从主发触发时刻起算）。
+    if (deflectCd > 0) deflectCd = Math.max(0, deflectCd - dt)
+    if (whirlCd > 0) whirlCd = Math.max(0, whirlCd - dt)
+    // P42 批次5 R3 + 批次8 R2：延迟队列 —— 用 update 的真实 dt 计时（不用 setTimeout），到点落地。
+    //   mode 'volley'（连射）= 补发同一份弹幕；mode 'whirl'（旋风斩）= 以角色为中心结算一次圆形 AoE。
+    for (let i = pendingExtras.length - 1; i >= 0; i--) {
+      const job = pendingExtras[i]
       job.t -= dt
       if (job.t > 0) continue
-      pendingRapidExtras.splice(i, 1)
+      pendingExtras.splice(i, 1)
+      if (job.mode === 'whirl') {
+        burstWhirlwind(job)
+        continue
+      }
       for (const ang of job.angles) {
         spawnShot(ang, job.damage, job.knockback, job.pierceLeft, job.sizeMul, job.spec)
       }
@@ -1232,14 +1371,29 @@ export function createCombat(opts = {}) {
     thornBurst,
     /**
      * P42 批次3 power 战斗侧入口（对外契约，M6/M1 授予效果时调用）。
-     *   'rapid'      连射：额外一发（50% / 蓄力 100%）+ 0.75s 自带冷却 → true
-     *   'pierce_amp' 贯穿强化：穿透 +1（唯一，幂等） + 每穿 1 敌本次伤害 +50% → true
-     *   'sp'         sp-power：攻击 +20，可叠 → true
+     *   'rapid'        连射：额外一发（50% / 蓄力 100%）+ 0.75s 自带冷却 → true
+     *   'pierce_amp'   贯穿强化：穿透 +1（唯一，幂等） + 每穿 1 敌本次伤害 +50% → true
+     *   'sp'           sp-power：攻击 +20，可叠 → true
+     *   'slash_return' 斩返（批次8，战士）：挥砍范围 +1 身位（最后相加） + 弹反敌弹 CD 0.5s → true
+     *   'whirlwind'    旋风斩（批次8，战士）：挥砍额外一发圆形 AoE（70%、只吃暴击） → true
+     *   'bulwark'      壁垒（批次8，战士）：挥砍命中怪物每 400 次 +1 护甲 → true
      * 其它 id（'steady' 属玩家侧 M3、未知 id）一律返回 false，表示不由本模块处理。
      */
     applyPower: (id) => {
       if (id === 'rapid') {
         powers.add('rapid')
+        return true
+      }
+      if (id === 'slash_return') {
+        powers.add('slash_return')
+        return true
+      }
+      if (id === 'whirlwind') {
+        powers.add('whirlwind')
+        return true
+      }
+      if (id === 'bulwark') {
+        powers.add('bulwark')
         return true
       }
       if (id === 'pierce_amp') {
@@ -1267,7 +1421,15 @@ export function createCombat(opts = {}) {
     getPowers: () => Array.from(powers),
     getRapidCooldown: () => rapidCd,
     /** P42 批次5 R3：还在 0.2s 延迟队列里、尚未生成的连射额外发数量。 */
-    getPendingRapidExtras: () => pendingRapidExtras.length,
+    getPendingRapidExtras: () => pendingExtras.filter((j) => j.mode === 'volley').length,
+    /** P42 批次8 R1②：斩返弹反剩余冷却（秒）。 */
+    getDeflectCooldown: () => deflectCd,
+    /** P42 批次8 R2：旋风斩剩余自身冷却（秒，从主发触发时刻起算）。 */
+    getWhirlwindCooldown: () => whirlCd,
+    /** P42 批次8 R2：最近几次旋风斩 { x, y, radius, damage, hits }（最多 4 条，供自测/调试）。 */
+    getWhirlwinds: () => whirlwindLog,
+    /** P42 批次8 R3：壁垒已累计的挥砍命中数（0..399，满 400 换 1 甲并清零）。 */
+    getBulwarkHits: () => bulwarkHits,
     /** P42 批次5 R1：当前荆棘半径（世界像素，随层数增长）。 */
     getThornRadius: () => (thornPicks > 0 ? thornRadius() : 0),
     /** P42 批次7 R1：当前在播的荆棘爆发特效（只读，供自测/调试）。 */

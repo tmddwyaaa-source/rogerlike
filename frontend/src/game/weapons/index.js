@@ -134,6 +134,21 @@ export const PIERCE_AMP_STEP = 0.5
 /** P42 批次3 power：sp-power 每次授予的攻击加成（与既有「力量 +10」同一条攻击加成通道，可叠）。 */
 export const SP_POWER_DMG = 20
 
+/** P42 批次8 R1（斩返）：挥砍范围 +1 身位——**最后结算、只相加**，不被蓄力/大娃等乘法放大。 */
+export const SLASH_RETURN_RANGE_BONUS_BODIES = 1
+/** P42 批次8 R1（斩返）：弹反敌方弹体的冷却（秒）——0.5s 内最多一次。 */
+export const SLASH_RETURN_DEFLECT_CD_SEC = 0.5
+/** P42 批次8 R2（旋风斩）：触发与连射同构——不蓄力 50%、满蓄 100%。 */
+export const WHIRLWIND_UNCHARGED_CHANCE = 0.5
+/** P42 批次8 R2：旋风斩额外一发的延迟（秒）。 */
+export const WHIRLWIND_DELAY_SEC = 0.2
+/** P42 批次8 R2：旋风斩自带的冷却（秒），**从主发触发时刻起算**。 */
+export const WHIRLWIND_EXTRA_CD_SEC = 0.75
+/** P42 批次8 R2：旋风斩伤害 = 该次挥砍「未蓄力基础伤害」的 70%，只吃暴击与暴击伤害。 */
+export const WHIRLWIND_DMG_MUL = 0.7
+/** P42 批次8 R3（壁垒）：角色挥砍命中怪物每 400 次 +1 层护甲。 */
+export const BULWARK_HITS_PER_ARMOR = 400
+
 export function chargeRatio(charge, chargeMax) {
   if (!(chargeMax > 0)) return 1
   return Math.max(0, Math.min(1, charge / chargeMax))

@@ -54,6 +54,7 @@ import {
   UPGRADE_GOBLIN,
   UPGRADE_RABBIT,
   UPGRADE_BAT,
+  UPGRADE_WOLF_PACK,
   UPGRADE_TAMER,
   UPGRADE_DEMON,
   UPGRADE_SLIME_GG,
@@ -488,6 +489,23 @@ export function applyUpgrade(id, ctx = {}) {
       add.call(ctx.companions ?? player ?? env ?? ctx.hooks)
     } else if (host && typeof host === 'object') {
       host.pendingEgg = (host.pendingEgg ?? 0) + 1
+    }
+    return true
+  }
+  if (id === UPGRADE_WOLF_PACK) {
+    // P42 批次8（R2）：狼群行为在 companions/**（TASK-053 / M7 的 addWolfPack：一次 3 只、基础伤 4、
+    // 优先最近怪）。这里沿用既有跟班契约：优先 companions，其次 player/env/hooks；都没有时落 pending 标记。
+    const add =
+      ctx.companions?.addWolfPack ??
+      ctx.companions?.addWolves ??
+      player?.addWolfPack ??
+      env?.addWolfPack ??
+      ctx.hooks?.onWolfPack
+    const host = ctx.companions || player || env
+    if (typeof add === 'function') {
+      add.call(ctx.companions ?? player ?? env ?? ctx.hooks)
+    } else if (host && typeof host === 'object') {
+      host.pendingWolfPack = (host.pendingWolfPack ?? 0) + 1
     }
     return true
   }

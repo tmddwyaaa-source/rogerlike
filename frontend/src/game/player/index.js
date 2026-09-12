@@ -11,6 +11,7 @@
  * P42：power「定神」applyPower('steady') / consumeSteadyCrit（静止 0.15s 就绪；只有 WASD 移动会打断，瞄准/蓄力/攻击后摇/受击都不打断；暴击判定在战斗侧）。
  * P42 批次7：小金刚「再获得一次」玩家侧——setVajraComplete(on) 后三娃护甲按层数 ×2、六娃失锁按 picks+1 层（取代旧的「效果值 +10%」口径）。
  * P42 批次7：生生不息档 8 复活接口 tryRevive / isReviveReady / reviveHealsLeft（冷却 = 复活后再发生 5 次真实回血；档位判定由 M1 接线）。
+ * P42 批次8：回血飘字统一收进 heal()（真实回血飘实际回血量、满血/死亡不飘；addVitality 也飘；tryRevive 不飘）。
  */
 import {
   BODY,
@@ -32,7 +33,7 @@ import {
   resolveAnim,
   resolveCharId,
 } from '../render/ranger.js'
-import { loadDamageNums } from '../render/dmgnum.js'
+import { loadDamageNums, spawnHealNum } from '../render/dmgnum.js'
 import {
   drawLevelUpFx,
   hasLevelUpFx,
@@ -437,11 +438,20 @@ export function createPlayer(opts = {}) {
     return true
   }
 
+  /**
+   * 回血唯一出口（P42 批次8 R1：**所有**回血飘字都收在这里）。
+   *
+   * - 真实回血（`next !== hp`）→ 在角色位置飘一次绿色回血数字，数值是**实际**回血量；
+   * - 满血不回血 / `n <= 0` / 已死亡 → return false，**不飘**（这三个分支都在下面提前 return）；
+   * - 一次调用只飘一次（调用点不要再各写一份；蝙蝠链路的去重由 M1 在 match.js 处理）。
+   */
   function heal(n = 1) {
     if (n <= 0 || player.hp <= 0) return false
+    const before = player.hp
     const next = Math.min(player.hpMax, player.hp + n)
     if (next === player.hp) return false
     player.hp = next
+    spawnHealNum(player.x, player.y, next - before, player)
     // P42 批次7 · 档 8：**真实回血**各计 1 次（按次不按血量）；满血 / 死亡 / 非法调用在上面已 return，不计。
     stepReviveCooldown()
     return true
@@ -538,9 +548,15 @@ export function createPlayer(opts = {}) {
     }
   }
 
+  /**
+   * 生存：血上限 +1、当前血 +1。
+   * P42 批次8 R1②：当前血**确实 +1** 时同样飘一次绿色回血数字（走同一个 spawnHealNum 出口）。
+   */
   function addVitality() {
+    const before = player.hp
     player.hpMax += 1
     player.hp = Math.min(player.hpMax, player.hp + 1)
+    if (player.hp > before) spawnHealNum(player.x, player.y, player.hp - before, player)
     return true
   }
 
@@ -602,6 +618,8 @@ export function createPlayer(opts = {}) {
    * - 就绪 → `hp` 置 1、清掉死亡计时（**不进死亡流程**）、消耗这次机会并进入冷却（再发生
    *   `REVIVE_HEAL_COUNT` 次真实回血后恢复就绪），返回 true；
    * - 未就绪 → 返回 false；此时死亡流程与既有行为**完全不变**。
+   *
+   * P42 批次8 R1③：这里是**直接写 hp**（不走 `heal()`），所以复活**不飘**回血数字 —— 它不是回血事件。
    */
   function tryRevive() {
     if (!player.reviveReady) return false

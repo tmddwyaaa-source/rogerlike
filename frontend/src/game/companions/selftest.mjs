@@ -44,6 +44,10 @@ import {
   SLIME_GG_DMG,
   SLIME_GG_MAX_TARGETS,
   SLIME_GG_SRC,
+  WOLF_COUNT,
+  WOLF_DMG,
+  WOLF_FRAME_SRC,
+  WOLF_MAX_TARGETS,
   TAMER_DMG,
   TAMER_SPEED_ADD,
   batDamage,
@@ -62,6 +66,7 @@ import {
   unityExtraTargets,
   unityFlat,
   unitySpeedBonus,
+  wolfDamage,
 } from './index.js'
 
 let failed = 0
@@ -1449,7 +1454,7 @@ assert(
   COMPANION_FRAMES === 4 &&
     COMPANION_FRAME_SEC === 0.1 &&
     COMPANION_ANIM_SEC === 0.4 &&
-    ['goblin', 'rabbit', 'bat', 'demon', 'slime1', 'slime2', 'egg1', 'egg2', 'egg3'].every(
+    ['goblin', 'rabbit', 'bat', 'demon', 'wolf', 'slime1', 'slime2', 'egg1', 'egg2', 'egg3'].every(
       (k) => Array.isArray(COMPANION_FRAME_SRC[k]) && COMPANION_FRAME_SRC[k].length === 4,
     ) &&
     RABBIT_FRAME_SRC.length === 4 &&
@@ -1509,8 +1514,8 @@ assert(
       )
     }),
   ) &&
-    // 9 套 × 4 帧 = 36 张
-    Object.keys(COMPANION_FRAME_SRC).reduce((n, k) => n + COMPANION_FRAME_SRC[k].length, 0) === 36,
+    // 10 套 × 4 帧 = 40 张（批次8 起含狼群）
+    Object.keys(COMPANION_FRAME_SRC).reduce((n, k) => n + COMPANION_FRAME_SRC[k].length, 0) === 40,
 )
 
 {
@@ -1593,6 +1598,68 @@ assert(
       (sets.rabbit?.length ?? 0) === 4 &&
       seen.length === 8 &&
       new Set(seen).size === 4,
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * P42 批次8（TASK-053）：新普通跟班「狼群」——3 只 × 基础伤 4，复用小恶魔 AI。
+ * ------------------------------------------------------------------ */
+
+{
+  const player = { x: origin.x, y: origin.y, speed: 96 }
+  const pack = makePack(player, [], () => 20, { random: () => 0.5 })
+  const spawned = typeof pack.addWolfPack === 'function' ? pack.addWolfPack() : null
+  const wolves = pack.list.filter((g) => g.kind === 'wolf')
+
+  assert(
+    'wolf pack spawns 3',
+    Array.isArray(spawned) &&
+      spawned.length === WOLF_COUNT &&
+      WOLF_COUNT === 3 &&
+      wolves.length === 3 &&
+      // 三只各自独立实例
+      new Set(spawned).size === 3 &&
+      wolves.every((g) => g.knockbackable === false && g.w === GOBLIN_DRAW && g.h === GOBLIN_DRAW),
+  )
+
+  assert(
+    'wolf base dmg 4',
+    WOLF_DMG === 4 && wolfDamage(0) === 4 && wolfDamage(10) === 14 && WOLF_MAX_TARGETS === 1,
+  )
+
+  // 复用小恶魔索敌：只打「离角色 ≤3 身位」里最近的那只；3.5 身位外松手。
+  const near = dummy(player.x + 2 * BODY, player.y, 100000)
+  const far = dummy(player.x + 9 * BODY, player.y, 100000)
+  const foes = [far, near]
+  const pack2 = makePack(player, foes, () => 20, { random: () => 0.5 })
+  const pack2on = typeof pack2.addWolfPack === 'function' ? pack2.addWolfPack() : []
+  pack2.update(0.1)
+  const w = pack2on[0]
+  assert(
+    'wolf uses demon targeting',
+    typeof pack2.addWolfPack === 'function' &&
+      w &&
+      w.chase === near &&
+      w.chase !== far &&
+      // 与恶魔同一套半径常量
+      DEMON_TARGET_RADIUS === 3 * BODY &&
+      DEMON_RELEASE_RADIUS === 3.5 * BODY,
+  )
+
+  assert(
+    'wolf frames 4',
+    WOLF_FRAME_SRC.length === 4 &&
+      COMPANION_FRAME_SRC.wolf === WOLF_FRAME_SRC &&
+      WOLF_FRAME_SRC.every((s) => s.includes('狼群')) &&
+      // 素材 52×57，但按跟班统一尺寸绘制（不按源图像素）
+      wolves.every((g) => g.w === GOBLIN_DRAW && g.h === GOBLIN_DRAW),
+  )
+
+  const phases = wolves.map((g) => g.animPhase)
+  assert(
+    'wolf phases staggered',
+    phases.every((p) => Number.isFinite(p) && p >= 0 && p < COMPANION_ANIM_SEC + 1e-9) &&
+      new Set(phases).size === 3,
   )
 }
 

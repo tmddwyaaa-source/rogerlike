@@ -86,7 +86,7 @@ function assert(name, cond) {
 }
 
 assert('title 类幸存者', createMatchUi().title === '类幸存者')
-assert('normal pool 23', UPGRADES.filter((u) => u.tier !== 'advanced').length === 23)
+assert('normal pool 24', UPGRADES.filter((u) => u.tier !== 'advanced').length === 24)
 assert('advanced 10', UPGRADES.filter((u) => u.tier === 'advanced').length === 10)
 assert('upgrade 暴击', UPGRADES.find((u) => u.id === 'crit')?.title === '暴击')
 assert('暴击文案', UPGRADES.find((u) => u.id === 'crit')?.desc === '暴击率 +10')
@@ -726,22 +726,26 @@ const powerViewUrl = new URL('../views/PowerView.vue', import.meta.url)
 const powerViewSrc = existsSync(powerViewUrl) ? readFileSync(powerViewUrl, 'utf8') : ''
 const powerShellSrc = readFileSync(new URL('../views/GameShell.vue', import.meta.url), 'utf8')
 
-/* R1① 池按角色：显示名「激发力量」、四个效果名、游侠 4 个 / 战士与法师只有 sp-power。 */
+/* R1① 池按角色（P42 批次8 起）：显示名「激发力量」；游侠 4 个 / 战士 4 个 / 法师只有 sp-power。 */
 assert(
   'power 池按角色',
   C42.POWER_TITLE === '激发力量' &&
     C42.POWER_EVERY === 10 &&
-    C42.POWER_EFFECTS?.map((e) => e.id).join() === 'rapid,pierce_amp,steady,sp' &&
-    C42.POWER_EFFECTS?.map((e) => e.name).join() === '连射,贯穿强化,定神,sp-power' &&
-    C42.POWER_UNIQUE_IDS?.join() === 'rapid,pierce_amp,steady' &&
+    C42.POWER_EFFECTS?.map((e) => e.id).join() ===
+      'rapid,pierce_amp,steady,sp,slash_return,whirlwind,bulwark' &&
+    C42.POWER_EFFECTS?.map((e) => e.name).join() ===
+      '连射,贯穿强化,定神,sp-power,斩返,旋风斩,壁垒' &&
+    C42.POWER_UNIQUE_IDS?.join() === 'rapid,pierce_amp,steady,slash_return,whirlwind,bulwark' &&
     C42.powerPoolFor?.('ranger')?.join() === 'rapid,pierce_amp,steady,sp' &&
-    C42.powerPoolFor?.('warrior')?.join() === 'sp' &&
+    C42.powerPoolFor?.('warrior')?.join() === 'slash_return,whirlwind,bulwark,sp' &&
     C42.powerPoolFor?.('mage')?.join() === 'sp' &&
     C42.powerCandidatesFor?.('ranger')?.length === 4 &&
-    C42.powerCandidatesFor?.('warrior')?.map?.((e) => e.id).join() === 'sp' &&
-    C42.powerCandidatesFor?.('mage')?.map?.((e) => e.id).join() === 'sp' &&
+    C42.powerCandidatesFor?.('warrior')?.length === 4 &&
+    C42.powerCandidatesFor?.('mage')?.length === 1 &&
     C42.powerCandidatesFor?.('ranger', ['rapid', 'pierce_amp', 'steady'])?.map?.((e) => e.id).join() === 'sp' &&
+    C42.powerCandidatesFor?.('warrior', ['slash_return', 'whirlwind', 'bulwark'])?.map?.((e) => e.id).join() === 'sp' &&
     C42.powerEffectById?.('steady')?.name === '定神' &&
+    C42.powerEffectById?.('slash_return')?.name === '斩返' &&
     C42.powerEffectById?.('nope') === null,
 )
 
@@ -1994,12 +1998,103 @@ assert(
 )
 assert(
   'power desc concise',
-  C42.POWER_EFFECTS.map((e) => e.desc).join(' | ') ===
+  C42.powerPoolFor('ranger')
+    .map((id) => C42.powerEffectById(id).desc)
+    .join(' | ') ===
     '额外射出一发 | 穿透 +1，每穿 1 敌伤害 +50% | 静止 0.15s → 下次攻击必暴 | 伤害 +20，可叠加' &&
-    C42.POWER_EFFECTS.every((e) => e.desc.length <= 20) &&
+    C42.powerPoolFor('ranger').every((id) => C42.powerEffectById(id).desc.length <= 20) &&
     powerViewSrc.includes('{{ c.desc }}') &&
     /\.rl-power-desc\s*\{[^}]*font-size:\s*var\(--rl-f1\)/.test(powerViewSrc) &&
     /font-size:\s*var\(--rl-f1\)/.test(powerViewSrc),
+)
+
+/* ---- P42 批次8（TASK-056 / M6）：激发力量按角色分池（战士 4）+ 狼群入池与万物一心 ---- */
+
+/* R1①②③ 战士池：三个战士专属效果（各限一次）+ sp；法师仍只有 sp。 */
+const WARRIOR_POWER_IDS = ['slash_return', 'whirlwind', 'bulwark']
+assert(
+  'power pool ranger 4',
+  C42.powerPoolFor('ranger').join() === 'rapid,pierce_amp,steady,sp' &&
+    C42.powerCandidatesFor('ranger').length === 4 &&
+    C42.POWER_UNIQUE_IDS.includes('rapid') &&
+    C42.POWER_UNIQUE_IDS.includes('pierce_amp') &&
+    C42.POWER_UNIQUE_IDS.includes('steady') &&
+    !C42.POWER_UNIQUE_IDS.includes('sp'),
+)
+assert(
+  'power pool warrior 4',
+  C42.powerPoolFor('warrior').join() === 'slash_return,whirlwind,bulwark,sp' &&
+    C42.powerCandidatesFor('warrior').map((e) => e.id).join() === 'slash_return,whirlwind,bulwark,sp' &&
+    C42.powerCandidatesFor('warrior').length === 4,
+)
+assert(
+  'power pool mage 1',
+  C42.powerPoolFor('mage').join() === 'sp' &&
+    C42.powerCandidatesFor('mage').map((e) => e.id).join() === 'sp' &&
+    C42.powerCandidatesFor('mage').length === 1,
+)
+assert(
+  'power warrior effects once',
+  WARRIOR_POWER_IDS.every((id) => C42.POWER_UNIQUE_IDS.includes(id)) &&
+    !C42.POWER_UNIQUE_IDS.includes('sp') &&
+    C42.powerCandidatesFor('warrior', WARRIOR_POWER_IDS).map((e) => e.id).join() === 'sp' &&
+    WARRIOR_POWER_IDS.every((id) => C42.powerEffectById(id)?.name.length <= 4),
+)
+assert(
+  'power desc concise warrior',
+  C42.powerEffectById?.('slash_return')?.name === '斩返' &&
+    C42.powerEffectById?.('slash_return')?.desc === '挥砍范围 +1 身位；弹反子弹（CD 0.5s）' &&
+    C42.powerEffectById?.('whirlwind')?.name === '旋风斩' &&
+    C42.powerEffectById?.('whirlwind')?.desc === '额外一击：半径=挥砍范围，造成 70% 伤害' &&
+    C42.powerEffectById?.('bulwark')?.name === '壁垒' &&
+    C42.powerEffectById?.('bulwark')?.desc === '每 400 次挥砍命中怪物 +1 护甲' &&
+    /* R1①「文案要短」：三条都 ≤ 26 字。卡面 120×160、padding 8、border 3 → 正文区 98px 宽，
+       12px 字号约 8 字/行，≤26 字最多 3 行（3×12×1.4=50.4px），连同图标/标题共 ~119px ≤ 138px。 */
+    WARRIOR_POWER_IDS.every((id) => (C42.powerEffectById?.(id)?.desc?.length ?? 99) <= 26) &&
+    C42.powerCandidatesFor('warrior').every((e) => e.desc.length <= 26),
+)
+
+/* R2①② 狼群：普通项、万物一心计入、图标已过审（png 存在 → 不再走空白方块）。 */
+const wolfDef = UPGRADES.find((u) => u.id === 'wolf_pack')
+assert(
+  'wolf pack in normal pool',
+  C42.UPGRADE_WOLF_PACK === 'wolf_pack' &&
+    wolfDef?.id === 'wolf_pack' &&
+    wolfDef?.title === '狼群' &&
+    wolfDef?.desc === '生成 3 只狼：每只基础伤害 4，优先攻击离角色最近的怪' &&
+    wolfDef?.tier === undefined &&
+    descFor('wolf_pack') === wolfDef?.desc &&
+    availableUpgrades(null, { tier: 'normal', charId: 'ranger' }).some((u) => u.id === 'wolf_pack') &&
+    !availableUpgrades(null, { tier: 'advanced', charId: 'ranger' }).some((u) => u.id === 'wolf_pack') &&
+    UPGRADES.filter((u) => u.tier !== 'advanced').length === 24 &&
+    existsSync(new URL('../../public/assets/upgrades/wolf_pack.png', import.meta.url)) &&
+    resolveUpgradeIcon('wolf_pack', true).kind === 'png',
+)
+assert(
+  'wolf pack in unity bond',
+  wolfDef?.bond === BOND_UNITY &&
+    C42.belongsToBond(wolfDef, BOND_UNITY) &&
+    C42.belongsToBond(wolfDef, 'qian') === false &&
+    C42.belongsToBond(wolfDef, 'vajra') === false &&
+    C42.belongsToBond(wolfDef, 'sheng') === false &&
+    /* 真走一次选择：进 picked、计进万物一心（uniqueBondCount 1 种） */
+    (() => {
+      const s = createSession()
+      s.start('1')
+      const ok = s.grantUpgrade('wolf_pack', { env: {} })
+      return ok === true && s.picked.some((p) => p.id === 'wolf_pack') && uniqueBondCount(s.picked, BOND_UNITY) === 1
+    })(),
+)
+assert(
+  'unity counts 9 kinds',
+  UPGRADES.filter((u) => C42.belongsToBond(u, BOND_UNITY)).length === 9 &&
+    uniqueBondCount(
+      UPGRADES.filter((u) => C42.belongsToBond(u, BOND_UNITY)).map((u) => ({ id: u.id })),
+      BOND_UNITY,
+    ) === 9 &&
+    C42.BOND_UNITY_THRESHOLDS.join() === '2,4,6,8' &&
+    bondRank(BOND_UNITY, 9) === 8 &&
+    bondRank(BOND_UNITY, 8) === 8,
 )
 
 /* ---- P42 批次7（TASK-050 / M6）：新高级「贪婪」+ 小金刚/生生不息羁绊文本 ---- */

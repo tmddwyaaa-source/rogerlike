@@ -851,5 +851,62 @@ assert(
   plainDeathP.tryRevive() === false && plainDeathP.anim === 'Death' && plainDeathP.hp === 0,
 )
 
+// —— P42 批次8 · 回血飘字统一到 player.heal()（生存也飘；档 8 复活不飘） ——
+// 出口只有一个：heal() 真实回血时飘**实际**回血量；满血/死亡/非法不飘；一共只飘一次。
+const healNumP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+healNumP.hp = 1
+resetDamageNums()
+const healedForNum = healNumP.heal(1) // 1 → 2（hpMax 3）
+const healItems = getDamageNums()
+assert(
+  'heal paints green number',
+  healedForNum === true &&
+    healItems.length === 1 && // 一次回血只飘一次
+    healItems[0].kind === 'green' &&
+    healItems[0].amount === 1 &&
+    healItems[0].x === healNumP.x &&
+    healItems[0].y === healNumP.y - 10 &&
+    healItems[0].unit === healNumP,
+)
+
+resetDamageNums()
+healNumP.hp = healNumP.hpMax // 满血
+const fullHeal = healNumP.heal(1)
+const fullHealItems = getDamageNums().length
+healNumP.hp = 0 // 死亡
+const deadHeal = healNumP.heal(1)
+const zeroHeal = healNumP.heal(0)
+assert(
+  'heal full hp no number',
+  fullHeal === false && fullHealItems === 0 && deadHeal === false && zeroHeal === false && getDamageNums().length === 0,
+)
+
+const vitP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+vitP.hp = 2 // hpMax 3
+resetDamageNums()
+const vitOk = vitP.addVitality() // 上限 3 → 4、当前血 2 → 3
+const vitItems = getDamageNums()
+assert(
+  'vitality paints number',
+  vitOk === true &&
+    vitP.hpMax === 4 &&
+    vitP.hp === 3 &&
+    vitItems.length === 1 &&
+    vitItems[0].kind === 'green' &&
+    vitItems[0].amount === 1 &&
+    vitItems[0].x === vitP.x &&
+    vitItems[0].y === vitP.y - 10 &&
+    vitItems[0].unit === vitP,
+)
+
+const reviveNumP = createPlayer({ keys: { w: false, a: false, s: false, d: false }, random: () => 0.5 })
+reviveNumP.hp = 0
+resetDamageNums()
+const revivedForNum = reviveNumP.tryRevive() // 档 8 复活：hp 置 1，但**不是回血事件**
+assert(
+  'revive paints no number',
+  revivedForNum === true && reviveNumP.hp === 1 && getDamageNums().length === 0,
+)
+
 console.log(failed === 0 ? '\nRESULT PASS' : `\nRESULT FAIL (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

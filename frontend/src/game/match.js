@@ -309,6 +309,10 @@ export function createMatchRuntime(opts) {
           hitSlashAt: (opts) => env.hitSlashAt(opts),
           onFire: (kind) => sfx.play(kind),
           onDamage: onPlayerDamage,
+          // P42 批次8（斩返弹反）：挥砍扫到敌方弹体 → 让它们消失（M4 的 enemies.clearBulletsIn）。
+          // combat 只判 CD 与「这一刀是否真的扫到」；没扫到返回 0，不消耗它那 0.5s 冷却。
+          deflectBullets: (info) =>
+            foes?.clearBulletsIn?.({ x: info?.x, y: info?.y, radius: info?.radius }) ?? 0,
         },
       })
       if (settings.testMode && settings.infiniteAmmo) {
@@ -326,7 +330,7 @@ export function createMatchRuntime(opts) {
         },
         hooks: {
           onDamage,
-          onHeal: (n) => onHeal(player, n),
+          // P42 批次8：回血飘字已收进 player.heal() 单一出口，这里不再重复飘（否则蝙蝠回血会飘两次）。
           onDemonLink: applyDemonLink,
         },
       })

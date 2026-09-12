@@ -88,6 +88,13 @@ import {
   GIANT_SIZE_PER_PICK,
   vajraPicks,
   fireDps,
+  SLASH_RETURN_RANGE_BONUS_BODIES,
+  SLASH_RETURN_DEFLECT_CD_SEC,
+  WHIRLWIND_UNCHARGED_CHANCE,
+  WHIRLWIND_DELAY_SEC,
+  WHIRLWIND_EXTRA_CD_SEC,
+  WHIRLWIND_DMG_MUL,
+  BULWARK_HITS_PER_ARMOR,
 } from './index.js'
 
 let failed = 0
@@ -1338,6 +1345,274 @@ const setThornPicksOn = (c, n) => {
       sizeFor(4) === 154 && // 3.5 身位半径 77 → 154
       sizeFor(1) !== 96,
   )
+}
+
+// P42 批次8 R1：斩返（挥砍范围 +1 身位：最后相加、不被乘法放大；弹反对敌弹 CD 0.5s）
+{
+  const mkWarrior = (opts = {}) => {
+    const w = createBow({ charId: 'warrior' })
+    const p = mkFireP('warrior')
+    const c = createCombat({ player: p, targets: opts.targets ?? [], weapon: w, hooks: opts.hooks })
+    const applied = typeof c.applyPower === 'function' ? c.applyPower('slash_return') : undefined
+    return { c, w, p, applied }
+  }
+
+  // ① 范围 +1 身位（tap：BODY → 2×BODY）
+  const plain = createCombat({ player: mkFireP('warrior'), targets: [], weapon: createBow({ charId: 'warrior' }) })
+  plain.tryFire(0)
+  const plainLen = plain.bullets[0].drawW
+  const sr = mkWarrior()
+  sr.c.tryFire(0)
+  const srLen = sr.c.bullets[0].drawW
+  assert(
+    'slash_return range plus 1 body',
+    sr.applied === true &&
+      SLASH_RETURN_RANGE_BONUS_BODIES === 1 &&
+      Math.abs(plainLen - BODY) < 1e-9 &&
+      Math.abs(srLen - (BODY + BODY)) < 1e-9 &&
+      Math.abs(srLen - (plainLen + SLASH_RETURN_RANGE_BONUS_BODIES * BODY)) < 1e-9,
+  )
+
+  // ① 最后结算、只相加：满蓄 + 大娃 ×2 时，+1 身位不跟着被乘
+  const big = mkWarrior()
+  big.c.applyUpgrade('giant')
+  big.c.applyUpgrade('giant') // sizeMul 1.8
+  big.c.tryFire(1)
+  const bigLen = big.c.bullets[0].drawW
+  const bigSize = big.w.sizeMul
+  assert(
+    'slash_return range not multiplied',
+    Math.abs(bigLen - (BODY * 1.6 * bigSize + BODY)) < 1e-6 && // 只相加
+      Math.abs(bigLen - (BODY + BODY) * 1.6 * bigSize) > 1 && // 不是「连 +1 一起乘」
+      Math.abs(big.c.bullets[0].drawH - SLASH_THICK * bigSize) < 1e-9, // 厚度不含 +1（也没被改）
+  )
+
+  // ② 弹反：扫到 → 调用 hook 并进入 0.5s CD；CD 内再挥不重复触发
+  const defCalls = []
+  const def = mkWarrior({ hooks: { deflectBullets: (info) => { defCalls.push(info); return 2 } } })
+  const cdBefore = def.c.getDeflectCooldown?.()
+  def.c.tryFire(0)
+  const callsAfter1 = defCalls.length
+  def.c.weapon.fireCd = 0
+  def.c.tryFire(0) // CD 内
+  const callsAfter2 = defCalls.length
+  def.c.update(SLASH_RETURN_DEFLECT_CD_SEC)
+  def.c.weapon.fireCd = 0
+  def.c.tryFire(0) // CD 过后
+  const callsAfter3 = defCalls.length
+  assert(
+    'slash_return deflect cd 0.5',
+    SLASH_RETURN_DEFLECT_CD_SEC === 0.5 &&
+      cdBefore === 0 &&
+      callsAfter1 === 1 &&
+      callsAfter2 === 1 &&
+      callsAfter3 === 2,
+  )
+
+  // ② hook 收到的几何信息（M1 用它调 enemies.clearBulletsIn）；没注入 hook 时不报错
+  const noHook = mkWarrior()
+  let threw = false
+  try { noHook.c.tryFire(0) } catch { threw = true }
+  assert(
+    'slash_return deflect calls hook',
+    defCalls.length >= 2 &&
+      defCalls[0] &&
+      Math.abs(defCalls[0].radius - (SLASH_BODY_FRONT + BODY + BODY)) < 1e-6 &&
+      Math.abs(defCalls[0].length - (BODY + BODY)) < 1e-6 &&
+      defCalls[0].x === def.p.x &&
+      defCalls[0].y === def.p.y &&
+      threw === false,
+  )
+
+  // ② 没扫到弹体（hook 返回 0）→ 不进入 CD，下一刀还会再试
+  const emptyCalls = []
+  const empty = mkWarrior({ hooks: { deflectBullets: () => { emptyCalls.push(1); return 0 } } })
+  empty.c.tryFire(0)
+  empty.c.weapon.fireCd = 0
+  empty.c.tryFire(0)
+  assert('slash_return deflect empty keeps cd ready', emptyCalls.length === 2)
+}
+
+// P42 批次8 R2：旋风斩（额外一发圆形 AoE：晚 0.2s、自身 0.75s 冷却、半径=挥砍长度、70% 只吃暴击）
+{
+  const runWhirl = (rng, ratio, opts = {}) => {
+    const w = createBow({ charId: 'warrior' })
+    if (opts.attack) w.attack = opts.attack
+    const p = mkFireP('warrior')
+    const c = createCombat({ player: p, targets: opts.targets ?? [], weapon: w, rng })
+    if (opts.slashReturn !== false) c.applyPower?.('slash_return')
+    c.applyPower?.('whirlwind')
+    if (opts.crit) w.critRate = 100
+    if (opts.giant) { c.applyUpgrade('giant'); c.applyUpgrade('giant') }
+    c.tryFire(ratio)
+    return { c, w, p }
+  }
+  const whirlsOf = (c) => (typeof c?.getWhirlwinds === 'function' ? c.getWhirlwinds() : [])
+  const advance = (c, frames = 14) => { for (let i = 0; i < frames; i++) c.update(1 / 60) }
+
+  // ① 50% / 100%
+  const lowW = runWhirl(() => 0.4, 0)
+  advance(lowW.c)
+  const highW = runWhirl(() => 0.6, 0)
+  advance(highW.c)
+  const fullW = runWhirl(() => 0.99, 1)
+  advance(fullW.c)
+  assert(
+    'whirlwind 50 100 chance',
+    WHIRLWIND_UNCHARGED_CHANCE === 0.5 &&
+      whirlsOf(lowW.c).length === 1 &&
+      whirlsOf(highW.c).length === 0 &&
+      whirlsOf(fullW.c).length === 1,
+  )
+
+  // ① 晚 0.2s 落地、自身冷却 0.75s（从主发起算）、主发间隔不受影响
+  const dW = runWhirl(() => 0.99, 1)
+  const cdAtFire = dW.c.getWhirlwindCooldown?.()
+  const mainCd = dW.w.fireCd
+  const sameFrame = whirlsOf(dW.c).length
+  for (let i = 0; i < 11; i++) dW.c.update(1 / 60)
+  const before020 = whirlsOf(dW.c).length
+  advance(dW.c, 4)
+  const after020 = whirlsOf(dW.c).length
+  assert(
+    'whirlwind delay 0.2 cd 0.75',
+    WHIRLWIND_DELAY_SEC === 0.2 &&
+      WHIRLWIND_EXTRA_CD_SEC === 0.75 &&
+      Math.abs(cdAtFire - 0.75) < 1e-9 &&
+      Math.abs(mainCd - FIRE_INTERVAL) < 1e-9 &&
+      sameFrame === 0 &&
+      before020 === 0 &&
+      after020 === 1,
+  )
+
+  // ② 半径 = 当前挥砍长度（含斩返 +1 身位）；③ 范围内每敌各一次、范围外不中
+  //    靶子免击退，否则被主挥砍推开后就离开旋风斩半径了（那是既有击退行为，不是本任务口径）。
+  const makeDummy = (dx, hp = 900) => {
+    const c = makeCreep(dx, hp)
+    c.knockbackResist = 1e9
+    return c
+  }
+  const inA = makeDummy(BODY * 2 - 0.5)
+  const outA = makeDummy(BODY * 2 + 0.5)
+  const rC = runWhirl(() => 0.1, 0, { targets: [inA, outA] })
+  advance(rC.c)
+  const whirl0 = whirlsOf(rC.c)[0]
+  assert(
+    'whirlwind radius equals slash length',
+    whirl0 &&
+      Math.abs(whirl0.radius - (BODY + BODY)) < 1e-9 && // tap 挥砍长度 BODY + 斩返 1 身位
+      whirl0.hits === 1 &&
+      inA.hp === 900 - 22 - 16 && // 先吃主挥砍 22，再吃旋风斩 16
+      outA.hp === 900 - 22,
+  )
+
+  // ③ 伤害 = 70% 且只吃暴击：满蓄/大娃都不放大，暴击才放大
+  const tapW = runWhirl(() => 0.1, 0)
+  advance(tapW.c)
+  const fullW2 = runWhirl(() => 0.99, 1)
+  advance(fullW2.c)
+  const giantW = runWhirl(() => 0.99, 1, { giant: true })
+  advance(giantW.c)
+  const critW = runWhirl(() => 0.1, 0, { crit: true })
+  advance(critW.c)
+  const dmgOf = (r) => whirlsOf(r.c)[0]?.damage
+  assert(
+    'whirlwind dmg 70 pct crit only',
+    WHIRLWIND_DMG_MUL === 0.7 &&
+      dmgOf(tapW) === 16 && // ceil(0.7 × 22)
+      dmgOf(fullW2) === 16 && // 满蓄不放大（主挥砍是 36）
+      dmgOf(giantW) === 16 && // 大娃不放大
+      dmgOf(critW) === 24, // ceil(0.7 × 22 × 1.5)
+  )
+
+  // ② 范围内每个敌人各结算一次（3 只各吃一次，不重复）
+  const e1 = makeDummy(BODY * 0.4)
+  const e2 = makeDummy(BODY * 0.8)
+  const e3 = makeDummy(BODY * 1.2)
+  const farE = makeDummy(BODY * 9)
+  const manyW = runWhirl(() => 0.1, 0, { targets: [e1, e2, e3, farE] })
+  advance(manyW.c)
+  const many = whirlsOf(manyW.c)[0]
+  assert(
+    'whirlwind hits each enemy once',
+    many &&
+      many.hits === 3 &&
+      e1.hp === 900 - 22 - 16 &&
+      e2.hp === 900 - 22 - 16 &&
+      e3.hp === 900 - 22 - 16 &&
+      farE.hp === 900,
+  )
+}
+
+// P42 批次8 R3：壁垒（只统计角色挥砍命中怪物，每 400 次 +1 护甲）
+{
+  const mkBulwark = (opts = {}) => {
+    const w = createBow({ charId: 'warrior' })
+    const p = { ...mkFireP('warrior'), armor: 0 }
+    p.addArmor = function (n = 1) { this.armor += n; return this.armor }
+    const def = makeCreep(BODY, 999999)
+    def.knockbackResist = 1e9 // 免击退：否则被第一刀推走就再也扫不到了
+    const targets = opts.targets ?? [def]
+    const c = createCombat({ player: p, targets, weapon: w, hooks: opts.hooks, rng: () => 0.99 })
+    if (opts.power !== false) c.applyPower?.('bulwark')
+    return { c, w, p }
+  }
+  const hitsOf = (c) => (typeof c?.getBulwarkHits === 'function' ? c.getBulwarkHits() : -1)
+  const slash = (c, times = 1, ratio = 0) => {
+    for (let i = 0; i < times; i++) {
+      c.weapon.fireCd = 0
+      c.tryFire(ratio)
+    }
+  }
+
+  // ① 只算角色挥砍命中的怪物：一刀 3 只 = 3 次；荆棘/脉冲/旋风斩/树都不算
+  const t1 = makeCreep(BODY * 0.4, 999999)
+  const t2 = makeCreep(BODY * 0.8, 999999)
+  const t3 = makeCreep(BODY * 1.2, 999999)
+  for (const t of [t1, t2, t3]) t.knockbackResist = 1e9
+  // 树（knockbackable === false）会被挥砍打到，但不算「怪物」，不该计数
+  const treeT = { x: player.x + BODY * 0.7, y: player.y, w: 20, h: 20, hp: 999999, knockbackable: false }
+  const three = mkBulwark({ targets: [t1, t2, t3, treeT] })
+  slash(three.c)
+  const h1 = hitsOf(three.c)
+  const treeHit = treeT.hp < 999999
+  three.c.setThornPicks(3)
+  three.c.thornBurst()
+  three.c.setVajraComplete(true)
+  three.c.update(PULSE_INTERVAL_SEC)
+  const hNonSlash = hitsOf(three.c) // 荆棘 + 脉冲都不计
+  three.c.applyPower?.('whirlwind')
+  slash(three.c, 1, 1) // 满蓄再挥一刀：+3（同时排定旋风斩）
+  const hSecondSlash = hitsOf(three.c)
+  for (let i = 0; i < 14; i++) three.c.update(1 / 60)
+  const whirlHits = three.c.getWhirlwinds?.()[0]?.hits
+  const hAfterWhirl = hitsOf(three.c)
+  assert(
+    'bulwark counts slash hits only',
+    h1 === 3 &&
+      hNonSlash === 3 &&
+      hSecondSlash === 6 &&
+      whirlHits === 4 && // 旋风斩确实打到了这 3 只怪 + 范围内的树（与挥砍同一条伤害通道）
+      hAfterWhirl === 6 && // 但一次都没计入壁垒
+      treeHit, // 树被砍到但不算怪物
+  )
+
+  // ② 每 400 次 +1 护甲、清零继续；③ 可反复触发
+  const wrap = mkBulwark()
+  slash(wrap.c, 400)
+  const armor400 = wrap.p.armor
+  const hits400 = hitsOf(wrap.c)
+  assert(
+    'bulwark 400 hits add armor',
+    BULWARK_HITS_PER_ARMOR === 400 && armor400 === 1 && hits400 === 0,
+  )
+  slash(wrap.c, 450)
+  assert('bulwark wraps and stacks', wrap.p.armor === 2 && hitsOf(wrap.c) === 50)
+
+  // ③ 没拿到壁垒：计数恒 0、不加甲
+  const off = mkBulwark({ power: false })
+  slash(off.c, 450)
+  assert('bulwark off without power', hitsOf(off.c) === 0 && off.p.armor === 0)
 }
 
 // P42 批次3 R1/R2/R3：power「激发力量」战斗侧（连射 / 贯穿强化 / sp-power）

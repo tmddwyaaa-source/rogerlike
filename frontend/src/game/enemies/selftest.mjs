@@ -1772,6 +1772,109 @@ assert(
   )
 }
 
+// —— P42 批次8 R1：按圆形区域清除敌方弹体（战士斩返：弹反即消失） ——
+{
+  // R1④：没有运行中弹体 / 参数非法时安全调用 —— 返回 0、不抛错。
+  const foes = createEnemies({ random: () => 0.5 })
+  let threw = false
+  let first = -1
+  try {
+    first = foes.clearBulletsIn({ x: 0, y: 0, radius: 10 })
+  } catch {
+    threw = true
+  }
+  assert(
+    'clear bullets safe when empty',
+    !threw &&
+      first === 0 &&
+      foes.iceBullets.length === 0 &&
+      foes.clearBulletsIn() === 0 &&
+      foes.clearBulletsIn({}) === 0 &&
+      foes.clearBulletsIn({ x: 0, y: 0 }) === 0 &&
+      foes.clearBulletsIn({ x: Number.NaN, y: 0, radius: 10 }) === 0 &&
+      foes.clearBulletsIn({ x: 0, y: 0, radius: -1 }) === 0 &&
+      foes.clearBulletsIn({ x: 0, y: 0, radius: 10 }) === 0,
+  )
+}
+
+{
+  // R1①：真实弹体路径 —— 冰人弹幕（冰锥）+ 蝎子首发（旧弹体）同时在场上，两类都要被清掉。
+  const foes = createEnemies({ random: () => 0.5 })
+  const boss = foes.spawnIceManAt(focus.x + 40, focus.y, focus)
+  boss.barrageCd = 0
+  const bug = foes.spawnScorpionAt(focus.x + BODY * 5, focus.y)
+  bug.shotCd = 0
+  foes.update(0.016, focus, camera, 0)
+  const arr = foes.iceBullets
+  const kinds = new Set(arr.map((b) => b.kind))
+  const n0 = arr.length
+  for (const b of arr) {
+    b.x = focus.x
+    b.y = focus.y
+  }
+  const n = foes.clearBulletsIn({ x: focus.x, y: focus.y, radius: 1 })
+  assert(
+    'clear bullets in radius',
+    n0 > 0 && kinds.has('ice') && kinds.has('scorpion') && n === n0 && arr.length === 0,
+  )
+}
+
+{
+  // R1②③：计数精确（圆内 3 发：冰锥/蝎子弹/正压圆上）+ 只清弹体：实体、bursts、particles、pending 与圆外弹体全不动。
+  const foes = createEnemies({ random: () => 0.5 })
+  const cx = focus.x
+  const cy = focus.y
+  const R = BODY * 2
+  const creep = foes.spawnCreepAt(cx + 400, cy, 'regular')
+  const tree = foes.spawnGrayAt(cx + 600, cy + 600, GRAY_HP0)
+  const flower = foes.spawnOrchidAt(cx + 800, cy)
+  const mk = (kind, dx, dy) => ({
+    kind,
+    x: cx + dx,
+    y: cy + dy,
+    vx: kind === 'ice' ? 200 : 180,
+    vy: 0,
+    w: ICE_BULLET_DRAW,
+    h: ICE_BULLET_DRAW,
+    life: 5,
+    dmg: 1,
+  })
+  const inA = mk('ice', 5, 0)
+  const inB = mk('scorpion', -5, 5)
+  const onEdge = mk('scorpion', R, 0) // 正好压在圆上：闭圆应清
+  const outA = mk('ice', R + 1, 0)
+  const outB = mk('scorpion', 0, R + 1)
+  // 非敌方弹体 kind：即便落在圆心也**不许**被清（R1①「只清这两类」）。
+  const stray = { kind: 'stray', x: cx, y: cy, vx: 0, vy: 0, w: 4, h: 4, life: 5, dmg: 1 }
+  foes.iceBullets.push(inA, inB, onEdge, outA, outB, stray)
+  const targets0 = foes.targets.slice()
+  const bursts0 = foes.bursts.length
+  const particles0 = foes.particles.length
+  const pending0 = foes.pending.length
+  const outBefore = [outA, outB].map((b) => `${b.kind},${b.x},${b.y},${b.vx},${b.dmg}`).join('|')
+  const n = foes.clearBulletsIn({ x: cx, y: cy, radius: R })
+  assert(
+    'clear bullets returns count',
+    n === 3 && foes.iceBullets.length === 3 && foes.iceBullets[0] === outA && foes.iceBullets[1] === outB,
+  )
+  assert(
+    'clear bullets only projectiles',
+    foes.iceBullets[2] === stray &&
+      !foes.iceBullets.includes(inA) &&
+      !foes.iceBullets.includes(inB) &&
+      !foes.iceBullets.includes(onEdge) &&
+      foes.targets.length === targets0.length &&
+      foes.targets.every((e, i) => e === targets0[i]) &&
+      foes.bursts.length === bursts0 &&
+      foes.particles.length === particles0 &&
+      foes.pending.length === pending0 &&
+      outBefore === [outA, outB].map((b) => `${b.kind},${b.x},${b.y},${b.vx},${b.dmg}`).join('|') &&
+      creep.hp > 0 &&
+      tree.hp > 0 &&
+      flower.hp > 0,
+  )
+}
+
 if (failed) {
   console.log(`RESULT FAIL (${failed})`)
   process.exit(1)

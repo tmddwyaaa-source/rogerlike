@@ -42,6 +42,10 @@ import {
   DEMON_FRAME_SRC,
   SLIME_GG_FRAME_SRC,
   EGG_FRAME_SRC,
+  WOLF_COUNT,
+  WOLF_DMG,
+  WOLF_FRAME_SRC,
+  WOLF_MAX_TARGETS,
   RABBIT_MAX_TARGETS,
   RABBIT_SRC,
   SLIME_GG_DMG,
@@ -55,6 +59,7 @@ import {
   demonDamage,
   eggDamage,
   eggStage,
+  wolfDamage,
   goblinDamage,
   goblinFrameAt,
   companionFrameAt,
@@ -109,6 +114,10 @@ export {
   DEMON_FRAME_SRC,
   SLIME_GG_FRAME_SRC,
   EGG_FRAME_SRC,
+  WOLF_COUNT,
+  WOLF_DMG,
+  WOLF_FRAME_SRC,
+  WOLF_MAX_TARGETS,
   RABBIT_DMG,
   RABBIT_MAX_TARGETS,
   RABBIT_SRC,
@@ -130,6 +139,7 @@ export {
   demonDamage,
   eggDamage,
   eggStage,
+  wolfDamage,
   goblinDamage,
   goblinFrameAt,
   companionFrameAt,
@@ -158,6 +168,17 @@ function isLive(ent) {
 
 function liveList(targets) {
   return (targets ?? []).filter(isLive)
+}
+
+/**
+ * P42 批次8（TASK-053）：**恶魔口径的跟班** —— 恶魔本体与狼群共用同一套
+ * 索敌（离角色 ≤3 身位取最近、3.5 身位松手）、软拉绳跟随与舒适环绕（2 身位）。
+ * 三处分支（strike 伤害 / assignChases 索敌 / update 步进）都以它为准，
+ * 保证「狼群 AI 与小恶魔完全同口径」是**同一份代码**而不是两份抄写。
+ * 注意：两者只在**伤害与恶魔联动**上不同（狼基础伤 4 且不进 demonCount）。
+ */
+function isDemonLike(g) {
+  return g?.kind === 'demon' || g?.kind === 'wolf'
 }
 
 function nearestTo(from, ents) {
@@ -358,6 +379,7 @@ export function createCompanions(opts = {}) {
   let tamerDamageBonus = 0
   let tamerSpeedAdd = 0
   let demonCount = 0
+  let wolfCount = 0
   let demonAttackBonus = 0
   let slimeCount = 0
   let companionshipCount = 0
@@ -488,6 +510,12 @@ export function createCompanions(opts = {}) {
       applyHits(g, pickRabbitVictims(g, targets, baseMax + extra), dmg)
       return
     }
+    if (g.kind === 'wolf') {
+      // P42 批次8：狼固定基础伤 4 + 既有跟班加成；目标数与索敌口径同恶魔。
+      const dmg = wolfDamage(bc) + add
+      applyHits(g, pickRabbitVictims(g, targets, WOLF_MAX_TARGETS + extra), dmg)
+      return
+    }
     if (g.kind === 'demon') {
       const dmg = demonDamage(effectiveAttack(), bc) + add
       applyHits(g, pickRabbitVictims(g, targets, DEMON_MAX_TARGETS + extra), dmg)
@@ -603,6 +631,25 @@ export function createCompanions(opts = {}) {
     return g
   }
 
+  /**
+   * P42 批次8（TASK-053）狼群：一次选择生成 `WOLF_COUNT`(3) 只狼，各自独立实例、每只基础伤 4。
+   * AI / 跟随 / 索敌**完全复用小恶魔**（isDemonLike 的三处分支走同一套代码与参数），
+   * 但**不计入恶魔联动** —— wolfCount 与 demonCount 分开，狼不给角色加伤。
+   */
+  function addWolfPack() {
+    const out = []
+    for (let i = 0; i < WOLF_COUNT; i += 1) {
+      const g = makeCompanion('wolf', '狼')
+      g.wolfIndex = wolfCount + i + 1
+      out.push(g)
+    }
+    wolfCount += out.length
+    // 一次 push：相位仍按出场序号（companionSeq）分桶，故三只必然错开。
+    list.push(...out)
+    relayoutAroundPlayer()
+    return out
+  }
+
   /** P28 B5 史莱姆gg：生成 g-1 / g-2 两跟班，基础伤 5。 */
   function addSlimeGG() {
     slimeCount += 1
@@ -673,7 +720,7 @@ export function createCompanions(opts = {}) {
     const pri = priorityChase(targets)
     if (!pri) {
       for (const g of list) {
-        if (g.kind !== 'demon' && !chaseStillValid(g, targets)) g.chase = null
+        if (!isDemonLike(g) && !chaseStillValid(g, targets)) g.chase = null
       }
     }
     const claimed = new Set()
@@ -685,9 +732,9 @@ export function createCompanions(opts = {}) {
       if (g.chase) claimed.add(g.chase)
     }
     for (const g of list) {
-      if (g.kind === 'demon') {
-        // 恶魔不受「已被其他跟班占用」限制：允许与地精/兔子/蝙蝠选中同一只
-        // （不再被迫改选第二近），且档 8 的优先目标对它无效。
+      if (isDemonLike(g)) {
+        // 恶魔 / 狼不受「已被其他跟班占用」限制：允许与地精/兔子/蝙蝠、以及彼此
+        // 选中同一只（不再被迫改选第二近），且档 8 的优先目标对它无效。
         g.chase = demonTargetFor(g, targets, live)
         if (g.chase) claimed.add(g.chase)
         continue
@@ -768,7 +815,7 @@ export function createCompanions(opts = {}) {
       const g = list[i]
       const spd = g.speed + bonusSpd
       const chase = g.chase
-      if (g.kind === 'demon' && player) {
+      if (isDemonLike(g) && player) {
         demonStep(g, chase, player, dt, spd)
       } else if (chase) {
         const peers = []
@@ -871,6 +918,7 @@ export function createCompanions(opts = {}) {
     addBat,
     addTamer,
     addDemon,
+    addWolfPack,
     addSlimeGG,
     addCompanionship,
     addDamageBonus,
@@ -885,6 +933,7 @@ export function createCompanions(opts = {}) {
     getTamerDamageBonus: () => tamerDamageBonus,
     getTamerSpeedAdd: () => tamerSpeedAdd,
     getDemonCount: () => demonCount,
+    getWolfCount: () => wolfCount,
     getDemonAttackBonus: () => demonAttackBonus,
     getSlimeCount: () => slimeCount,
     getCompanionshipCount: () => companionshipCount,

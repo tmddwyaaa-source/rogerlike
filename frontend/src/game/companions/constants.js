@@ -39,16 +39,33 @@ export const EGG_FRAME_SRC = {
   2: frameSrcs('奇怪的蛋-y'),
   3: frameSrcs('奇怪的蛋-z'),
 }
+export const WOLF_FRAME_SRC = frameSrcs('狼群')
+
+/**
+ * P42 批次8（TASK-053）新普通跟班「狼群」：一次选择生成 3 只狼、每只基础伤 4，
+ * AI / 跟随 / 索敌**完全复用小恶魔**（同一套半径与软拉绳参数，见 index.js 的 isDemonLike）。
+ * 注意：狼**不计入恶魔联动**（demonCount 不变，故不给角色加伤）。
+ */
+export const WOLF_COUNT = 3
+export const WOLF_DMG = 4
+/** 与恶魔同为 1：每只狼每次只结算一只目标（但允许与其它跟班/彼此打同一只）。 */
+export const WOLF_MAX_TARGETS = 1
+
+/** 狼固定基础伤 4 + companionBonus（地精 +10 / 驯兽师 / 伴我同行等既有通道）。 */
+export function wolfDamage(bonus = 0) {
+  return WOLF_DMG + (Number(bonus) || 0)
+}
 
 /**
  * 帧集注册表：绘制时按「实例种类 + 阶段/变体」取一套 4 帧。
- * goblin / rabbit / bat / demon 各一套；slime 按变体（g-1 / g-2）、egg 按阶段（x / y / z）各一套。
+ * goblin / rabbit / bat / demon / wolf 各一套；slime 按变体（g-1 / g-2）、egg 按阶段（x / y / z）各一套。
  */
 export const COMPANION_FRAME_SRC = {
   goblin: GOBLIN_FRAME_SRC,
   rabbit: RABBIT_FRAME_SRC,
   bat: BAT_FRAME_SRC,
   demon: DEMON_FRAME_SRC,
+  wolf: WOLF_FRAME_SRC,
   slime1: SLIME_GG_FRAME_SRC[1],
   slime2: SLIME_GG_FRAME_SRC[2],
   egg1: EGG_FRAME_SRC[1],

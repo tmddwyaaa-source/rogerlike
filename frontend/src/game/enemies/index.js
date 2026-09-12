@@ -1291,6 +1291,36 @@ export function createEnemies(opts = {}) {
     }
   }
 
+  /** 场上敌方弹体的 kind 白名单：只有冰人的冰锥与蝎子怪的旧弹体（其它 kind 一律不碰）。 */
+  const ENEMY_BULLET_KINDS = new Set(['ice', 'scorpion'])
+
+  /**
+   * P42 批次8 R1：按**圆形区域**清除敌方弹体（战士斩返：弹反即消失）。
+   * 只删 iceBullets 里 kind ∈ {ice, scorpion} 的条目 —— 不动任何实体（targets）、bursts、particles，
+   * 也不改弹体生成 / 速度 / 伤害 / 判定 / 绘制。
+   * 边界：圆内或正好压在圆上算命中（闭圆）；参数非法（非有限数 / 负半径 / 缺参）或场上无弹体 → 返回 0，不抛错。
+   * @param {{ x?: number, y?: number, radius?: number }} [circle] 以角色为中心的圆
+   * @returns {number} 被清除的敌方弹体数量
+   */
+  function clearBulletsIn(circle) {
+    const cx = circle?.x
+    const cy = circle?.y
+    const r = circle?.radius
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r) || r < 0) return 0
+    const r2 = r * r
+    let removed = 0
+    for (let i = iceBullets.length - 1; i >= 0; i--) {
+      const b = iceBullets[i]
+      if (!ENEMY_BULLET_KINDS.has(b?.kind)) continue
+      const dx = b.x - cx
+      const dy = b.y - cy
+      if (dx * dx + dy * dy > r2) continue
+      iceBullets.splice(i, 1)
+      removed += 1
+    }
+    return removed
+  }
+
   function tickIceBullets(dt, player) {
     for (let i = iceBullets.length - 1; i >= 0; i--) {
       const b = iceBullets[i]
@@ -1598,6 +1628,7 @@ export function createEnemies(opts = {}) {
     spawnDummyAt,
     setDummyEnabled,
     removeDummy,
+    clearBulletsIn,
     animFrameOf,
     creepFrameOf,
     creeps: () => liveOf('creep'),
